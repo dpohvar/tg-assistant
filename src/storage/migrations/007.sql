@@ -1,0 +1,3 @@
+ALTER TABLE chats ADD COLUMN triggers TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE agents ADD COLUMN contextResetPending INTEGER NOT NULL DEFAULT 0;
+INSERT INTO schema_migrations VALUES(7);

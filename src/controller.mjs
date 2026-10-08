@@ -1,3 +1,4 @@
+import { matchesTrigger } from './telegram/triggers.mjs';
 import { filterChatInfo } from './telegram/chat-info.mjs';
 import { richHelp } from './messages/rich-help.mjs';
 import { BotGate } from './service/bot-gate.mjs';
@@ -205,6 +206,45 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     db.sql.prepare('DELETE FROM chats WHERE botId=? AND chatId=?').run(botId, chatId);
     } finally { stopping.delete(key); }
   };
+  const resets = new Map();
+  const resetContext = record => {
+    const id = record.agentId;
+    if (resets.has(id)) return resets.get(id);
+    queue.setHeld(id, 'context-reset', true);
+    const work = Promise.resolve().then(async () => {
+      await queue.idleAgent(id);
+      await agent.waitBackground?.(id).catch(() => {});
+      await gate.idleScope(id);
+      if (lifecycle.closed || isStopping(record.botId, record.chatId) || deleting.has(record.botId)) return;
+      await gate.run(record.botId, async () => {
+        const current = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(id);
+        if (!current?.contextResetPending || lifecycle.closed || isStopping(record.botId, record.chatId)) return;
+        lifecycle.invalidate(id);
+        await agent.deleteSession?.(id, current.threadId);
+        db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL,contextResetPending=0 WHERE agentId=?').run(id);
+        activeMessages.delete(id);
+      }, id);
+    }).catch(async error => {
+      onError(error);
+      if (!lifecycle.closed && !deleting.has(record.botId) && !isStopping(record.botId, record.chatId)) try { await telegram.call(record.botId, 'sendMessage', {chat_id:record.chatId,text:`Не удалось очистить контекст ${id}. Повторите /clear ${id}.`}); } catch {}
+    }).finally(() => {
+      resets.delete(id);
+      if (!lifecycle.closed && !db.sql.prepare('SELECT contextResetPending FROM agents WHERE agentId=?').get(id)?.contextResetPending) queue.setHeld(id, 'context-reset', false);
+    });
+    resets.set(id, work); return work;
+  };
+  const clearContext = async (botId, chatId, target) => {
+    const records = target === '*' ? db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(botId) : [target ? db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(botId,target) : db.agent(botId,chatId)].filter(Boolean);
+    if (!records.length) throw Object.assign(new Error('Агент не найден.'), {safe:true});
+    if (gate.held.has(botId) || deleting.has(botId) || records.some(a => isStopping(botId,a.chatId))) throw Object.assign(new Error('Идёт обслуживание бота или остановка агента. Повторите позже.'), {safe:true});
+    const items = records.map(a => {
+      const busy = Boolean(queue.agentJobs.get(a.agentId)?.size || agent.hasBackground?.(a.agentId) || resets.has(a.agentId));
+      db.sql.prepare('UPDATE agents SET contextResetPending=1 WHERE agentId=?').run(a.agentId);
+      return {a,busy,work:resetContext(a)};
+    });
+    await Promise.all(items.filter(x=>!x.busy).map(x=>x.work));
+    return items.map(({a,busy}) => `${busy ? 'Очистка запланирована после завершения работы' : db.sql.prepare('SELECT contextResetPending FROM agents WHERE agentId=?').get(a.agentId)?.contextResetPending ? 'Очистка не выполнена; повторите команду' : 'Контекст очищен'}: ${a.agentId}`).join('\n');
+  };
   const fetchDocument = async (botId, document) => { const f = await telegram.call(botId, 'getFile', { file_id: document.file_id }); const response = await fetch(`https://api.telegram.org/file/bot${await telegram.getToken(botId)}/${f.file_path}`); if (!response.ok) throw new Error('Download failed'); return Buffer.from(await response.arrayBuffer()); };
   const updateRules = async (botId, document, force) => {
     const bytes = await fetchDocument(botId, document); new TextDecoder('utf8', { fatal: true }).decode(bytes);
@@ -247,7 +287,8 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   };
   const rawFileCommands = config ? createFileCommands({ db, config, telegram, fetchDocument, gitSetup: (botId, args, old) => gitSetup({ db, config, pauseBot }, botId, args, old) }) : undefined;
   const fileCommands = rawFileCommands ? (botId, name, ...args) => name === 'git_setup' ? rawFileCommands(botId, name, ...args) : gate.run(botId, () => rawFileCommands(botId, name, ...args)) : undefined;
-  const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, updateRules, models: () => agent.models(), masterCommands, fileCommands });
+  const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, updateRules, clearContext, models: () => agent.models(), masterCommands, fileCommands });
+  for (const record of db.sql.prepare('SELECT * FROM agents WHERE contextResetPending=1').all()) resetContext(record);
   return {
     queue, lifecycle, invoke, scheduler, stopAgent,
     async receive(botId, update) {
@@ -314,11 +355,11 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       }
       if (['supergroup', 'channel'].includes(m.chat.type)) return;
       const bot = db.getBot(botId), content = m.text ?? m.caption ?? '';
-      const trigger = m.reply_to_message?.from?.id === bot.telegramId || (m.entities ?? m.caption_entities ?? []).some(e => e.type === 'mention' && content.slice(e.offset, e.offset + e.length).toLowerCase() === '@' + bot.username.toLowerCase());
+      const trigger = !m.is_automatic_forward && matchesTrigger(content, JSON.parse(db.getChat(botId,m.chat.id).triggers)) || m.reply_to_message?.from?.id === bot.telegramId || (m.entities ?? m.caption_entities ?? []).some(e => e.type === 'mention' && content.slice(e.offset, e.offset + e.length).toLowerCase() === '@' + bot.username.toLowerCase());
       if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${m.media_group_id}`, { ...m, __botId: botId }, trigger);
       else deliver(botId, [m], trigger);
     },
-    idle: async () => { await queue.idle(); await gate.idle(); await closing; },
+    idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values()]); } while (queue.jobs.size || resets.size); await gate.idle(); await closing; },
     close() { for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= agent.close?.(); },
   };
 }

@@ -10,6 +10,7 @@ export class AgentQueue {
     if (source === 'chat' && !this.canAccept(id)) return 'full';
     this.state(id).events.push({ event, source, admit }); this.pump(id); return 'accepted';
   }
+  setHeld(id, key, value) { const s = this.state(id); s.holds ??= new Set(); value ? s.holds.add(key) : s.holds.delete(key); this.pump(id); }
   setPaused(id, value) { this.state(id).paused = value; this.pump(id); }
   setWaiting(id, value) { this.state(id).waiting = value; this.pump(id); }
   clear(id) { const s = this.state(id); for (const item of s.events) this.onDropped(id, item.event, item.source); s.events = []; }
@@ -17,7 +18,7 @@ export class AgentQueue {
   pump(id) {
     if (this.closed) return;
     const s = this.state(id);
-    if (s.paused || !s.events.length || s.sending || s.busy && (!s.waiting || !this.steer)) return;
+    if (s.paused || s.holds?.size || !s.events.length || s.sending || s.busy && (!s.waiting || !this.steer)) return;
     const items = s.events.splice(0).filter(x => this.admitted(id, x));
     const events = items.flatMap(x => Array.isArray(x.event) ? x.event : [x.event]);
     if (!events.length) return;
