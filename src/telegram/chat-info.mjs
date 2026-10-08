@@ -1,0 +1,6 @@
+// Explicit allowlist: newly introduced Telegram fields require a policy decision.
+const publicFields = new Set(`id type title username active_usernames first_name last_name description bio photo is_forum is_direct_messages birthdate business_intro business_location business_opening_hours personal_chat parent_chat linked_chat_id community location available_reactions max_reaction_count accent_color_id background_custom_emoji_id profile_accent_color_id profile_background_custom_emoji_id emoji_status_custom_emoji_id emoji_status_expiration_date unique_gift_colors has_private_forwards has_restricted_voice_and_video_messages join_to_send_messages join_by_request permissions slow_mode_delay unrestrict_boost_count message_auto_delete_time has_protected_content has_hidden_members sticker_set_name custom_emoji_sticker_set_name accepted_gift_types rating first_profile_audio can_send_paid_media paid_message_star_count`.split(' '));
+const restrictedFields = new Set(['invite_link', 'pinned_message', 'has_aggressive_anti_spam_enabled', 'has_visible_history', 'can_set_sticker_set', 'guard_bot']);
+export function filterChatInfo(chat, accessible) {
+  return Object.fromEntries(Object.entries(chat).filter(([key]) => publicFields.has(key) || accessible && restrictedFields.has(key)));
+}

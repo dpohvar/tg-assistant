@@ -86,8 +86,10 @@ test('rules version belongs to instructions read before awaited thread creation'
  const marker=path.join(root,'started'), version=db.getBot('b').rulesVersion;
  const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath,defaultTimezone:'UTC'},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs'),'delayed-start',marker]});
  t.after(async()=>{await agent.close(); db.close(); fs.rmSync(root,{recursive:true,force:true});});
+ agent.botProfile=async()=>({userId:42,username:'bot',name:'Test Bot',description:'Profile description',shortDescription:'Short profile'});
  const work=agent.session(a,async()=>({}));
  for(let i=0;i<100&&!fs.existsSync(marker);i++) await new Promise(r=>setTimeout(r,10));
+ const instructions=fs.readFileSync(marker,'utf8'); assert.match(instructions,/Bot data/); assert.match(instructions,/Profile description/); assert.match(instructions,/Short profile/); assert.match(instructions,/\"userId\":42/);
  assert.ok(fs.existsSync(marker)); db.sql.prepare('UPDATE bots SET rulesVersion=rulesVersion+1 WHERE botId=?').run('b');
  await work; assert.equal(db.agent('b',1).threadRulesVersion,version); assert.notEqual(version,db.getBot('b').rulesVersion);
 });

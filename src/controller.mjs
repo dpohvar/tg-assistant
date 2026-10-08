@@ -1,3 +1,4 @@
+import { filterChatInfo } from './telegram/chat-info.mjs';
 import { richHelp } from './messages/rich-help.mjs';
 import { BotGate } from './service/bot-gate.mjs';
 import { generatedSource } from './files/generated-source.mjs';
@@ -43,13 +44,24 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   } return stores.get(scope.agentId); };
   const messages = createMessages({ db, telegram, access, assertCurrent, assertTarget: (s, id) => { if (isStopping(s.botId, id)) throw new Error("Target chat is stopping."); }, uploads: async (scope, local) => Object.entries(local ?? {}).map(([name, filename]) => ({ name, filename: path.basename(filename), bytes: filesFor(scope).read(filename) })) });
   const download = createDownload({ db, telegram, access, filesFor, getToken: telegram.getToken });
+  agent.botProfile = async scope => {
+    const [me, description, shortDescription] = await Promise.all([
+      telegram.call(scope.botId, 'getMe'),
+      telegram.call(scope.botId, 'getMyDescription'),
+      telegram.call(scope.botId, 'getMyShortDescription'),
+    ]);
+    return { userId: me.id, username: me.username, name: [me.first_name, me.last_name].filter(Boolean).join(' '), description: description.description ?? '', shortDescription: shortDescription.short_description ?? '' };
+  };
   agent.onImage = (scope, threadId, source) => { generatedSource(config ?? {}, source); assertCurrent(scope); filesFor(scope).registerImage(threadId, source); db.sql.prepare('INSERT OR IGNORE INTO generated_images VALUES(?,?,?,?)').run(source, scope.botId, scope.agentId, threadId); };
   const chatDetails = async (scope, chatId) => {
-    access.assertRead(scope, chatId);
+    if (!Number.isSafeInteger(chatId) || chatId === 0) throw new Error('chatId must be a non-zero safe integer.');
+    let accessible = false;
+    try { access.assertRead(scope, chatId); accessible = true; } catch {}
     const chat = await telegram.call(scope.botId, 'getChat', { chat_id: chatId });
-    if (chat.id !== chatId || chat.is_forum) throw new Error('Chat information is unavailable for this connected chat.');
-    const result = { chatId, chatType: chat.type, name: chat.title ?? [chat.first_name, chat.last_name].filter(Boolean).join(' '), ...(chat.description ? { description: chat.description } : {}), ...(chat.username ? { username: chat.username } : {}), ...(chat.linked_chat_id ? { linkedChatId: chat.linked_chat_id } : {}), ...(chat.available_reactions !== undefined ? { available_reactions: chat.available_reactions } : {}), ...(chat.pinned_message ? { pinned_message: readableDates(chat.pinned_message) } : {}) };
-    if (chat.type !== 'private') {
+    if (chat.id !== chatId) throw new Error('Telegram returned a different chat.');
+    const result = filterChatInfo(chat, accessible);
+    if (result.pinned_message) result.pinned_message = readableDates(result.pinned_message);
+    if (accessible && chat.type !== 'private') {
       const [count, member] = await Promise.allSettled([
         telegram.call(scope.botId, 'getChatMemberCount', { chat_id: chatId }),
         telegram.call(scope.botId, 'getChatMember', { chat_id: chatId, user_id: db.getBot(scope.botId).telegramId }),
@@ -75,13 +87,18 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (name === 'note_get') return { text: db.agent(scope.botId, scope.chatId).notes };
     if (name === 'note_set') { if (typeof args.text !== 'string' || [...args.text].length > 4000) throw new Error('Note exceeds 4000 code points'); db.sql.prepare('UPDATE agents SET notes=? WHERE agentId=?').run(args.text, scope.agentId); return { status: 'saved' }; }
     if (name === 'chats') return { chats: db.sql.prepare("SELECT * FROM chats WHERE botId=? AND (chatType!='private' OR chatId=?) ORDER BY chatId").all(scope.botId, scope.chatId).map(c => ({ chatId: c.chatId, chatType: c.chatType, name: c.name, ...(db.agent(scope.botId, c.chatId) ? { agentId: db.agent(scope.botId, c.chatId).agentId } : {}) })) };
+    if (name === 'user_photos') {
+      if (!Number.isSafeInteger(args.userId) || args.userId <= 0 || args.offset !== undefined && (!Number.isSafeInteger(args.offset) || args.offset < 0) || args.limit !== undefined && (!Number.isSafeInteger(args.limit) || args.limit < 1 || args.limit > 100)) return { error: 'invalid_argument', description: 'Use a positive userId, non-negative offset and limit between 1 and 100.' };
+      try { return await telegram.call(scope.botId, 'getUserProfilePhotos', { user_id: args.userId, offset: args.offset ?? 0, limit: args.limit ?? 10 }); }
+      catch { return { error: 'profile_photos_unavailable', description: 'Telegram could not return photos for this user. Check the user ID and photo availability.' }; }
+    }
     if (name === 'chat_info') return { chats: await Promise.all(args.chatIds.map(async chatId => { try { return await chatDetails(scope, chatId); } catch { return { chatId, error: 'chat_unavailable', description: 'Chat is inaccessible or current Telegram information could not be read.' }; } })) };
     if (name === 'agent_info') return { agents: await Promise.all(args.agentIds.map(async agentId => {
       const a = db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(scope.botId, agentId);
       if (!a) return { agentId, error: 'agent_not_found', description: 'Agent is unavailable in this bot.' };
       const chat = db.getChat(scope.botId, a.chatId);
       if (chat.chatType === 'private') { const native = JSON.parse(chat.json); return { agentId, chatType: 'private', name: chat.name, ...(native.username ? { username: native.username } : {}), ...(a.agentId === scope.agentId ? { chatId: a.chatId } : {}) }; }
-      try { return { agentId, ...await chatDetails(scope, a.chatId) }; } catch { return { agentId, error: 'chat_unavailable', description: 'Current Telegram information could not be read.' }; }
+      try { const info = await chatDetails(scope, a.chatId); return { agentId, ...info, chatId: info.id, chatType: info.type, name: info.title ?? [info.first_name, info.last_name].filter(Boolean).join(' '), ...(info.linked_chat_id ? { linkedChatId: info.linked_chat_id } : {}) }; } catch { return { agentId, error: 'chat_unavailable', description: 'Current Telegram information could not be read.' }; }
     })) };
     if (name === 'members') { if (db.getChat(scope.botId, scope.chatId).chatType !== 'group') throw new Error('members requires current group'); return { members: await Promise.all(args.userIds.map(async userId => { try { const m = await telegram.call(scope.botId, 'getChatMember', { chat_id: scope.chatId, user_id: userId }); return { userId, name: [m.user.first_name, m.user.last_name].filter(Boolean).join(' '), ...(m.user.username ? { username: m.user.username } : {}), status: m.status, ...(m.custom_title ? { customTitle: m.custom_title } : {}), ...(m.until_date > 0 ? { untilDate: new Date(m.until_date * 1000).toISOString() } : {}) }; } catch { return { userId, error: 'member_unavailable', description: 'Telegram member information could not be obtained.' }; } })) }; }
     if (name === 'agents') return { agents: db.sql.prepare('SELECT agents.*,chats.name,chats.chatType FROM agents JOIN chats USING(botId,chatId) WHERE botId=? ORDER BY createdAt,agentId').all(scope.botId).map(a => ({ agentId: a.agentId, chatType: a.chatType, name: a.name, ...(a.chatType !== 'private' || a.agentId === scope.agentId ? { chatId: a.chatId } : {}) })) };

@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 export function findFile(value, id) { if (!value || typeof value !== 'object') return null; if (value.file_id === id) return value; for (const v of Object.values(value)) { const file = findFile(v, id); if (file) return file; } return null; }
-export function createDownload({ db, access, telegram, getToken, filesFor, fetch = globalThis.fetch }) {
+export function createDownload({ telegram, getToken, filesFor, fetch = globalThis.fetch }) {
   const inflight = new Map();
-  return async (scope, { chatId = scope.chatId, files }) => {
-    access.assertRead(scope, chatId); const results = [];
-    for (const request of files) {
-      const m = db.getMessage(scope.botId, chatId, request.messageId), meta = findFile(m, request.fileId);
-      if (!meta) { results.push({ ...request, error: 'file_not_accessible', description: 'File ID was not found in this saved outer message. Read the accessible message and use its ID.' }); continue; }
-      const hash = createHash('sha256').update(request.fileId).digest('hex'), name = meta.file_name?.replace(/[^\p{L}\p{N}._-]/gu, '_') ?? 'attachment';
+  return async (scope, { fileIds } = {}) => {
+    if (!Array.isArray(fileIds) || fileIds.some(id => typeof id !== 'string' || !id.length)) return { error: 'invalid_argument', description: 'fileIds must be an array of non-empty Telegram file ID strings.' };
+    const results = [];
+    for (const fileId of fileIds) {
+      const request = { fileId };
+      const hash = createHash('sha256').update(fileId).digest('hex'), name = 'attachment';
       const relative = `.temp/${scope.agentId}/download/${hash}-${name}`, store = filesFor(scope);
       try {
         try { store.read(relative); } catch (e) {
