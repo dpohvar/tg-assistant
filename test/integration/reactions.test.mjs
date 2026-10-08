@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { openDatabase } from '../../src/storage/database.mjs';
+import { createController } from '../../src/controller.mjs';
+
+test('reaction updates only modify retained messages, preserve expiry and never launch an agent', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-reactions-'));
+  const db = openDatabase(path.join(root, 'db.sqlite')); let runs = 0;
+  const c = createController({ db, telegram: { call: async () => true }, agent: { run: async () => { runs++; } } });
+  t.after(() => { c.close(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  db.registerBot({ botId: 'b', telegramId: 42, username: 'bot', ownerId: 1 });
+  const message = { chat: { id: -1, type: 'group' }, message_id: 3, date: 1000, text: 'post' };
+  db.saveMessage('b', message, 1000);
+  const reaction = { type: 'emoji', emoji: '👍' };
+  await c.receive('b', { message_reaction: { chat: message.chat, message_id: 3, date: 1010, user: { id: 5 }, old_reaction: [], new_reaction: [reaction] } });
+  assert.deepEqual(db.getMessage('b', -1, 3).reactions.users, [{ userId: 5, reactions: [reaction] }]);
+  assert.equal(db.getMessage('b', -1, 3).reactions.countsComplete, false);
+  await c.receive('b', { message_reaction_count: { chat: message.chat, message_id: 3, date: 1020, reactions: [{ type: reaction, total_count: 8 }] } });
+  assert.equal(db.getMessage('b', -1, 3).reactions.countsComplete, true);
+  assert.equal(db.getMessage('b', -1, 3).reactions.counts[0].total_count, 8);
+  db.saveMessage('b', { ...message, text: 'edited', edit_date: 1030 });
+  assert.equal(db.getMessage('b', -1, 3).reactions.counts[0].total_count, 8);
+  await c.receive('b', { message_reaction: { chat: message.chat, message_id: 999, date: 1040, user: { id: 5 }, old_reaction: [], new_reaction: [reaction] } });
+  assert.equal(db.getMessage('b', -1, 999), null);
+  assert.equal(db.messageRecord('b', -1, 3).receivedAt, 1000);
+  assert.equal(runs, 0);
+});

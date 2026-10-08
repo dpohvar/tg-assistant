@@ -1,0 +1,15 @@
+node_modules/
+.runtime-check/
+.superpowers/
+__pycache__/
+data/
+bots/
+.env
+*.sqlite*
+.test-result.txt
+.alpine-test-result.txt
+
+config.json
+control/
+secrets/
+codex-home/

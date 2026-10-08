@@ -1,0 +1,9 @@
+{
+  "serviceOwnerId": 1,
+  "dataDir": "/srv/tg-assistant/control",
+  "botsDir": "/srv/tg-assistant/wiki",
+  "codexHome": "/srv/tg-assistant/codex-home",
+  "codexExecutable": "/opt/codex/bin/codex",
+  "masterTokenFile": "/srv/tg-assistant/control/secrets/master-token",
+  "defaultTimezone": "Asia/Nicosia"
+}
