@@ -1,0 +1,20 @@
+{
+  "name": "tg-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.18.1"
+  },
+  "scripts": {
+    "test": "node --test test/integration/*.test.mjs",
+    "start": "node src/main.mjs",
+    "service:alpine_start": "node src/service/alpine.mjs start",
+    "service:alpine_stop": "node src/service/alpine.mjs stop",
+    "service:alpine_status": "node src/service/alpine.mjs status"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "0.5.1",
+    "croner": "10.0.1"
+  }
+}

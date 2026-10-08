@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS agent_messages (
+  id INTEGER PRIMARY KEY, botId TEXT NOT NULL REFERENCES bots ON DELETE CASCADE,
+  fromAgentId TEXT NOT NULL, toAgentId TEXT NOT NULL, date INTEGER NOT NULL, text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_messages_date ON agent_messages(date);
+INSERT OR IGNORE INTO schema_migrations VALUES(2);

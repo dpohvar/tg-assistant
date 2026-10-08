@@ -1,0 +1,110 @@
+# Реализация и проверки v1 — 2026-10-08
+
+Документация согласованного контракта опубликована: `14a50f774689036f89fa614134285c62bb99b7f4`, `origin/main`. Реализация находится в соседнем worktree `C:/PROJECTS/tg-assistant-v1`, ветка `feat/controller-v1`; коммит реализации подготовлен после итоговой сверки; публикация ветки отдельным push не выполнялась. Исходный каталог с runtime-стендом и секретами не изменён.
+
+## Реализовано
+
+Node.js ESM, SQLite с транзакционными миграциями, Telegram HTTP/polling и один Codex app-server на агента. Контроллер реализует RAM-очередь, scope/generation, историю и поиск, notes, межагентные сообщения, кнопки и permits, send/edit/copy/forward, скачивание и save_image, Git, durable-планировщик, команды/роли/модели, пассивные каналы и комментарии, удаление и очистку, singleton lock и остановку сервиса.
+
+Директория выдаётся каждому боту сразу; Git опционален. Конфигурация и секреты вне wiki. Настройка и эксплуатационные ограничения: [operations.md](operations.md). План этапов: [план реализации](superpowers/plans/2026-10-07-v1.md); отдельные исходные примеры плана не являются самостоятельной live-приёмкой.
+
+## Автоматические проверки
+
+Последний полный прогон: Windows — 142 проверки, 138 успешных и четыре Linux-only пропуска; Alpine — 142/142, ошибок нет. В составе 38 календарных регрессий UTC/Temporal/Croner, включая DST. Исторические результаты отдельных этапов сохранены ниже. Успешные тесты не закрывают пробелы, выявленные финальной сверкой: см. v1-audit.md.
+
+Регрессиями проверены приватность, лимиты/очередь/steer, истечение громкого режима, coalescing/retry/recovery задач, реакции, сохранение known copy без личной provenance, секретные команды, роли, миграции, файловые гонки и cleanup, optional Git/staging/temp exclusion, setup с временной остановкой агентов, singleton recovery, динамические pollers и shutdown.
+
+Финальная независимая проверка выявила две гонки: остановка агента допускала новое событие во время удаления сессии; обновление правил во время thread/start помечало старые инструкции новой версией. Исправления воспроизведены регрессиями и повторно проверены независимо без оставшихся Important-дефектов в этой области. Stop закрывает admission до первого await, отменяет таймеры, ждёт начатые операции и работу очереди до удаления temp. Версия правил фиксируется вместе с прочитанными инструкциями. Остановка RPC ждёт фактического выхода процесса; это устраняет Windows EPERM при удалении его рабочей директории.
+
+## Ограниченные live-проверки
+
+Среда: Alpine 3.24.2, Node 24.18.1, Codex CLI 0.159.3, обычный пользователь probe. Docker Desktop/WSL2, seccomp=unconfined, без privileged и без host mounts. Применён фактический профиль приложения tg-agent, сеть shell выключена. Авторизация ChatGPT CLI и тестовый Telegram-токен остаются вне репозитория.
+
+- Сквозной контроллер → Codex → sendMessage: сообщение 28.
+- Rich-галерея с двумя фото: сообщение 29; edit сохраняет file_id обоих фото и меняет ⬜️ на ✅. Подтверждено ответом Telegram, отдельная визуальная приёмка не запрашивалась.
+- `background-child.mjs`: root завершился через 10 751 мс, settled — через 22 838 мс; дочерний файл создан. Очередь может открыться до завершения дочерней работы, а scheduled attempt остаётся processing до settled.
+- `sandbox-profile.mjs`: wiki и собственная temp читаются/пишутся; .git, другая temp, другой бот и каталог контроллера недоступны. Проверены синтетические canary-файлы. Каталог бинарника Codex доступен на чтение и должен быть отдельным, без данных и секретов; startup проверяет это расположение.
+- Свежий `image-dialog.mjs`, fixture image-dialog-check-v3: одна нативная генерация, регистрация источника, save_image и отправка фото — сообщение 35. toolResults: save_image, send; зарегистрирован один источник. Никакой повторной генерации в этом запуске. Сессия удалена в finally, polling не оставлен.
+
+До успешного свежего теста были отдельные неуспешные image-тесты: первый не нормализовал JSON-строку controller result; второй сообщил ошибку save_image без сохранённого исходного exception. Повторное сохранение уже созданного второго изображения отправило сообщение 34, но не объяснило точную первую ошибку. Для свежего успешного теста добавлены нормализация результата, известное извлечение пути из output_hint и поиск нормализованного имени инструмента через ALL_TOOLS. Base64 и секреты в отчёт не выводились.
+
+## Ограничения приёмки
+
+Автоматический набор не заменяет все реальные варианты команд, Telegram-медиа и взаимодействий пользователей. Live-тесты были ограниченными; Telegram-стенд работает в Docker через service:alpine_start. На целевом сервере сервис ещё не развёрнут. На фактическом ядре серверного Alpine нужно повторить production sandbox smoke перед эксплуатацией: результат Docker/WSL2 этого не подтверждает. Обновление Codex заблокировано до ручной повторной проверки закреплённой версии. При повторе упавшего задания возможно повторение внешнего действия, как принято для v1.
+
+
+## Исправление после пользовательской проверки кнопок
+
+Telegram игнорировал disabled при одновременном callback_data. closeButtons теперь заменяет действие, удаляя callback_data; одно rich-изменение включает inline-клавиатуру, а событие передаётся агенту после попытки обновления. Сообщение 14 подключённого тестового бота исправлено на живом стенде: API вернул disabled:{} для rich и inline и отсутствие callback_data. Контроллер перезапущен без сброса данных. Windows: 104 проверки, 103 успешных, один Linux-only пропуск. Alpine: 104/104 успешны после восстановления владельца файлов приложения, изменённого docker cp. Пользователь впоследствии подтвердил корректность блокировки обеих кнопок.
+
+
+## historyGap после проверки группового диалога
+
+Добавлена RAM-отметка пропущенной групповой истории: тихий режим, лимит очереди, истёкшие/очищенные ожидающие сообщения. При подготовке следующей пачки run/steer первая запись message/message_edited/button получает historyGap:true; новые пропуски во время выполнения сохраняются. Developer instructions рекомендуют читать историю для контекстно зависимого обращения. Регрессии проверяют одноразовую подсказку, новый пропуск во время работы, переполнение и истечение в очереди. Windows: 106 проверок, 105 успешных, один Linux-only пропуск; Alpine: 106/106. Стенд перезапущен; пользователь впоследствии подтвердил чтение пропущенной истории по historyGap. Пользователь ранее подтвердил блокировку rich/inline кнопок и работу обычной группы.
+
+
+## Формат /tasks
+
+По запросу владельца список /tasks теперь включает форматированные ID, at/cron+timezone, описание и полную инструкцию. Telegram entities исключают ошибки экранирования. Проверены пагинация единичной позиции, пустые поля, UTF-16 offsets с emoji, обрезка длинной инструкции и reply. Предметный набор: Windows 4/4, Alpine 4/4; полный набор после этой небольшой правки не повторялся. Docker-стенд перезапущен.
+
+
+## Live: просроченная at-задача после остановки
+
+2026-10-08: taskId t1b5e5163f49a42d0a2cf9e149fa3eb91, срок 02:04:26.954Z. Приложение штатно остановлено до срока, задача оставалась в БД без firing. Запуск около 02:04:47Z восстановил просроченную задачу; Telegram подтвердил сообщение 90 «СТЕНД: Задача пережила перезапуск» (02:04:53Z). После завершения задача и firing удалены. В сохранённой истории обнаружено одно соответствующее исходящее сообщение. Это проверка штатной остановки и overdue at, не аварийного падения или downtime cron.
+
+
+## Live: cron после простоя
+
+2026-10-08: taskId t3c69f84ab75043cab4e0a0d003463f4b, cron * * * * *, Asia/Nicosia. До остановки сообщение 98 в 02:09:02Z. Остановка в 02:09:54Z, запуск около 02:12:05Z; границы 02:10, 02:11, 02:12 пропущены. До 02:12:47Z ни новых исходящих cron-сообщений, ни восстановленных firing. Следующее обычное срабатывание отправило одно сообщение 99 в 02:13:04Z; task_firings после завершения пуст. Cron не воспроизвёл downtime. Задача продолжает работать до отмены пользователем.
+
+
+## Live: альбом и генерация в wiki
+
+Пользователь подтвердил разбор альбома из трёх фотографий, затем генерацию/получение картинки и /download файла wiki. Проверка сервера: один зарегистрированный источник; images/exec-1106f308-bc4a-4dcd-aa40-c01c403b7a73.png — валидная PNG-сигнатура, 2 494 032 байта, SHA-256 совпадает с native source. Отправка фото подтверждена сохранённым Telegram messageId 109. Ответ команды /download не сохраняется в агентскую историю; доставка подтверждена пользователем.
+
+
+## Live: межагентное поручение
+
+Первый запрос зарегистрирован и доставлен агенту группы, но агент отказался по неполной служебной инструкции и оставил отказ только во внутреннем final. Developer instructions уточнены: agent_message — авторизованное поручение того же бота; запреты раскрытия private history и изменения прав сохраняются, результат/отказ передаётся agent_message. Повтор в прежней сессии тоже отказал; после пересоздания контекста группы ограниченный тест agent-message.mjs прошёл: группа messageId 117, ответ в ЛС messageId 118, обратный журнал содержит ID 117. Кодекс-адаптер: 8/8 предметных проверок Windows. Другой сохранённый агент стенда помечен для сброса контекста при следующем ходе. Polling возвращён; live-тест проводился при остановленном основном сервисе.
+
+
+## Live: доступ, канал, аварийный сбой и retry
+
+Пользователь подтвердил выдачу/отзыв роли user и отсутствие ответов неавторизованному пользователю. Также подтверждены публикация в канале, чтение комментариев/реакций с задержкой около 1–2 минут и установка реакции ботом. Это пользовательская приёмка, а не новая автоматическая проверка всех API-вариантов.
+
+Задача t99717e19bbd244dfadb1862594da854a «Проверка сбоя»: во время processing подтверждён настоящий sleep 90, процесс Codex группы принудительно завершён SIGKILL. Контроллер остался работать. Пользователь подтвердил уведомления об ошибке агента и задачи с обоими ID и командами retry/cancel. Пользователь вызвал /retry_task; native rollout зафиксировал scheduled с retry:true в 02:58:18Z. Повтор дождался завершения shell; отправлено сообщение 161 «СТЕНД: Задача после сбоя выполнена». Проверка БД в 03:00:07Z: задача удалена, task_firings пуст. Повторный промежуточный send «обработка» ожидаем: retry может повторять уже совершённые действия.
+
+
+## Строгие reply-проверки загрузки
+
+/set_rules и /upload проверяют автора, текущий chatId и отсутствие edit_date у цитируемого сообщения в обоих направлениях. Недопустимый файл в ответ на команду распознаётся как служебная попытка загрузки, получает явную ошибку и не отправляется агенту. Предметный набор 20/20 на Windows и Alpine (12 отрицательных и 4 положительных reply-сценария плюс проверки команд/выдачи задач). Стенд обновлён и перезапущен; ручная Telegram-проверка новых отказов ещё не проводилась.
+
+Git authentication regression: reproduced Linux GIT_ASKPASS failure caused by quoting the executable path. Use the raw executable script path (forward slashes on Windows). Local HTTP Basic challenge regression verifies actual credential delivery without real tokens. Git setup/sync checks: 5/5 Windows and 5/5 Alpine. Live private GitHub acceptance subsequently passed: setup, commit and push confirmed by user.
+
+Unified command argument parser implemented for master/child commands and reply uploads. code/pre boundaries delimit arguments, ordinary whitespace including newlines splits text. Unsupported formatting is rejected. edit requires pre; mv accepts text/code paths; git_sync preserves multiline pre. Windows full suite: 126 passed, 1 skipped (127 total), then 9/9 focused final checks. Alpine focused final checks: 9/9. GitHub wiki/file/upload live acceptance passed before parser change; new parser selective live acceptance subsequently confirmed by user.
+
+Пользователь подтвердил выборочную live-проверку единого парсера команд после обновления стенда. Принято. Полный Alpine-набор перед двумя дополнительными регрессиями: 129/129. Приватный GitHub: git_setup, агентская запись/commit/push, файловые ls/cat/download/mv/rm/upload/edit, сброс wiki и строгие reply-проверки приняты пользователем. Следующая ручная проверка: выбор модели и права команд моделей.
+
+Пользователь принял смену моделей/default и stop_agent (новый агент, очищены контекст/история, wiki сохранена). После проверки старого reply уточнены developer instructions, описание read и message_not_found: читать внешнее текущее сообщение и reply_to_message. Регрессия подтверждает чтение старого вложенного исходника без отдельной записи. History/Codex checks: Windows 10/10, Alpine 10/10. Существующие контексты принудительно не удалялись; новое описание developer instructions гарантировано для новых сессий.
+
+Rich fairy tale live failure: agent guessed image/source, photo strings and other invalid block formats; generic API error hid Telegram detail. Added native photo InputMedia example to send description and preserved sanitized Telegram rejection text. Bounded direct live send reused three existing photos: message 334 accepted, blocks paragraph/photo/paragraph/photo/paragraph/photo/paragraph. No new generation. This proves native API format, not yet autonomous agent retry acceptance. Windows message/Codex checks 16/16.
+
+Rich audit 2026-10-08: existing instructions covered only paragraphs/photos. Added on-demand rich_help with all 23 persistent native block examples and all RichText variants, plus nesting, media provenance, buttons and draft exclusions. Live message 364 accepted 15 blocks covering 14 unique nonmedia types and ordered/unordered lists; first rejected mixed-order list corrected. Audio/video/voice/document example payloads are checked against official field definitions, not all live uploaded. User accepted autonomous rich story before audit.
+
+Rich-help audit gate: Windows 134 passed + 1 Linux-only skip; Alpine 135/135. Final helper examples smoke also passed after ordered-list clarification. Docker service restarted with rich_help available; existing contexts preserved. Autonomous use of rich_help has not yet been live accepted.
+
+## Приёмка очереди и очистки 2026-10-08
+Пользователь подтвердил: очередь приняла 10 из 13 событий; кнопка при заполнении сразу отвечает «Бот занят». В исследованной сессии события 340–349 переданы пачкой, 350–352 доступны только через историю/search; ответ модели о 13 полученных не означал обход лимита.
+Очистка проверена изолированно на Alpine обычным пользователем probe: 5/5 проверок. История удаляется строго после 30 дней receivedAt (старый Telegram date не сокращает срок), журнал после 7 дней, temp после 24 часов mtime. Данные на границе срока сохраняются. Wiki, notes, pending/processing задачи и попытки сохранены. Просроченные зарегистрированные generated images удалены вместе с записью; свежие и пути вне разрешённого хранилища защищены. Реальный chmod-отказ удаления проверен: список файлов в одном отчёте владельцу, длинный отчёт обрезан; Telegram-вызов перехвачен тестовым приёмником, живое уведомление не отправлялось. Проверена защита от подмены каталога symlink. Windows: 3 passed, 2 Linux-only skipped. Рабочие данные стенда не изменялись; изменений production-кода не потребовалось.
+
+## Фоновый сервис Alpine
+
+Добавлены npm run service:alpine_start/stop/status с необязательным CONFIG_FILE после --, по умолчанию config.json. start запускает nohup, ждёт готовности по PID/nonce; stop проверяет принадлежность процесса через /proc и отправляет SIGTERM без SIGKILL. Проверены повторный запуск с тем же PID, штатная остановка, отказ чужому PID и ошибка старта. Тест с SIGHUP выявил, что Node сбрасывает inherited ignore; добавлен явный обработчик ignoreHangup. Реальный стенд перезапущен этими командами, PID 16455 пережил SIGHUP и остался running. Автозапуска/автовосстановления после перезагрузки нет.
+
+Финальная проверка после SIGHUP исправления: Windows 135 passed + 4 Linux-only skipped (139 total); Alpine 139/139. git diff --check без ошибок. Стенд оставлен running, данные сохранены.
+
+## Исправления итоговой сверки
+
+Закрыты четыре пункта [v1-audit.md](v1-audit.md): самостоятельный permits-only edit, сохранение подписи при замене media, config.defaultModel при регистрации, объектные items в схемах динамических инструментов. Добавлены регрессии; полные Windows/Alpine прогоны успешны.
+
+Живая приёмка последних исправлений: сохранение форматированной подписи и её очистка подтверждены пользователем. Альбом 408/409 отправлен без uploads через исходные file_id; первая ошибочная сериализация file_sources исправлена агентом самостоятельно (подробности в v1-audit.md).

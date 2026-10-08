@@ -1,0 +1,2 @@
+CREATE TABLE IF NOT EXISTS controller_state(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+INSERT OR IGNORE INTO schema_migrations VALUES(5);

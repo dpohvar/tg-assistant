@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { openDatabase } from '../../src/storage/database.mjs';
+import { createMaster } from '../../src/commands/master.mjs';
+
+test('master refuses its own token and deletes bot secrets while preserving wiki', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-master-')), db = openDatabase(path.join(root, 'db.sqlite'));
+  t.after(() => { db.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const config = { dataDir: root, botsDir: path.join(root, 'bots'), codexHome: path.join(root, 'protected'), serviceOwnerId: 1, masterTelegramId: 99, defaultModel: 'configured-model' };
+  let id = 99;
+  const master = createMaster({ db, config, probeToken: async () => ({ id, username: 'child' }) });
+  const call = (name, args) => master(name, args, { chat: { id: 1 }, message_id: 1 }, async () => {});
+  await assert.rejects(call('newbot', ['99:test_placeholder']), /master/);
+  id = 42; await call('newbot', ['42:test_placeholder']);
+  assert.equal(db.getBot('b42').defaultModel, 'configured-model');
+  db.saveChat('b42', { id: 1, type: 'private', first_name: 'Owner' });
+  assert.equal(db.ensureAgent('b42', 1).model, 'configured-model');
+  config.defaultModel = 'changed-service-default';
+  assert.equal(db.getBot('b42').defaultModel, 'configured-model');
+  assert.equal(db.agent('b42', 1).model, 'configured-model');
+  const wiki = path.join(config.botsDir, 'b42'); fs.writeFileSync(path.join(wiki, 'index.md'), 'keep');
+  const gitSecret = path.join(root, 'secrets', 'b42.git-token'); fs.writeFileSync(gitSecret, 'synthetic');
+  db.sql.prepare('INSERT INTO git_settings VALUES(?,?,?,?)').run('b42', 'main', 'https://example.invalid/repo', gitSecret);
+  await call('delete_bot', ['@child', '42']);
+  assert.equal(db.getBot('b42'), null);
+  assert.equal(fs.readFileSync(path.join(wiki, 'index.md'), 'utf8'), 'keep');
+  assert.equal(fs.existsSync(gitSecret), false);
+  assert.equal(fs.existsSync(path.join(root, 'secrets', 'b42.token')), false);
+});

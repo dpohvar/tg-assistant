@@ -1,0 +1,522 @@
+{
+  "source": "https://core.telegram.org/bots/api#inputrichmessage",
+  "checked": "2026-10-08",
+  "rules": [
+    "Pass rich_message as an object with exactly one of blocks, html, markdown. Prefer blocks for structured layouts. No parse_mode inside blocks.",
+    "RichText is a plain string, an array of RichText values, or one of the typed objects below. Nest them to combine formatting.",
+    "Examples use placeholders: uploads:{pic:\"wiki/image.png\",file:\"wiki/file.pdf\"}. Media may instead use HTTPS URLs or file_id with file_sources:[{messageId:OUTER_ID,fileId:ID,chatId:OPTIONAL}].",
+    "Prefer reusing recently sent files: read the saved outer message for file_id, put that ID in the media field and supply file_sources:[{messageId:OUTER_ID,fileId:ID,chatId:OPTIONAL}]; omit uploads for reused files. Same rule for ordinary attachments, albums and rich media.",
+    "details has summary and blocks; is_open:true opens initially, omit for collapsed. list.items are objects with blocks, never strings. Checkbox list items are presentation, not callback buttons or native checklist tasks.",
+    "For ordered list items use value and type (1,a,A,i,I). For unordered items omit both. Never mix ordered and unordered items in the same list. Each blockquote/list item/details uses blocks, while expandable_blockquote uses text.",
+    "Media captions belong to the outer block as {text,credit?}; captions inside InputMedia are ignored. Table caption is RichText, not a caption object.",
+    "buttons rows contain 1–8 buttons. Each button has exactly one action (callback_data,url,copy_text,disabled,web_app,login_url,etc.). style: primary/success/danger; link style only for callback. Inline mode is not handled in v1; do not promise inline-query buttons work.",
+    "Callback groups: [group]key, each <=20 characters, total <=64 UTF-8 bytes. Checkbox icons: ⬜️ / ✅ / ⬛️. disabled:{} replaces callback_data. Group chat permits follow the controller contract; edit omitted permits retains previous values.",
+    "edit replaces supplied rich content completely and preserves message type; retain prior media via their InputMedia file IDs, with provenance. Use read for existing content.",
+    "Map zoom 0–24; width+height <=10000 and aspect ratio <=20. Draft/streaming/thinking is not exposed in v1."
+  ],
+  "blocks": [
+    {
+      "type": "paragraph",
+      "text": "Text"
+    },
+    {
+      "type": "heading",
+      "text": "Title",
+      "size": 2
+    },
+    {
+      "type": "pre",
+      "text": "const n = 1;",
+      "language": "javascript"
+    },
+    {
+      "type": "footer",
+      "text": "Footnote"
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "mathematical_expression",
+      "expression": "x^2+y^2=z^2"
+    },
+    {
+      "type": "anchor",
+      "name": "part1"
+    },
+    {
+      "type": "list",
+      "items": [
+        {
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "First"
+            }
+          ]
+        },
+        {
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Second"
+            }
+          ]
+        },
+        {
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Done"
+            }
+          ],
+          "has_checkbox": true,
+          "is_checked": true
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Quote"
+        }
+      ],
+      "credit": "Author"
+    },
+    {
+      "type": "expandable_blockquote",
+      "text": "Long quotation",
+      "credit": "Author"
+    },
+    {
+      "type": "pullquote",
+      "text": "Highlight",
+      "credit": "Author"
+    },
+    {
+      "type": "collage",
+      "blocks": [
+        {
+          "type": "photo",
+          "photo": {
+            "type": "photo",
+            "media": "attach://pic"
+          }
+        },
+        {
+          "type": "photo",
+          "photo": {
+            "type": "photo",
+            "media": "attach://pic"
+          }
+        }
+      ],
+      "caption": {
+        "text": "Collage",
+        "credit": "Author"
+      }
+    },
+    {
+      "type": "slideshow",
+      "blocks": [
+        {
+          "type": "photo",
+          "photo": {
+            "type": "photo",
+            "media": "attach://pic"
+          }
+        },
+        {
+          "type": "photo",
+          "photo": {
+            "type": "photo",
+            "media": "attach://pic"
+          }
+        }
+      ],
+      "caption": {
+        "text": "Gallery"
+      }
+    },
+    {
+      "type": "table",
+      "cells": [
+        [
+          {
+            "text": "Name",
+            "is_header": true,
+            "align": "left",
+            "valign": "top"
+          },
+          {
+            "text": "Value",
+            "is_header": true,
+            "align": "right",
+            "valign": "top"
+          }
+        ],
+        [
+          {
+            "text": "A",
+            "align": "left",
+            "valign": "top"
+          },
+          {
+            "text": "1",
+            "align": "right",
+            "valign": "top"
+          }
+        ]
+      ],
+      "is_bordered": true,
+      "is_striped": true,
+      "is_compact": true,
+      "caption": "Table"
+    },
+    {
+      "type": "details",
+      "summary": "Show more",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            {
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "text": "First"
+                }
+              ]
+            },
+            {
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "text": "Second"
+                }
+              ]
+            },
+            {
+              "blocks": [
+                {
+                  "type": "paragraph",
+                  "text": "Done"
+                }
+              ],
+              "has_checkbox": true,
+              "is_checked": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "map",
+      "location": {
+        "latitude": 34.7,
+        "longitude": 33.1
+      },
+      "zoom": 12,
+      "width": 600,
+      "height": 400,
+      "caption": {
+        "text": "Meeting point"
+      }
+    },
+    {
+      "type": "buttons",
+      "align": "left",
+      "buttons": [
+        {
+          "text": "⬜️ Choose",
+          "callback_data": "[choice]yes",
+          "style": "primary"
+        },
+        {
+          "text": "Website",
+          "url": "https://example.com"
+        },
+        {
+          "text": "Copy",
+          "copy_text": {
+            "text": "Hello"
+          }
+        },
+        {
+          "text": "Unavailable",
+          "disabled": {}
+        }
+      ]
+    },
+    {
+      "type": "animation",
+      "animation": {
+        "type": "animation",
+        "media": "attach://file"
+      },
+      "caption": {
+        "text": "Media caption"
+      }
+    },
+    {
+      "type": "audio",
+      "audio": {
+        "type": "audio",
+        "media": "attach://file"
+      },
+      "caption": {
+        "text": "Media caption"
+      }
+    },
+    {
+      "type": "document",
+      "document": {
+        "type": "document",
+        "media": "attach://file"
+      },
+      "caption": {
+        "text": "Media caption"
+      }
+    },
+    {
+      "type": "photo",
+      "photo": {
+        "type": "photo",
+        "media": "attach://pic"
+      },
+      "caption": {
+        "text": "Media caption"
+      }
+    },
+    {
+      "type": "video",
+      "video": {
+        "type": "video",
+        "media": "attach://file"
+      },
+      "caption": {
+        "text": "Media caption"
+      }
+    },
+    {
+      "type": "voice_note",
+      "voice_note": {
+        "type": "voice_note",
+        "media": "attach://file"
+      },
+      "caption": {
+        "text": "Media caption"
+      }
+    }
+  ],
+  "orderedList": {
+    "type": "list",
+    "items": [
+      {
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "First"
+          }
+        ],
+        "value": 1,
+        "type": "1"
+      },
+      {
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": "Second"
+          }
+        ],
+        "value": 2,
+        "type": "1"
+      }
+    ]
+  },
+  "detailsWithList": {
+    "blocks": [
+      {
+        "type": "details",
+        "summary": "Shopping list",
+        "blocks": [
+          {
+            "type": "list",
+            "items": [
+              {
+                "blocks": [
+                  {
+                    "type": "paragraph",
+                    "text": "Bread"
+                  }
+                ]
+              },
+              {
+                "blocks": [
+                  {
+                    "type": "paragraph",
+                    "text": "Milk"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "markdownExample": {
+    "markdown": "# Title\n\n**Bold** and _italic_ text.\n\n- First\n- Second"
+  },
+  "htmlExample": {
+    "html": "<details><summary>Shopping list</summary><ul><li>Bread</li><li>Milk</li></ul></details>"
+  },
+  "htmlMedia": {
+    "html": "<p>Before</p><img src=\"tg://photo?id=pic\"/><p>After</p>",
+    "media": [
+      {
+        "id": "pic",
+        "media": {
+          "type": "photo",
+          "media": "attach://pic"
+        }
+      }
+    ]
+  },
+  "richText": [
+    {
+      "type": "bold",
+      "text": "Text"
+    },
+    {
+      "type": "italic",
+      "text": "Text"
+    },
+    {
+      "type": "underline",
+      "text": "Text"
+    },
+    {
+      "type": "strikethrough",
+      "text": "Text"
+    },
+    {
+      "type": "spoiler",
+      "text": "Text"
+    },
+    {
+      "type": "subscript",
+      "text": "Text"
+    },
+    {
+      "type": "superscript",
+      "text": "Text"
+    },
+    {
+      "type": "marked",
+      "text": "Text"
+    },
+    {
+      "type": "code",
+      "text": "Text"
+    },
+    {
+      "type": "date_time",
+      "text": "Meeting",
+      "unix_time": 1791446400,
+      "date_time_format": "DT"
+    },
+    {
+      "type": "text_mention",
+      "text": "Person",
+      "user": {
+        "id": 123,
+        "is_bot": false,
+        "first_name": "Person"
+      }
+    },
+    {
+      "type": "custom_emoji",
+      "custom_emoji_id": "KNOWN_ID",
+      "alternative_text": "🙂"
+    },
+    {
+      "type": "mathematical_expression",
+      "expression": "x^2"
+    },
+    {
+      "type": "url",
+      "text": "Label",
+      "url": "https://example.com"
+    },
+    {
+      "type": "email_address",
+      "text": "Label",
+      "email_address": "a@example.com"
+    },
+    {
+      "type": "phone_number",
+      "text": "Label",
+      "phone_number": "+123456789"
+    },
+    {
+      "type": "bank_card_number",
+      "text": "Label",
+      "bank_card_number": "4111111111111111"
+    },
+    {
+      "type": "mention",
+      "text": "Label",
+      "username": "example"
+    },
+    {
+      "type": "hashtag",
+      "text": "Label",
+      "hashtag": "example"
+    },
+    {
+      "type": "cashtag",
+      "text": "Label",
+      "cashtag": "USD"
+    },
+    {
+      "type": "bot_command",
+      "text": "Label",
+      "bot_command": "/start"
+    },
+    {
+      "type": "button",
+      "button": {
+        "text": "Action",
+        "callback_data": "action"
+      }
+    },
+    {
+      "type": "anchor",
+      "name": "part1"
+    },
+    {
+      "type": "anchor_link",
+      "text": "Go to section",
+      "anchor_name": "part1"
+    },
+    {
+      "type": "reference",
+      "text": "Source",
+      "name": "ref1"
+    },
+    {
+      "type": "reference_link",
+      "text": "See source",
+      "reference_name": "ref1"
+    }
+  ],
+  "unsupported": [
+    "thinking",
+    "sendRichMessageDraft",
+    "streaming drafts",
+    "inline-query handling"
+  ]
+}

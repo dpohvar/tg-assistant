@@ -1,0 +1,40 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { openDatabase } from '../../src/storage/database.mjs';
+import { createAccess } from '../../src/access/scope.mjs';
+import { createHistory } from '../../src/agents/history.mjs';
+test('public history accessible, foreign DM denied, substring search pages signed', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-history-')); const db = openDatabase(path.join(root, 'db.sqlite'));
+  t.after(() => { db.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  db.registerBot({ botId: 'b1', telegramId: 42, username: 'test', ownerId: 1 });
+  for (const id of [1, 2, -3, -4]) db.saveChat('b1', { id, type: id > 0 ? 'private' : 'group' });
+  const access = createAccess(db), scope = { botId: 'b1', chatId: 1, agentId: 'a1' };
+  assert.throws(() => access.assertRead(scope, 2)); access.assertRead(scope, -3);
+  db.ensureAgent('b1', -4); assert.throws(() => access.assertWrite(scope, -4));
+  for (let i = 1; i <= 4; i++) db.saveMessage('b1', { message_id: i, date: 1791383000 + i, chat: { id: -3, type: 'group' }, from: { id: 5, first_name: 'X' }, text: i === 1 ? 'солнце' : 'Шашлыки под дождём' });
+  const history = createHistory({ db, access, key: Buffer.alloc(32, 1), now: () => 1000 });
+  const full = history.read(scope, { chatId: -3, messageIds: [1] }).messages[0];
+  assert.equal(full.date, new Date(1791383001000).toISOString());
+  assert.equal(db.getMessage('b1', -3, 1).date, 1791383001);
+  db.sql.prepare('INSERT INTO button_state(botId,chatId,messageId,permits) VALUES(?,?,?,?)').run('b1', -3, 1, JSON.stringify({ '*': [5] }));
+  assert.deepEqual(history.read(scope, { chatId: -3, messageIds: [1] }).messages[0].permits, { '*': [5] });
+  assert.deepEqual(history.history(scope, { chatId: -3, messageId: null, from: -2, to: 0 }).messages.map(m => m.messageId), [3, 4]);
+  const first = history.search(scope, { chatId: -3, text: ['шашлык', 'дожд'], limit: 2 });
+  assert.deepEqual(first.messages.map(m => m.messageId), [4, 3]); assert(first.nextCursor);
+  const next = history.search(scope, { cursor: first.nextCursor }); assert.deepEqual(next.messages.map(m => m.messageId), [2]); assert.equal(next.nextCursor, undefined);
+  assert.throws(() => history.search({ ...scope, agentId: 'other' }, { cursor: first.nextCursor }));
+  db.saveMessage('b1', { message_id: 5, date: 1791383005, chat: { id: -3, type: 'group' }, rich_message: { blocks: [{ type: 'paragraph', text: 'a'.repeat(1100) + ' needle' }] } });
+  const rich = history.search(scope, { chatId: -3, text: ['needle'] });
+  assert.equal(rich.messages[0]?.messageId, 5); assert.equal(rich.messages[0].truncated, true);
+});
+
+test('old reply remains readable through its saved outer message',t=>{
+ const db=openDatabase(':memory:');t.after(()=>db.close());db.registerBot({botId:'b',telegramId:42,username:'test',ownerId:1});db.saveChat('b',{id:1,type:'private'});
+ db.saveMessage('b',{message_id:316,date:1791383000,chat:{id:1,type:'private'},text:'Read my reply',reply_to_message:{message_id:17,date:1700000000,text:'Old text'}});
+ const h=createHistory({db,access:createAccess(db),key:Buffer.alloc(32)}),s={botId:'b',chatId:1,agentId:'a'};
+ const missing=h.read(s,{messageIds:[17]}).messages[0];assert.equal(missing.error,'message_not_found');assert.match(missing.description,/reply_to_message/);
+ assert.equal(h.read(s,{messageIds:[316]}).messages[0].reply_to_message.text,'Old text');
+});

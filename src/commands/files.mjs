@@ -1,0 +1,24 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { BotFiles } from '../files/paths.mjs';
+import { cleanTemp } from '../files/cleanup.mjs';
+import { gitChanges, gitSync, gitAuth } from '../git/operations.mjs';
+const escape = s => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+export function createFileCommands({ db, config, telegram, fetchDocument, gitSetup }) {
+  return async (botId, name, args, message) => {
+    const root = path.join(config.botsDir, botId), store = new BotFiles(root, 'admin', { admin: true });
+    const parts = args.map(a => a.value), filename = parts[0];
+    if (name === 'ls') return store.list(filename ?? '.').join('\n');
+    if (name === 'cat') { const bytes = store.read(filename), content = bytes.toString('utf8'); if ([...content].length > 3000) return 'Файл слишком длинный для /cat. Используйте /download.'; return { text: `${escape(filename)}\n<pre>${escape(content)}</pre>`, parse_mode: 'HTML' }; }
+    if (name === 'download') { await telegram.call(botId, 'sendDocument', { chat_id: message.chat.id, document: 'attach://file', reply_parameters: { message_id: message.message_id } }, { uploads: [{ name: 'file', filename: path.basename(filename), bytes: store.read(filename) }] }); return null; }
+    if (name === 'rm') { store.remove(filename); return 'Удалено'; }
+    if (name === 'mv') { store.move(parts[0], parts[1]); return 'Перемещено'; }
+    if (name === 'edit') { store.write(filename, Buffer.from(parts[1])); return 'Сохранено'; }
+    if (name === 'upload') { const document = message.document ?? message.reply_to_message?.document; if (!document) return 'Отправьте файл цитатой на своё сообщение /upload путь'; store.write(filename, await fetchDocument(botId, document)); return 'Сохранено'; }
+    if (name === 'cleanup_temp') { const failures = cleanTemp(root); return failures.length ? failures.join('\n') : 'Очистка завершена'; }
+    const settings = db.sql.prepare('SELECT * FROM git_settings WHERE botId=?').get(botId);
+    if (name === 'git_setup') return gitSetup(botId, parts, settings);
+    const options = { root, configured: Boolean(settings), branch: settings?.branch, env: gitAuth(settings?.secretRef) };
+    return name === 'git_changes' ? gitChanges(options) : gitSync(options, parts.join(' '));
+  };
+}
