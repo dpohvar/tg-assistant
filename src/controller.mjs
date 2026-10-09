@@ -1,4 +1,6 @@
 import { matchesTrigger } from './telegram/triggers.mjs';
+import { browserRead } from './readers/browser.mjs';
+import { pdfRead } from './readers/pdf.mjs';
 import { filterChatInfo } from './telegram/chat-info.mjs';
 import { richHelp } from './messages/rich-help.mjs';
 import { BotGate } from './service/bot-gate.mjs';
@@ -78,6 +80,8 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (db.getChat(scope.botId, scope.chatId)?.chatType === 'private' && !db.role(scope.botId, scope.chatId)) throw new Error('Private user is no longer authorized');
     if (name === 'rich_help') return richHelp();
     if (name === 'time') return { now: new Date().toISOString() };
+    if (name === 'browser_read') return browserRead(args, { files: filesFor(scope) });
+    if (name === 'pdf_read') return pdfRead(filesFor(scope), args);
     if (name === 'schedule') return scheduler.schedule(scope, args);
     if (name === 'tasks') return scheduler.list(scope, args.taskIds);
     if (name === 'cancel_tasks') return scheduler.cancel(scope, args.taskIds);
