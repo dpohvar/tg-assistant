@@ -160,3 +160,9 @@ Alpine: финальный прогон 167 тестов, все passed, без 
 /agent status → /agent start → обращение → создание задачи → /agent stop →
 пропуск времени задачи → /agent start → /task list. Проверить роль manager,
 /rules set reply, /agent model и /chat leave на отдельном тестовом чате.
+
+## Browser/PDF acceptance — 2026-10-09
+
+Контроллерные browser_read/pdf_read зарегистрированы и проверены отдельно от Codex/Telegram. Alpine: Chromium 152 с renderer sandbox, Playwright 1.64.0 и Poppler 25.12.0; JS страницы, приватные подресурсы, отключённый RTC, восемь параллельных ресурсов, нативное извлечение/PNG проходят. Реальный четырёхстраничный PDF пользователя прочитан/отрисован; приватный документ и извлечённые данные не включены в репозиторий. Wizz Air возвращает browser_challenge, обход CAPTCHA отсутствует. Live вызов этих новых инструментов именно Telegram-агентом ещё не проверялся.
+
+Финальные проверки этой ветки: Windows — 173 passed / 7 skipped / 0 failed; Alpine с TG_READERS_NATIVE=1 — 180 passed / 0 skipped / 0 failed. Все src/*.mjs прошли node --check. Независимый review проведён; исправлены ложные CAPTCHA, обход WebRTC, параллельный бюджет и таймаут DNS/запуска.
