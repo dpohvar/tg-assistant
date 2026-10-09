@@ -20,4 +20,3 @@ Spec: approved discussion of 2026-10-09; Wizz Air challenge must be reported, ne
 Ruling: implementation already authorized; execute continuously without another planning approval. No login, arbitrary browser scripting or clicks are exposed.
 
 Validation: Windows 173 passed, 7 platform/native skips; Alpine 180 passed, 0 skips (TG_READERS_NATIVE=1). Real private PDF verified without saving personal data in Git. Wizz Air returns browser_challenge. Independent review findings fixed and re-reviewed. Ruling: Chromium uses in-process GPU with renderer sandbox enabled to avoid musl GPU seccomp crash; no GPU or GUI required.
-
