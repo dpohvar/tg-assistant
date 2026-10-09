@@ -12,7 +12,7 @@ test('master refuses its own token and deletes bot secrets while preserving wiki
   const config = { dataDir: root, botsDir: path.join(root, 'bots'), codexHome: path.join(root, 'protected'), serviceOwnerId: 1, masterTelegramId: 99, defaultModel: 'configured-model' };
   let id = 99;
   const master = createMaster({ db, config, probeToken: async () => ({ id, username: 'child' }) });
-  const call = (name, args) => master(name, args, { chat: { id: 1 }, message_id: 1 }, async () => {});
+  const call = (name, args) => master(name, args, { from:{id:1}, chat: { id: 1 }, message_id: 1 }, async () => {});
   await assert.rejects(call('newbot', ['99:test_placeholder']), /master/);
   id = 42; await call('newbot', ['42:test_placeholder']);
   assert.equal(db.getBot('b42').defaultModel, 'configured-model');

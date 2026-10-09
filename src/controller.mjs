@@ -30,7 +30,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   let closing;
   const loud = new Map(), historyGaps = new Set();
   const gapKey = (botId, chatId) => `${botId}:${chatId}`;
-  const markGap = (botId, chatId) => { if (db.getChat(botId, chatId)?.chatType === 'group') historyGaps.add(gapKey(botId, chatId)); };
+  const markGap = (botId, chatId) => { if (db.getChat(botId, chatId)?.chatType && ['group','supergroup'].includes(db.getChat(botId, chatId).chatType)) historyGaps.add(gapKey(botId, chatId)); };
   const addGapHint = (id, events) => { const scope = scopes.get(id), index = events.findIndex(e => ['message', 'message_edited', 'button'].includes(e.eventType)); const key = scope && gapKey(scope.botId, scope.chatId); if (index >= 0 && historyGaps.delete(key)) events[index] = { ...events[index], historyGap: true }; return events; };
   const activeMessages = new Map();
   const requests = new Map(), consumed = new Map();
@@ -101,12 +101,12 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (chat.chatType === 'private') { const native = JSON.parse(chat.json); return { agentId, chatType: 'private', name: chat.name, ...(native.username ? { username: native.username } : {}), ...(a.agentId === scope.agentId ? { chatId: a.chatId } : {}) }; }
       try { const info = await chatDetails(scope, a.chatId); return { agentId, ...info, chatId: info.id, chatType: info.type, name: info.title ?? [info.first_name, info.last_name].filter(Boolean).join(' '), ...(info.linked_chat_id ? { linkedChatId: info.linked_chat_id } : {}) }; } catch { return { agentId, error: 'chat_unavailable', description: 'Current Telegram information could not be read.' }; }
     })) };
-    if (name === 'members') { if (db.getChat(scope.botId, scope.chatId).chatType !== 'group') throw new Error('members requires current group'); return { members: await Promise.all(args.userIds.map(async userId => { try { const m = await telegram.call(scope.botId, 'getChatMember', { chat_id: scope.chatId, user_id: userId }); return { userId, name: [m.user.first_name, m.user.last_name].filter(Boolean).join(' '), ...(m.user.username ? { username: m.user.username } : {}), status: m.status, ...(m.custom_title ? { customTitle: m.custom_title } : {}), ...(m.until_date > 0 ? { untilDate: new Date(m.until_date * 1000).toISOString() } : {}) }; } catch { return { userId, error: 'member_unavailable', description: 'Telegram member information could not be obtained.' }; } })) }; }
+    if (name === 'members') { if (db.getChat(scope.botId, scope.chatId).chatType && !['group','supergroup'].includes(db.getChat(scope.botId,scope.chatId).chatType)) throw new Error('members requires current group'); return { members: await Promise.all(args.userIds.map(async userId => { try { const m = await telegram.call(scope.botId, 'getChatMember', { chat_id: scope.chatId, user_id: userId }); return { userId, name: [m.user.first_name, m.user.last_name].filter(Boolean).join(' '), ...(m.user.username ? { username: m.user.username } : {}), status: m.status, ...(m.custom_title ? { customTitle: m.custom_title } : {}), ...(m.until_date > 0 ? { untilDate: new Date(m.until_date * 1000).toISOString() } : {}) }; } catch { return { userId, error: 'member_unavailable', description: 'Telegram member information could not be obtained.' }; } })) }; }
     if (name === 'agents') return { agents: db.sql.prepare('SELECT agents.*,chats.name,chats.chatType FROM agents JOIN chats USING(botId,chatId) WHERE botId=? ORDER BY createdAt,agentId').all(scope.botId).map(a => ({ agentId: a.agentId, chatType: a.chatType, name: a.name, ...(a.chatType !== 'private' || a.agentId === scope.agentId ? { chatId: a.chatId } : {}) })) };
     if (name === 'agent_message') {
       if (typeof args.text !== 'string' || [...args.text].length > 8000) throw new Error('Agent message exceeds 8000 Unicode code points');
       const target = db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(scope.botId, args.agentId);
-      if (!target || isStopping(target.botId, target.chatId) || db.getChat(scope.botId, target.chatId)?.chatType === 'private' && !db.role(scope.botId, target.chatId)) throw Object.assign(new Error('The target agent is unavailable. The message was not queued.'), { code: 'agent_unavailable' });
+      if (!target || !db.getChat(target.botId,target.chatId)?.agentEnabled || isStopping(target.botId, target.chatId) || db.getChat(scope.botId, target.chatId)?.chatType === 'private' && !db.role(scope.botId, target.chatId)) throw Object.assign(new Error('The target agent is unavailable. The message was not queued.'), { code: 'agent_unavailable' });
       db.sql.prepare('INSERT INTO agent_messages(botId,fromAgentId,toAgentId,date,text) VALUES(?,?,?,?,?)').run(scope.botId, scope.agentId, target.agentId, clock(), args.text);
       if (!requests.has(target.agentId)) requests.set(target.agentId, new Map()); const req = requests.get(target.agentId); req.set(scope.agentId, (req.get(scope.agentId) ?? 0) + 1);
       scopes.set(target.agentId, lifecycle.scope({ botId: target.botId, agentId: target.agentId, chatId: target.chatId }));
@@ -161,7 +161,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     const scope = scopes.get(id); lifecycle.invalidate(id); onError(error);
     try { await telegram.call(scope.botId, 'sendMessage', { chat_id: scope.chatId, text: `Ошибка агента ${id}. Очередь очищена.` }); } catch {}
   } });
-  const scheduler = new Scheduler({ db, clock, enqueue: (id, event) => { const target = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(id); if (!target || isStopping(target.botId, target.chatId)) return; scopes.set(id, lifecycle.scope({ botId: target.botId, chatId: target.chatId, agentId: id })); if (gate.held.has(target.botId)) queue.setPaused(id, true); queue.enqueue(id, event, 'schedule'); }, notify: async (task, description) => { const a = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(task.agentId); if (!a) return; try { await telegram.call(a.botId, 'sendMessage', { chat_id: a.chatId, text: [`Ошибка задачи ${task.taskId}; агент ${a.agentId}.`, task.description, task.at ?? `${task.cron} (${task.timezone})`, (() => { const pending = db.sql.prepare("SELECT * FROM task_firings WHERE taskId=? AND state='pending'").get(task.taskId); return pending ? `Пропущено ${pending.count} срабатываний с ${new Date(pending.firstAt).toISOString()}` : ''; })(), description, `/retry_task ${task.taskId}`, `/cancel_task ${task.taskId}`].filter(Boolean).join('\n').slice(0, 4000) }); } catch {} } });
+  const scheduler = new Scheduler({ db, clock, enqueue: (id, event) => { const target = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(id); if (!target || !db.getChat(target.botId,target.chatId)?.agentEnabled || isStopping(target.botId, target.chatId)) return; scopes.set(id, lifecycle.scope({ botId: target.botId, chatId: target.chatId, agentId: id })); if (gate.held.has(target.botId)) queue.setPaused(id, true); queue.enqueue(id, event, 'schedule'); }, notify: async (task, description) => { const a = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(task.agentId); if (!a) return; try { await telegram.call(a.botId, 'sendMessage', { chat_id: a.chatId, text: [`Ошибка задачи ${task.taskId}; агент ${a.agentId}.`, task.description, task.at ?? `${task.cron} (${task.timezone})`, (() => { const pending = db.sql.prepare("SELECT * FROM task_firings WHERE taskId=? AND state='pending'").get(task.taskId); return pending ? `Пропущено ${pending.count} срабатываний с ${new Date(pending.firstAt).toISOString()}` : ''; })(), description, `/task retry ${task.taskId}`, `/task delete ${task.taskId}`].filter(Boolean).join('\n').slice(0, 4000) }); } catch {} } });
   const updateAction = id => {
     if (actions.has(id)) clearInterval(actions.get(id)); actions.delete(id);
     const action = availability.get(id) === 'working' ? 'typing' : images.get(id)?.size ? 'upload_photo' : null;
@@ -176,6 +176,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (isStopping(botId, list[0].chat.id) || deleting.has(botId) || !db.getBot(botId) || !db.getChat(botId, list[0].chat.id)) return false;
     list = list.map(message => db.getMessage(botId, message.chat.id, message.message_id)).filter(Boolean);
     if (!list.length || list[0].chat.type === 'private' && !db.role(botId, list[0].chat.id)) return false;
+    if (!db.getChat(botId,list[0].chat.id)?.agentEnabled) return false;
     const m = list[0], key = `${botId}:${m.chat.id}`;
     if (m.chat.type !== 'private') { if (trigger) loud.set(key, { until: clock() + 120000, remaining: 10 }); else if (!activatedAlbum) { const listen = loud.get(key); if (!listen || listen.until <= clock() || listen.remaining <= 0) { markGap(botId, m.chat.id); return false; } listen.remaining--; } }
     const a = db.ensureAgent(botId, m.chat.id); scopes.set(a.agentId, lifecycle.scope({ botId, chatId: m.chat.id, agentId: a.agentId }));
@@ -189,7 +190,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   const stopAgent = async (botId, chatId, { leave = true } = {}) => {
     const key = `${botId}:${chatId}`; if (stopping.has(key)) throw new Error("Chat is already stopping.");
     const a = db.agent(botId, chatId), chat = db.getChat(botId, chatId); if (!chat) return;
-    stopping.add(key);
+    stopping.add(key); albums.clearChat(botId,chatId);
     try {
     if (a) {
       queue.setPaused(a.agentId, true); lifecycle.invalidate(a.agentId); queue.clear(a.agentId);
@@ -201,7 +202,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (config?.botsDir && fs.existsSync(path.join(config.botsDir, botId, '.temp', a.agentId))) new BotFiles(path.join(config.botsDir, botId), a.agentId).remove(`.temp/${a.agentId}`);
       stores.delete(a.agentId); requests.delete(a.agentId); consumed.delete(a.agentId); activeMessages.delete(a.agentId);
     }
-    loud.delete(`${botId}:${chatId}`); historyGaps.delete(gapKey(botId, chatId));
+    loud.delete(`${botId}:${chatId}`);albums.clearChat(botId,chatId); historyGaps.delete(gapKey(botId, chatId));
     if (leave && chat.chatType !== 'private') await telegram.call(botId, 'leaveChat', { chat_id: chatId });
     db.sql.prepare('DELETE FROM chats WHERE botId=? AND chatId=?').run(botId, chatId);
     } finally { stopping.delete(key); }
@@ -221,12 +222,12 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         if (!current?.contextResetPending || lifecycle.closed || isStopping(record.botId, record.chatId)) return;
         lifecycle.invalidate(id);
         await agent.deleteSession?.(id, current.threadId);
-        db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL,contextResetPending=0 WHERE agentId=?').run(id);
+        db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL,contextResetPending=0,stopPending=0 WHERE agentId=?').run(id);
         activeMessages.delete(id);
       }, id);
     }).catch(async error => {
       onError(error);
-      if (!lifecycle.closed && !deleting.has(record.botId) && !isStopping(record.botId, record.chatId)) try { await telegram.call(record.botId, 'sendMessage', {chat_id:record.chatId,text:`Не удалось очистить контекст ${id}. Повторите /clear ${id}.`}); } catch {}
+      if (!lifecycle.closed && !deleting.has(record.botId) && !isStopping(record.botId, record.chatId)) try { await telegram.call(record.botId, 'sendMessage', {chat_id:record.chatId,text:`Не удалось очистить контекст ${id}. Повторите /agent clear ${id}.`}); } catch {}
     }).finally(() => {
       resets.delete(id);
       if (!lifecycle.closed && !db.sql.prepare('SELECT contextResetPending FROM agents WHERE agentId=?').get(id)?.contextResetPending) queue.setHeld(id, 'context-reset', false);
@@ -244,6 +245,28 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     });
     await Promise.all(items.filter(x=>!x.busy).map(x=>x.work));
     return items.map(({a,busy}) => `${busy ? 'Очистка запланирована после завершения работы' : db.sql.prepare('SELECT contextResetPending FROM agents WHERE agentId=?').get(a.agentId)?.contextResetPending ? 'Очистка не выполнена; повторите команду' : 'Контекст очищен'}: ${a.agentId}`).join('\n');
+  };
+  const stateStops = new Map();
+  const finishStop = record => {
+    if(stateStops.has(record.agentId)) return stateStops.get(record.agentId);
+    queue.setHeld(record.agentId,'disabled',true);
+    const work=Promise.resolve().then(async()=>{
+      await queue.idleAgent(record.agentId); await agent.waitBackground?.(record.agentId); await gate.idleScope(record.agentId);
+      if(lifecycle.closed) return;
+      await resetContext(record);
+      const current=db.sql.prepare('SELECT contextResetPending FROM agents WHERE agentId=?').get(record.agentId);
+      if(current && !current.contextResetPending) db.sql.prepare('UPDATE agents SET stopPending=0 WHERE agentId=?').run(record.agentId);
+    }).catch(onError).finally(()=>stateStops.delete(record.agentId)); stateStops.set(record.agentId,work);return work;
+  };
+  const setAgentState = async (botId,chatId,enabled) => {
+    const chat=db.getChat(botId,chatId);if(!chat)throw new Error('Chat is not connected.');
+    if(enabled && (chat.chatType==='channel' || JSON.parse(chat.json).is_forum))throw new Error('This chat does not support an agent.');
+    let a=db.agent(botId,chatId);
+    if(enabled){if(a?.stopPending)throw new Error('Agent is stopping. Retry after completion.');if(chat.agentEnabled)return 'Уже включён';db.sql.prepare('UPDATE chats SET agentEnabled=1 WHERE botId=? AND chatId=?').run(botId,chatId);a=db.ensureAgent(botId,chatId);scopes.set(a.agentId,lifecycle.scope({botId,chatId,agentId:a.agentId}));queue.setHeld(a.agentId,'disabled',false);return `Агент включён. Пропущенных задач: ${scheduler.resume(a.agentId)}`;}
+    if(!chat.agentEnabled && !a?.stopPending)return 'Уже выключен';
+    db.sql.prepare('UPDATE chats SET agentEnabled=0 WHERE botId=? AND chatId=?').run(botId,chatId);loud.delete(`${botId}:${chatId}`);albums.clearChat(botId,chatId);
+    if(a){db.sql.prepare('UPDATE agents SET stopPending=1,contextResetPending=1 WHERE agentId=?').run(a.agentId);queue.setHeld(a.agentId,'disabled',true);scheduler.disable(a.agentId);queue.clear(a.agentId);const busy=Boolean(queue.agentJobs.get(a.agentId)?.size || agent.hasBackground?.(a.agentId));const work=finishStop(a);if(!busy)await work;}
+    return a && db.agent(botId,chatId)?.stopPending ? 'Агент выключается' : 'Агент выключен';
   };
   const fetchDocument = async (botId, document) => { const f = await telegram.call(botId, 'getFile', { file_id: document.file_id }); const response = await fetch(`https://api.telegram.org/file/bot${await telegram.getToken(botId)}/${f.file_path}`); if (!response.ok) throw new Error('Download failed'); return Buffer.from(await response.arrayBuffer()); };
   const updateRules = async (botId, document, force) => {
@@ -287,14 +310,16 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   };
   const rawFileCommands = config ? createFileCommands({ db, config, telegram, fetchDocument, gitSetup: (botId, args, old) => gitSetup({ db, config, pauseBot }, botId, args, old) }) : undefined;
   const fileCommands = rawFileCommands ? (botId, name, ...args) => name === 'git_setup' ? rawFileCommands(botId, name, ...args) : gate.run(botId, () => rawFileCommands(botId, name, ...args)) : undefined;
-  const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, updateRules, clearContext, models: () => agent.models(), masterCommands, fileCommands });
-  for (const record of db.sql.prepare('SELECT * FROM agents WHERE contextResetPending=1').all()) resetContext(record);
+  const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'выключается' : availability.get(id) ?? 'свободен',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), masterCommands, fileCommands });
+  for (const record of db.sql.prepare('SELECT * FROM agents').all()) {if(!db.getChat(record.botId,record.chatId).agentEnabled)queue.setHeld(record.agentId,'disabled',true);if(record.stopPending)finishStop(record);else if(record.contextResetPending)resetContext(record);}
   return {
     queue, lifecycle, invoke, scheduler, stopAgent,
     async receive(botId, update) {
       const route = update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? update.my_chat_member?.chat?.id;
       if (isStopping(botId, route)) { if (update.callback_query) await telegram.call(botId, "answerCallbackQuery", { callback_query_id: update.callback_query.id, text: "Бот занят" }); return; }
       if (deleting.has(botId)) return;
+      const observedChat=update.message?.chat??update.edited_message?.chat??update.callback_query?.message?.chat;
+      if(botId!=='master'&&observedChat?.is_forum){if(db.getChat(botId,observedChat.id))await stopAgent(botId,observedChat.id);else await telegram.call(botId,'leaveChat',{chat_id:observedChat.id});return;}
       const commandMessage = update.message;
       if (commandMessage && await commands.handle(botId, commandMessage)) return;
       if (botId === 'master') return;
@@ -303,10 +328,10 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (update.callback_query) {
         const cb = update.callback_query, m = cb.message;
         const ack = text => telegram.call(botId, 'answerCallbackQuery', { callback_query_id: cb.id, ...(text ? { text, show_alert: true } : {}) });
-        if (!m || !db.getChat(botId, m.chat.id) || ['supergroup', 'channel'].includes(m.chat.type) || m.chat.type === 'private' && !db.role(botId, cb.from.id)) { await ack('Кнопка недоступна'); return; }
+        if (!m || !db.getChat(botId, m.chat.id) || m.chat.type === 'channel' || m.chat.type === 'private' && !db.role(botId, cb.from.id)) { await ack('Кнопка недоступна'); return; }
         const stored = db.getMessage(botId, m.chat.id, m.message_id), a = db.agent(botId, m.chat.id);
         const button = buttons({ rich: stored?.rich_message, keyboard: stored?.reply_markup }).find(b => b.callback_data === cb.data);
-        if (!button || button.disabled || !a) { await ack('Кнопка недоступна'); return; }
+        if (!button || button.disabled || !a || !db.getChat(botId,m.chat.id)?.agentEnabled) { await ack('Кнопка недоступна'); return; }
         const state = db.sql.prepare('SELECT * FROM button_state WHERE botId=? AND chatId=? AND messageId=?').get(botId, m.chat.id, m.message_id);
         if (m.chat.type !== 'private' && !permitsAllow(state?.permits ? JSON.parse(state.permits) : null, cb.data, cb.from.id)) { await ack('Нет доступа'); return; }
         let parsed; try { parsed = parseCallback(cb.data); } catch { await ack('Кнопка недоступна'); return; }
@@ -316,7 +341,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         if (parsed.group) db.sql.prepare('INSERT INTO button_state(botId,chatId,messageId,closed) VALUES(?,?,?,?) ON CONFLICT(botId,chatId,messageId) DO UPDATE SET closed=excluded.closed').run(botId, m.chat.id, m.message_id, JSON.stringify([...closed, parsed.group]));
         scopes.set(a.agentId, lifecycle.scope({ botId, agentId: a.agentId, chatId: m.chat.id }));
         const busy = queue.state(a.agentId).busy;
-        if (m.chat.type === 'group') loud.set(`${botId}:${m.chat.id}`, { until: clock() + 120000, remaining: 10 });
+        if (['group','supergroup'].includes(m.chat.type)) loud.set(`${botId}:${m.chat.id}`, { until: clock() + 120000, remaining: 10 });
         await ack(busy ? 'Принято, ожидает обработки' : undefined);
         if (parsed.group) {
           const changed = closeButtons(stored, parsed.group, cb.data);
@@ -334,32 +359,40 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         const { chat, from, new_chat_member: member } = update.my_chat_member;
         if (['left', 'kicked'].includes(member.status)) { await stopAgent(botId, chat.id, { leave: false }); return; }
         if (chat.type === 'private' || !['member', 'administrator'].includes(member.status)) return;
-        if (chat.is_forum || (roles[db.role(botId, from.id)] ?? 0) < roles.manager) { await telegram.call(botId, 'leaveChat', { chat_id: chat.id }); return; }
+        if (chat.is_forum) { if(db.getChat(botId,chat.id))await stopAgent(botId,chat.id);else await telegram.call(botId,'leaveChat',{chat_id:chat.id});return; }
+        if ((roles[db.role(botId, from.id)] ?? 0) < roles.manager) { await telegram.call(botId, 'leaveChat', { chat_id: chat.id }); return; }
         db.saveChat(botId, chat); return;
       }
       const edited = Boolean(update.edited_message || update.edited_channel_post);
       const m = update.message ?? update.channel_post ?? update.edited_message ?? update.edited_channel_post;
       if (!m) return;
-      if (m.migrate_to_chat_id) { await stopAgent(botId, m.chat.id, { leave: false }); await telegram.call(botId, 'leaveChat', { chat_id: m.migrate_to_chat_id }); return; }
-      if (m.migrate_from_chat_id) { await stopAgent(botId, m.migrate_from_chat_id, { leave: false }); await stopAgent(botId, m.chat.id, { leave: false }); await telegram.call(botId, 'leaveChat', { chat_id: m.chat.id }); return; }
+      if (m.migrate_to_chat_id || m.migrate_from_chat_id) {
+        const oldId=m.migrate_from_chat_id??m.chat.id,newChat=m.migrate_to_chat_id?{...m.chat,id:m.migrate_to_chat_id,type:'supergroup'}:m.chat;
+        if(newChat.is_forum){await stopAgent(botId,oldId,{leave:false});if(db.getChat(botId,newChat.id))await stopAgent(botId,newChat.id);else await telegram.call(botId,'leaveChat',{chat_id:newChat.id});return;}
+        const a=db.agent(botId,oldId);
+        if(a)queue.setHeld(a.agentId,'migration',true);
+        try{if(a){await queue.idleAgent(a.agentId);await agent.waitBackground?.(a.agentId);await gate.idleScope(a.agentId);}db.migrateChat(botId,oldId,newChat);loud.delete(`${botId}:${oldId}`);historyGaps.delete(gapKey(botId,oldId));if(a){agent.detach?.(a.agentId);lifecycle.invalidate(a.agentId);scopes.set(a.agentId,lifecycle.scope({botId,chatId:newChat.id,agentId:a.agentId}));}}
+        finally{if(a)queue.setHeld(a.agentId,'migration',false);}return;
+      }
       if (m.chat.is_forum) { await stopAgent(botId, m.chat.id); return; }
       if (m.chat.type === 'private' ? !db.role(botId, m.from?.id) : !db.getChat(botId, m.chat.id)) return;
       db.saveMessage(botId, m);
       if (serviceFields.some(field => m[field] !== undefined)) return;
       if (edited) {
-        const a = db.agent(botId, m.chat.id); if (!a || m.location?.live_period) return;
+        const a = db.agent(botId, m.chat.id); if (!a || !db.getChat(botId,m.chat.id)?.agentEnabled || m.location?.live_period) return;
         const state = queue.state(a.agentId), active = activeMessages.get(a.agentId), pending = state.events.find(e => Array.isArray(e.event) ? e.event.some(item => item.messageId === m.message_id) : e.event.messageId === m.message_id);
         if (pending) pending.event = Array.isArray(pending.event) ? pending.event.map(item => item.messageId === m.message_id ? shortMessage(m, item.eventType) : item) : shortMessage(m, pending.event.eventType);
         else if (active?.messages.has(m.message_id) && !active.edits.has(m.message_id)) queue.enqueue(a.agentId, shortMessage(m, 'message_edited'), 'chat');
         return;
       }
-      if (['supergroup', 'channel'].includes(m.chat.type)) return;
+      if (m.chat.type === 'channel') return;
+      if(!db.getChat(botId,m.chat.id)?.agentEnabled){markGap(botId,m.chat.id);return;}
       const bot = db.getBot(botId), content = m.text ?? m.caption ?? '';
       const trigger = !m.is_automatic_forward && matchesTrigger(content, JSON.parse(db.getChat(botId,m.chat.id).triggers)) || m.reply_to_message?.from?.id === bot.telegramId || (m.entities ?? m.caption_entities ?? []).some(e => e.type === 'mention' && content.slice(e.offset, e.offset + e.length).toLowerCase() === '@' + bot.username.toLowerCase());
       if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${m.media_group_id}`, { ...m, __botId: botId }, trigger);
       else deliver(botId, [m], trigger);
     },
-    idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values()]); } while (queue.jobs.size || resets.size); await gate.idle(); await closing; },
+    idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values()]); } while (queue.jobs.size || resets.size || stateStops.size); await gate.idle(); await closing; },
     close() { for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= agent.close?.(); },
   };
 }

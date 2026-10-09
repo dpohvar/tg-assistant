@@ -27,7 +27,7 @@ test('router uses the same parser for files, master commands and quoted upload',
  const quote={...msg('/upload file name.txt'),entities:[{type:'code',offset:8,length:13}]};
  await router.handle('b',{...msg(''),document:{file_id:'f'},reply_to_message:quote});
  assert.deepEqual(calls.pop().args,[{type:'code',value:'file name.txt'}]);
- await router.handle('master',{...msg('/newbot 123:abc'),entities:[{type:'code',offset:8,length:7}]});
+ await router.handle('master',{...msg('/bot add 123:abc'),entities:[{type:'code',offset:9,length:7}]});
  assert.deepEqual(calls.pop(),{n:'newbot',args:['123:abc']});
  await router.handle('b',{...msg('/rm a'),entities:[{type:'bold',offset:4,length:1}]});
  assert.equal(calls.length,0);assert.match(replies.at(-1).text,/Unsupported formatting/);

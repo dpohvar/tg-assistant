@@ -9,7 +9,7 @@ export function createFileCommands({ db, config, telegram, fetchDocument, gitSet
     const root = path.join(config.botsDir, botId), store = new BotFiles(root, 'admin', { admin: true });
     const parts = args.map(a => a.value), filename = parts[0];
     if (name === 'ls') return store.list(filename ?? '.').join('\n');
-    if (name === 'cat') { const bytes = store.read(filename), content = bytes.toString('utf8'); if ([...content].length > 3000) return 'Файл слишком длинный для /cat. Используйте /download.'; return { text: `${escape(filename)}\n<pre>${escape(content)}</pre>`, parse_mode: 'HTML' }; }
+    if (name === 'cat') { const bytes = store.read(filename), content = bytes.toString('utf8');  return { text: `${escape(filename.slice(0,200))}\n<pre>${escape(content.slice(0,3000))}</pre>${content.length>3000?'\n[обрезано]':''}`, parse_mode: 'HTML' }; }
     if (name === 'download') { await telegram.call(botId, 'sendDocument', { chat_id: message.chat.id, document: 'attach://file', reply_parameters: { message_id: message.message_id } }, { uploads: [{ name: 'file', filename: path.basename(filename), bytes: store.read(filename) }] }); return null; }
     if (name === 'rm') { store.remove(filename); return 'Удалено'; }
     if (name === 'mv') { store.move(parts[0], parts[1]); return 'Перемещено'; }

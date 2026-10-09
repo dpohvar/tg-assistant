@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 const run = promisify(execFile);
-const missing = () => ({ error: 'git_not_configured', description: 'Git is not configured for this bot. Ask the owner to run /git_setup.' });
+const missing = () => ({ error: 'git_not_configured', description: 'Git is not configured for this bot. Ask the owner to run /git setup.' });
 export function gitAuth(secretRef) { const script = fileURLToPath(new URL('./askpass.mjs', import.meta.url)); if (process.platform !== 'win32') fs.chmodSync(script, 0o755); return secretRef ? { TG_GIT_TOKEN_FILE: secretRef, GIT_ASKPASS: script.replaceAll('\\', '/') } : {}; }
 export async function gitRun(root, args, env = {}) { const childEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', ...env }; for (const k of Object.keys(childEnv)) if (/^GIT_TRACE/.test(k)) delete childEnv[k]; const result = await run('git', ['-c', 'core.hooksPath=' + (process.platform === 'win32' ? 'NUL' : '/dev/null'), '-c', 'credential.helper=', '-c', 'core.fsmonitor=false', '-c', 'commit.gpgsign=false', ...args], { cwd: root, env: childEnv, windowsHide: true, timeout: 120000, maxBuffer: 4 * 1024 * 1024 }); return result.stdout.trimEnd(); }
 export async function gitChanges({ root, configured, branch }) {

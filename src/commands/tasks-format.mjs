@@ -8,6 +8,7 @@ export function formatTasks(tasks, offset, total) {
     if (index) text += '\n\n';
     append(task.taskId, 'code'); text += ' ';
     append(task.at ?? `${task.cron} (${task.timezone})`, 'italic');
+    if(task.state)text+='\n'+task.state+(task.missed?' — пропущено: '+task.missed:'');
     if (task.description) { text += '\n'; append(task.description, 'bold'); }
     if (task.text) { text += '\n'; append(task.text, 'pre'); }
   });

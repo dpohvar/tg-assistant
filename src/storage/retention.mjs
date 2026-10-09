@@ -11,6 +11,6 @@ export async function retention({ db, config, telegram, now = Date.now() }) {
       try { if (expireGenerated(config, image.path, now)) { db.sql.prepare('DELETE FROM generated_images WHERE path=?').run(image.path); } }
       catch { errors.push(`Generated image ${image.path}: deletion failed; remove manually on the server`); }
     }
-    if (errors.length) { const report = `Ошибка очистки:\n${errors.join('\n')}\nПовторить: /cleanup_temp; вручную: /rm путь`; try { await telegram.call(bot.botId, 'sendMessage', { chat_id: bot.ownerId, text: [...report].slice(0, 3900).join('') + ([...report].length > 3900 ? '\n[обрезано]' : '') }); } catch {} }
+    if (errors.length) { const report = `Ошибка очистки:\n${errors.join('\n')}\nПовторить: /temp cleanup; вручную: /rm путь`; try { await telegram.call(bot.botId, 'sendMessage', { chat_id: bot.ownerId, text: [...report].slice(0, 3900).join('') + ([...report].length > 3900 ? '\n[обрезано]' : '') }); } catch {} }
   }
 }

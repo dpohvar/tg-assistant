@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {openDatabase} from '../../src/storage/database.mjs';
 import {createController} from '../../src/controller.mjs';
 function fixture(t, run) {
- const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'test',ownerId:1});db.saveChat('b',{id:-1,type:'group'});
+ const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'test',ownerId:1});db.saveChat('b',{id:-1,type:'group'});db.ensureAgent('b',-1);
  let now=1000; const batches=[];
  const c=createController({db,clock:()=>now,telegram:{call:async()=>({})},agent:{run:async(s,e)=>{batches.push(e);await run?.(batches.length,s,e);}}});
  t.after(async()=>{c.close();await c.idle();db.close();});

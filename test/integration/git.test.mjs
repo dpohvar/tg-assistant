@@ -27,7 +27,7 @@ test('sync stages unstaged/untracked wiki files but excludes pre-staged temp fil
 });
 test('agent git tools report missing configuration as an error', async () => {
   const result = await gitChanges({ configured: false });
-  assert.equal(result.error, 'git_not_configured'); assert.match(result.description, /git_setup/);
+  assert.equal(result.error, 'git_not_configured'); assert.match(result.description, /git setup/);
 });
 
 test('git authentication helper supplies credentials to an HTTP challenge', async t => {
@@ -59,7 +59,7 @@ test('git_sync preserves multiline pre as the actual commit message', async t =>
  const replies=[],telegram={call:async(_b,_m,a)=>replies.push(a)};
  const config={botsDir:dir};const fileCommands=createFileCommands({db,config,telegram});const router=createCommands({db,config,telegram,fileCommands});
  const body='Title\n\nFirst line\nSecond line';
- await router.handle('b',{text:'/git_sync '+body,entities:[{type:'pre',offset:10,length:body.length}],message_id:1,from:{id:1},chat:{id:1,type:'private'}});
+ await router.handle('b',{text:'/git sync '+body,entities:[{type:'pre',offset:10,length:body.length}],message_id:1,from:{id:1},chat:{id:1,type:'private'}});
  assert.equal(JSON.parse(replies.at(-1).text).push,'ok');
  assert.equal(await gitRun(repo,['log','-1','--format=%B']),body);
 });
