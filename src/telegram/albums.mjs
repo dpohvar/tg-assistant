@@ -8,5 +8,6 @@ export class AlbumCollector {
     s.timer = this.setTimer(() => { this.states.delete(key); const active = this.activated.has(key); if (this.onReady(s.messages, s.trigger, active)) this.activated.set(key, this.clock()); }, Math.min(1000, Math.max(0, s.first + 3000 - this.clock())));
   }
   cleanup() { for (const [key, at] of this.activated) if (at < this.clock() - 30 * 86400000) this.activated.delete(key); }
+  clearChat(botId, chatId) { const prefix=`${botId}:${chatId}:`; for(const [key,state] of this.states)if(key.startsWith(prefix)){this.clearTimer(state.timer);this.states.delete(key);}for(const key of this.activated.keys())if(key.startsWith(prefix))this.activated.delete(key); }
   close() { for (const s of this.states.values()) this.clearTimer(s.timer); this.states.clear(); this.activated.clear(); }
 }

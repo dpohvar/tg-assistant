@@ -7,7 +7,7 @@ export function createMaster({ db, config, onBotAdded = () => {}, onBotRemoved =
     const respond = text => reply('master', message, text);
     if (name === 'newbot') {
       if (args.length < 1 || args.length > 2 || !/^\d+:[\w-]+$/.test(args[0])) throw new Error('Invalid token syntax');
-      const ownerId = args[1] ? Number(args[1]) : config.serviceOwnerId;
+      const ownerId = args[1] ? Number(args[1]) : message.from.id;
       if (!Number.isSafeInteger(ownerId) || ownerId <= 0) throw new Error('Invalid owner ID');
       const me = await probeToken(args[0]);
       if (me.id === config.masterTelegramId) throw new Error('Cannot register the master bot as a child.');
@@ -21,7 +21,7 @@ export function createMaster({ db, config, onBotAdded = () => {}, onBotRemoved =
     if (name === 'bots') { if (args.length) throw new Error('No arguments expected'); const bots = db.sql.prepare('SELECT * FROM bots ORDER BY telegramId').all(); await respond(bots.map(b => `@${b.username} ${b.telegramId} owner ${b.ownerId}`).join('\n') || 'Записей нет'); return; }
     const bot = db.sql.prepare('SELECT * FROM bots WHERE lower(username)=lower(?)').get((args[0] ?? '').replace(/^@/, ''));
     if (!bot) throw new Error('Unknown bot');
-    if (name === 'set_owner') { const userId = Number(args[1]); if (args.length !== 2 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error('Invalid owner ID'); db.sql.prepare('UPDATE bots SET ownerId=? WHERE botId=?').run(userId, bot.botId); await respond('Владелец изменён'); return; }
+    if (name === 'set_owner') { const userId = Number(args[1]); if (args.length !== 2 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error('Invalid owner ID'); if(userId!==bot.ownerId) db.transaction(()=>{db.setRole(bot.botId,bot.ownerId,'admin');db.sql.prepare('UPDATE bots SET ownerId=? WHERE botId=?').run(userId,bot.botId);}); await respond('Владелец изменён'); return; }
     if (name === 'delete_bot') {
       if (args.length === 1) { await respond(`@${bot.username} ${bot.telegramId}, owner ${bot.ownerId}\n/delete_bot @${bot.username} ${bot.telegramId}\n/delete_bot @${bot.username} ${bot.telegramId} all`); return; }
       if (Number(args[1]) !== bot.telegramId || args.length > 3 || args[2] && args[2] !== 'all') throw new Error('Invalid deletion arguments');

@@ -22,18 +22,22 @@ export class Scheduler {
   fire(taskId, at) {
     const t = this.task(taskId); if (!t) return;
     this.db.sql.prepare("INSERT INTO task_firings(taskId,state,firstAt,lastAt,count) VALUES(?,'pending',?,?,1) ON CONFLICT(taskId,state) DO UPDATE SET lastAt=excluded.lastAt,count=count+1").run(taskId, at, at);
+    if(!this.enabled(t.agentId))this.disable(t.agentId);
     this.offer(taskId);
   }
+  enabled(agentId) { return Boolean(this.db.sql.prepare('SELECT agentEnabled FROM chats JOIN agents USING(botId,chatId) WHERE agentId=?').get(agentId)?.agentEnabled); }
+  disable(agentId) { for(const t of this.db.sql.prepare('SELECT taskId FROM tasks WHERE agentId=?').all(agentId)) { this.queued.delete(t.taskId); this.retries.delete(t.taskId); this.db.sql.prepare("UPDATE task_firings SET missedReason='agent_disabled' WHERE taskId=? AND state='pending'").run(t.taskId); } }
+  resume(agentId) { const ids=this.db.sql.prepare("SELECT tasks.taskId FROM tasks JOIN task_firings USING(taskId) WHERE agentId=? AND state='pending'").all(agentId); for(const t of ids)this.offer(t.taskId); return ids.length; }
   offer(taskId) {
     if (this.queued.has(taskId) || this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='processing'").get(taskId)) return;
-    const t = this.task(taskId); if (!t || !this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='pending'").get(taskId)) return;
+    const t = this.task(taskId); if (t && !this.enabled(t.agentId)) { this.disable(t.agentId); return; } if (!t || !this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='pending'").get(taskId)) return;
     this.queued.add(taskId); this.enqueue(t.agentId, { eventType: 'scheduled', taskId });
   }
   take(taskId) {
     this.queued.delete(taskId); const retry = this.retries.delete(taskId); const t = this.task(taskId); if (!t) return null;
     const pending = this.db.sql.prepare("SELECT * FROM task_firings WHERE taskId=? AND state='pending'").get(taskId); if (!pending) return null;
     this.db.sql.prepare("UPDATE task_firings SET state='processing' WHERE taskId=? AND state='pending'").run(taskId);
-    return { eventType: 'scheduled', taskId, ...(retry ? { retry: true } : {}), scheduledAt: new Date(pending.firstAt).toISOString(), text: t.text, ...(t.cron ? { timezone: t.timezone } : {}), ...(pending.count > 1 ? { occurrences: pending.count, lastScheduledAt: new Date(pending.lastAt).toISOString() } : {}) };
+    return { eventType: 'scheduled', taskId, ...(retry ? { retry: true } : {}), ...(pending.missedReason ? { missedReason:pending.missedReason } : {}), scheduledAt: new Date(pending.firstAt).toISOString(), text: t.text, ...(t.cron ? { timezone: t.timezone } : {}), ...(pending.count > 1 ? { occurrences: pending.count, lastScheduledAt: new Date(pending.lastAt).toISOString() } : {}) };
   }
   complete(taskId, success) {
     const t = this.task(taskId); if (!t) return;
@@ -52,8 +56,9 @@ export class Scheduler {
     for (const t of this.db.sql.prepare('SELECT * FROM tasks').all()) { if (!this.db.sql.prepare('SELECT 1 FROM task_firings WHERE taskId=?').get(t.taskId)) this.arm(t); else { this.offer(t.taskId); if (t.cron) this.arm(t); } }
   }
   retry(taskId) {
+    if (!this.enabled(this.task(taskId)?.agentId)) throw new Error('Agent is disabled. Use /agent start first.');
     if (this.queued.has(taskId) || this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='processing'").get(taskId)) throw new Error('Event is being processed.');
-    if (!this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='pending' AND failed=1").get(taskId)) throw new Error('No missed event is available to retry.');
+    if (!this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='pending' AND (failed=1 OR missedReason IS NOT NULL)").get(taskId)) throw new Error('No missed event is available to retry.');
     this.retries.add(taskId); this.offer(taskId);
   }
   failQueued(agentId) {

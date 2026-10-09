@@ -12,8 +12,8 @@ export function openDatabase(filename) {
     sql.exec('BEGIN IMMEDIATE');
     sql.exec('CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY)');
     const version = sql.prepare('SELECT COALESCE(MAX(version),0) AS version FROM schema_migrations').get().version;
-    if (version > 7) throw new Error('Database uses a newer schema than this controller supports.');
-    for (let n = 1; n <= 7; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
+    if (version > 8) throw new Error('Database uses a newer schema than this controller supports.');
+    for (let n = 1; n <= 8; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
       sql.exec(fs.readFileSync(new URL(`./migrations/${String(n).padStart(3, '0')}.sql`, import.meta.url), 'utf8'));
     }
     sql.exec('COMMIT');
@@ -35,13 +35,28 @@ export function openDatabase(filename) {
     agent(botId, chatId) { return sql.prepare('SELECT * FROM agents WHERE botId=? AND chatId=?').get(botId, chatId) ?? null; },
     ensureAgent(botId, chatId) {
       const existing = this.agent(botId, chatId); if (existing) return existing;
+      sql.prepare('UPDATE chats SET agentEnabled=1 WHERE botId=? AND chatId=?').run(botId,chatId);
       const bot = getBot(botId); if (!bot) throw new Error('Unknown bot');
       const agentId = 'a' + randomUUID().replaceAll('-', '');
       sql.prepare('INSERT INTO agents(agentId,botId,chatId,model,createdAt) VALUES(?,?,?,?,?)').run(agentId, botId, chatId, bot.defaultModel, Date.now());
       return this.agent(botId, chatId);
     },
+    migrateChat(botId,oldId,chat) {
+      const old=this.getChat(botId,oldId);if(!old)return;
+      this.transaction(()=>{
+        sql.exec('PRAGMA defer_foreign_keys=ON');
+        const existing=this.getChat(botId,chat.id);
+        if(existing && (this.agent(botId,chat.id)||sql.prepare('SELECT 1 FROM messages WHERE botId=? AND chatId=?').get(botId,chat.id)))throw new Error('Migration target already contains dialog data.');
+        this.saveChat(botId,chat);
+        sql.prepare('UPDATE chats SET agentEnabled=?,triggers=? WHERE botId=? AND chatId=?').run(old.agentEnabled,old.triggers,botId,chat.id);
+        for(const table of ['agents','messages','button_state'])sql.prepare(`UPDATE ${table} SET chatId=? WHERE botId=? AND chatId=?`).run(chat.id,botId,oldId);
+        for(const row of sql.prepare('SELECT messageId,json FROM messages WHERE botId=? AND chatId=?').all(botId,chat.id)){const m=JSON.parse(row.json);m.chat={...m.chat,...chat};sql.prepare('UPDATE messages SET json=? WHERE botId=? AND chatId=? AND messageId=?').run(JSON.stringify(m),botId,chat.id,row.messageId);}
+        sql.prepare('DELETE FROM chats WHERE botId=? AND chatId=?').run(botId,oldId);
+      });
+    },
     saveMessage(botId, m, receivedAt = Date.now()) {
-      this.saveChat(botId, m.chat);
+      const known = this.getChat(botId, m.chat.id); this.saveChat(botId, m.chat);
+      if (!known && m.chat.type === 'private') sql.prepare('UPDATE chats SET agentEnabled=1 WHERE botId=? AND chatId=?').run(botId,m.chat.id);
       const existing = this.messageRecord(botId, m.chat.id, m.message_id);
       const reactions = existing ? JSON.parse(existing.json).reactions : undefined;
       if (reactions && !m.reactions) m = { ...m, reactions };

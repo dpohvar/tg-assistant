@@ -15,7 +15,7 @@ test('removing a private user deletes the dialog and makes previously issued sco
   t.after(() => { c.close(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   const scope = c.lifecycle.scope(old); c.scheduler.timers = false;
   c.scheduler.schedule(old, { at: '2027-01-01T00:00:00Z', description: 'private', text: 'private work' });
-  await c.receive('b', { message: { message_id: 5, date: 1000, chat: { id: 1, type: 'private' }, from: { id: 1 }, text: '/remove_user 2' } });
+  await c.receive('b', { message: { message_id: 5, date: 1000, chat: { id: 1, type: 'private' }, from: { id: 1 }, text: '/user delete 2' } });
   assert.equal(db.role('b', 2), null); assert.equal(db.getChat('b', 2), null);
   assert.equal(db.agent('b', 2), null); assert.equal(db.getMessage('b', 2, 1), null);
   assert.deepEqual(deleted, [old.agentId]);
