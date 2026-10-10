@@ -4,8 +4,8 @@ export function parseArguments(text, entities = [], start = 0) {
   const lexical = new Set(['bot_command', 'url', 'mention', 'hashtag', 'cashtag', 'email', 'phone_number']);
   for (const e of entities) {
     if (!Number.isInteger(e.offset) || !Number.isInteger(e.length) || e.offset < 0 || e.length < 1 || e.offset + e.length > text.length) throw syntaxError('Invalid command entity range.');
-    if (!['code', 'pre'].includes(e.type)) {
-      if (!lexical.has(e.type)) throw syntaxError('Unsupported formatting. Commands accept only code and pre blocks.');
+    if (!['code', 'pre', 'spoiler'].includes(e.type)) {
+      if (!lexical.has(e.type)) throw syntaxError('Unsupported formatting. Commands accept only code, spoiler and pre blocks.');
       continue;
     }
     if (e.offset < start) throw syntaxError('Formatting cannot overlap the command name.');
@@ -16,7 +16,7 @@ export function parseArguments(text, entities = [], start = 0) {
   const plain = value => { for (const word of value.match(/\S+/gu) ?? []) result.push({ type:'text', value:word }); };
   for (const e of blocks) {
     if (e.offset < position) throw syntaxError('Command blocks cannot overlap.');
-    plain(text.slice(position,e.offset)); result.push({type:e.type,value:text.slice(e.offset,e.offset+e.length)}); position=e.offset+e.length;
+    plain(text.slice(position,e.offset)); result.push({type:e.type==='spoiler'?'code':e.type,value:text.slice(e.offset,e.offset+e.length)}); position=e.offset+e.length;
   }
   plain(text.slice(position)); return result;
 }

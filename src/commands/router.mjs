@@ -1,3 +1,4 @@
+import {createVault} from '../storage/vault.mjs';
 import { handleChat } from "./chat.mjs";
 import { handleTask } from "./task.mjs";
 import { handleAgent } from "./agent.mjs";
@@ -151,7 +152,7 @@ export function createCommands(deps) {
               items.map(render).join("\n")
           : "Записей нет";
       };
-      let sensitive =
+      let sensitive = (section === "vault" && /^\s*set(?:\s|$)/.test(source.text.slice(match[0].trimEnd().length))) ||
         (section === "bot" &&
           /^\s*add(?:\s|$)/.test(
             source.text.slice(match[0].trimEnd().length),
@@ -167,6 +168,7 @@ export function createCommands(deps) {
           parts = parsed.map((a) => a.value);
         sensitive =
           sensitive ||
+          (section === "vault" && parts[0] === "set") ||
           (section === "bot" && parts[0] === "add") ||
           (section === "git" && parts[0] === "setup" && parts.length > 1);
         if (
@@ -175,6 +177,16 @@ export function createCommands(deps) {
           !(section === "git" && parts[0] === "sync")
         )
           throw syntaxError("Pre blocks are not accepted here.");
+        if (section === "vault") {
+          if (botId === "master" || group || m.chat.type !== "private") throw syntaxError("Vault commands are available only in private chats with a child bot.");
+          requireAdmin();
+          const vault=createVault(db), action=parts[0] ?? 'list';
+          if(action==='list' && parts.length<=1) await send(vault.list(botId).join('\n') || 'Секретов нет');
+          else if(action==='set' && parts.length===3) {vault.set(botId,parts[1],parts[2]);await send('Секрет сохранён');}
+          else if(action==='delete' && parts.length===2) await send(vault.delete(botId,parts[1])?'Секрет удалён':'Секрет не найден');
+          else throw syntaxError('Invalid vault arguments.');
+          return true;
+        }
         if (section === "help") {
           if (parts.length > 1) throw syntaxError("Invalid arguments.");
           const help = helpSections({
