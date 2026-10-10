@@ -1,3 +1,4 @@
+import {createVault} from './storage/vault.mjs';
 import { matchesTrigger } from './telegram/triggers.mjs';
 import { browserRead } from './readers/browser.mjs';
 import { pdfRead } from './readers/pdf.mjs';
@@ -85,6 +86,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (name === 'schedule') return scheduler.schedule(scope, args);
     if (name === 'tasks') return scheduler.list(scope, args.taskIds);
     if (name === 'cancel_tasks') return scheduler.cancel(scope, args.taskIds);
+    if (name === 'vault_get') return createVault(db).get(scope.botId, args.name);
     if (name === 'git_changes' || name === 'git_sync') { const settings = db.sql.prepare('SELECT * FROM git_settings WHERE botId=?').get(scope.botId); const options = { configured: Boolean(settings), root: path.join(config.botsDir, scope.botId), branch: settings?.branch, env: gitAuth(settings?.secretRef) }; return name === 'git_changes' ? gitChanges(options) : gitSync(options, args.message); }
     if (name === 'download') return download(scope, args);
     if (name === 'save_image') return filesFor(scope).saveImage(scope.threadId, args.savedPath, args.dir);
