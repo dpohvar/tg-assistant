@@ -1,3 +1,4 @@
+import {handleWebSocketCommand} from './websocket.mjs';
 import {createVault} from '../storage/vault.mjs';
 import { handleChat } from "./chat.mjs";
 import { handleTask } from "./task.mjs";
@@ -177,6 +178,7 @@ export function createCommands(deps) {
           !(section === "git" && parts[0] === "sync")
         )
           throw syntaxError("Pre blocks are not accepted here.");
+        if (section === "ws") { requireAdmin(); if(botId === "master") throw syntaxError("WebSockets are available only for child bots."); await handleWebSocketCommand({botId,message:m,parts,manager:deps.websockets,target,send}); return true; }
         if (section === "vault") {
           if (botId === "master" || group || m.chat.type !== "private") throw syntaxError("Vault commands are available only in private chats with a child bot.");
           requireAdmin();

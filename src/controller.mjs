@@ -1,4 +1,5 @@
 import {createVault} from './storage/vault.mjs';
+import {WebSocketManager} from './websocket/manager.mjs';
 import { matchesTrigger } from './telegram/triggers.mjs';
 import { browserRead } from './readers/browser.mjs';
 import { pdfRead } from './readers/pdf.mjs';
@@ -88,6 +89,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (name === 'cancel_tasks') return scheduler.cancel(scope, args.taskIds);
     if (name === 'vault_get') return createVault(db).get(scope.botId, args.name);
     if (name === 'git_changes' || name === 'git_sync') { const settings = db.sql.prepare('SELECT * FROM git_settings WHERE botId=?').get(scope.botId); const options = { configured: Boolean(settings), root: path.join(config.botsDir, scope.botId), branch: settings?.branch, env: gitAuth(settings?.secretRef) }; return name === 'git_changes' ? gitChanges(options) : gitSync(options, args.message); }
+    if (name.startsWith('ws_')) { if(!config?.botsDir) throw new Error('File storage is not configured'); const method=name.slice(3); if(!['open','list','pull','send','close','delete'].includes(method)) throw new Error('Unknown WebSocket tool'); const result=await websockets[method](scope, ['close','delete'].includes(method)?args.connectionId:args); assertCurrent(scope); return result; }
     if (name === 'download') return download(scope, args);
     if (name === 'save_image') return filesFor(scope).saveImage(scope.threadId, args.savedPath, args.dir);
     if (['read', 'history', 'search'].includes(name)) return history[name](scope, args);
@@ -178,6 +180,13 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   agent.onAvailability = (id, status) => { availability.set(id, status); queue.setWaiting(id, status === 'waiting'); updateAction(id); };
   agent.onImageStatus = (id, image, active) => { if (!images.has(id)) images.set(id, new Set()); active ? images.get(id).add(image) : images.get(id).delete(image); updateAction(id); };
   agent.assertCurrent = scope => assertCurrent(scope);
+  const websockets = new WebSocketManager({botsDir:config?.botsDir,clock,onError,onEvent:(owner,event)=>{
+    const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(owner.botId,owner.agentId);
+    if(!a||!db.getChat(a.botId,a.chatId)?.agentEnabled||deleting.has(a.botId)||isStopping(a.botId,a.chatId)||lifecycle.closed)return;
+    const scope=lifecycle.scope({botId:a.botId,chatId:a.chatId,agentId:a.agentId});scopes.set(a.agentId,scope);
+    if(event.eventType==='websocket_ready' && queue.state(a.agentId).events.some(x=>x.source==='websocket'&&x.event.eventType===event.eventType&&x.event.connectionId===event.connectionId))return;
+    queue.enqueue(a.agentId,event,'websocket',()=>{try{lifecycle.assertCurrent(scope);return Boolean(db.getChat(a.botId,a.chatId)?.agentEnabled)&&(event.eventType!=='websocket_ready'||Boolean(websockets.records.get(event.connectionId)?.buffer.length));}catch{return false;}});
+  }});
   const deliver = (botId, list, trigger, activatedAlbum = false) => {
     if (isStopping(botId, list[0].chat.id) || deleting.has(botId) || !db.getBot(botId) || !db.getChat(botId, list[0].chat.id)) return false;
     list = list.map(message => db.getMessage(botId, message.chat.id, message.message_id)).filter(Boolean);
@@ -199,10 +208,11 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     stopping.add(key); albums.clearChat(botId,chatId);
     try {
     if (a) {
+      websockets.deleteAgent(a.agentId);
       queue.setPaused(a.agentId, true); lifecycle.invalidate(a.agentId); queue.clear(a.agentId);
       for (const t of scheduler.list(a).tasks) scheduler.cancel(a, [t.taskId]);
       if (actions.has(a.agentId)) clearInterval(actions.get(a.agentId)); actions.delete(a.agentId); availability.delete(a.agentId); images.delete(a.agentId);
-      await agent.deleteSession?.(a.agentId, a.threadId);
+      await agent.deleteSession?.(a.agentId, a.threadId); websockets.closeAgent(a.agentId,'context_reset');
       await gate.idleScope(a.agentId); await queue.idleAgent(a.agentId);
       db.sql.prepare('DELETE FROM agent_messages WHERE botId=? AND (fromAgentId=? OR toAgentId=?)').run(botId, a.agentId, a.agentId);
       if (config?.botsDir && fs.existsSync(path.join(config.botsDir, botId, '.temp', a.agentId))) new BotFiles(path.join(config.botsDir, botId), a.agentId).remove(`.temp/${a.agentId}`);
@@ -227,6 +237,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         const current = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(id);
         if (!current?.contextResetPending || lifecycle.closed || isStopping(record.botId, record.chatId)) return;
         lifecycle.invalidate(id);
+        websockets.closeAgent(id,'context_reset');
         await agent.deleteSession?.(id, current.threadId);
         db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL,contextResetPending=0,stopPending=0 WHERE agentId=?').run(id);
         activeMessages.delete(id);
@@ -281,13 +292,13 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     db.sql.prepare('UPDATE bots SET rulesVersion=rulesVersion+1 WHERE botId=?').run(botId);
     for (const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(botId)) {
       if (!force && (queue.state(a.agentId).busy || agent.hasBackground?.(a.agentId))) continue;
-      lifecycle.invalidate(a.agentId); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(a.agentId); await agent.deleteSession?.(a.agentId, a.threadId);
+      lifecycle.invalidate(a.agentId); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(a.agentId); await agent.deleteSession?.(a.agentId, a.threadId); websockets.closeAgent(a.agentId,'context_reset');
     }
   };
   const masterCommands = config ? createMaster({ db, config,
     onBotAdded: id => { deleting.delete(id); gate.held.delete(id); config.onBotAdded?.(id); },
     onBotRemoved: async id => {
-      deleting.add(id);
+      deleting.add(id); websockets.deleteBot(id);
       for (const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(id)) { queue.setPaused(a.agentId, true); lifecycle.invalidate(a.agentId); agent.detach?.(a.agentId); }
       await config.onBotRemoved?.(id);
       await pauseBot(id);
@@ -306,7 +317,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         const agents = db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(botId);
         for (const a of agents) { queue.setPaused(a.agentId, true); lifecycle.invalidate(a.agentId); }
         for (const a of agents) {
-          await agent.deleteSession?.(a.agentId, a.threadId);
+          await agent.deleteSession?.(a.agentId, a.threadId); websockets.closeAgent(a.agentId,'context_reset');
           db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(a.agentId);
           await queue.idleAgent(a.agentId);
         }
@@ -316,10 +327,10 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   };
   const rawFileCommands = config ? createFileCommands({ db, config, telegram, fetchDocument, gitSetup: (botId, args, old) => gitSetup({ db, config, pauseBot }, botId, args, old) }) : undefined;
   const fileCommands = rawFileCommands ? (botId, name, ...args) => name === 'git_setup' ? rawFileCommands(botId, name, ...args) : gate.run(botId, () => rawFileCommands(botId, name, ...args)) : undefined;
-  const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'выключается' : availability.get(id) ?? 'свободен',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), masterCommands, fileCommands });
+  const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'выключается' : availability.get(id) ?? 'свободен',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets, masterCommands, fileCommands });
   for (const record of db.sql.prepare('SELECT * FROM agents').all()) {if(!db.getChat(record.botId,record.chatId).agentEnabled)queue.setHeld(record.agentId,'disabled',true);if(record.stopPending)finishStop(record);else if(record.contextResetPending)resetContext(record);}
   return {
-    queue, lifecycle, invoke, scheduler, stopAgent,
+    queue, lifecycle, invoke, scheduler, stopAgent, websockets,
     async receive(botId, update) {
       const route = update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? update.my_chat_member?.chat?.id;
       if (isStopping(botId, route)) { if (update.callback_query) await telegram.call(botId, "answerCallbackQuery", { callback_query_id: update.callback_query.id, text: "Бот занят" }); return; }
@@ -399,6 +410,6 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       else deliver(botId, [m], trigger);
     },
     idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values()]); } while (queue.jobs.size || resets.size || stateStops.size); await gate.idle(); await closing; },
-    close() { for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= agent.close?.(); },
+    close() { websockets.shutdown(); for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= agent.close?.(); },
   };
 }

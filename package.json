@@ -16,6 +16,8 @@
   "dependencies": {
     "@js-temporal/polyfill": "0.5.1",
     "croner": "10.0.1",
-    "playwright-core": "1.64.0"
+    "playwright-core": "1.64.0",
+    "smol-toml": "1.9.1",
+    "ws": "8.22.0"
   }
 }

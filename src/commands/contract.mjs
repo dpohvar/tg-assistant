@@ -1,6 +1,6 @@
 import { syntaxError } from "./arguments.mjs";
 export const sections = [
-  "vault",
+  "vault", "ws",
   "agent",
   "task",
   "chat",

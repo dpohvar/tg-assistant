@@ -16,6 +16,7 @@ export function helpSections({ master = false, role, group = false }) {
   if (group && manager)
     result.triggers = "/triggers\n/triggers set [TRIGGER …]";
   if (admin) {
+    result.ws = "/ws list [AGENT_ID|in CHAT_ID]\n/ws close CONNECTION_ID\n/ws delete CONNECTION_ID";
     result.agent +=
       "\n/agent status|stop|clear [AGENT_ID|in CHAT_ID]\n/agent stop|clear *\n/agent start in CHAT_ID\n/agent list [RANGE]\n/agent messages [RANGE] [(from|to) agent AGENT_ID|chat CHAT_ID]\n/agent model [AGENT_ID|in CHAT_ID|default]\n/agent model set [AGENT_ID|in CHAT_ID|*|default] MODEL_NAME\n/agent models";
     result.task +=
