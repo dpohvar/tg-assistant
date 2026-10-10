@@ -1,6 +1,6 @@
 import {createVault} from './storage/vault.mjs';
 import {WebSocketManager} from './websocket/manager.mjs';
-import { matchesTrigger } from './telegram/triggers.mjs';
+import { messageTriggers } from './telegram/triggers.mjs';
 import { browserRead } from './readers/browser.mjs';
 import { pdfRead } from './readers/pdf.mjs';
 import { filterChatInfo } from './telegram/chat-info.mjs';
@@ -192,6 +192,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   }});
   const deliver = (botId, list, trigger, activatedAlbum = false) => {
     if (isStopping(botId, list[0].chat.id) || deleting.has(botId) || !db.getBot(botId) || !db.getChat(botId, list[0].chat.id)) return false;
+    const triggersById=new Map(list.map(m=>[m.message_id,m.__triggers]));
     list = list.map(message => db.getMessage(botId, message.chat.id, message.message_id)).filter(Boolean);
     if (!list.length || list[0].chat.type === 'private' && !db.role(botId, list[0].chat.id)) return false;
     if (!db.getChat(botId,list[0].chat.id)?.agentEnabled) return false;
@@ -200,7 +201,8 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     const a = db.ensureAgent(botId, m.chat.id); scopes.set(a.agentId, lifecycle.scope({ botId, chatId: m.chat.id, agentId: a.agentId }));
     if (gate.held.has(botId)) queue.setPaused(a.agentId, true);
     const deadline = m.chat.type !== 'private' && !trigger && !activatedAlbum ? loud.get(key)?.until : null;
-    const accepted = queue.enqueue(a.agentId, list.length === 1 ? shortMessage(m) : list.map(m => shortMessage(m)), 'chat', deadline !== null ? () => clock() < deadline : undefined) === 'accepted';
+    const events=list.map(message=>({...shortMessage(message),...(triggersById.get(message.message_id)?.length?{triggers:triggersById.get(message.message_id)}:{})}));
+    const accepted = queue.enqueue(a.agentId, list.length === 1 ? events[0] : events, 'chat', deadline !== null ? () => clock() < deadline : undefined) === 'accepted';
     if (!accepted) markGap(botId, m.chat.id);
     return accepted;
   };
@@ -414,16 +416,16 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (edited) {
         const a = db.agent(botId, m.chat.id); if (!a || !db.getChat(botId,m.chat.id)?.agentEnabled || m.location?.live_period) return;
         const state = queue.state(a.agentId), active = activeMessages.get(a.agentId), pending = state.events.find(e => Array.isArray(e.event) ? e.event.some(item => item.messageId === m.message_id) : e.event.messageId === m.message_id);
-        if (pending) pending.event = Array.isArray(pending.event) ? pending.event.map(item => item.messageId === m.message_id ? shortMessage(m, item.eventType) : item) : shortMessage(m, pending.event.eventType);
+        const replacement=item=>({...shortMessage(m,item.eventType),...(item.triggers?{triggers:item.triggers}:{})});
+        if (pending) pending.event = Array.isArray(pending.event) ? pending.event.map(item => item.messageId === m.message_id ? replacement(item) : item) : replacement(pending.event);
         else if (active?.messages.has(m.message_id) && !active.edits.has(m.message_id)) queue.enqueue(a.agentId, shortMessage(m, 'message_edited'), 'chat');
         return;
       }
       if (m.chat.type === 'channel') return;
       if(!db.getChat(botId,m.chat.id)?.agentEnabled){markGap(botId,m.chat.id);return;}
-      const bot = db.getBot(botId), content = m.text ?? m.caption ?? '';
-      const trigger = !m.is_automatic_forward && matchesTrigger(content, JSON.parse(db.getChat(botId,m.chat.id).triggers)) || m.reply_to_message?.from?.id === bot.telegramId || (m.entities ?? m.caption_entities ?? []).some(e => e.type === 'mention' && content.slice(e.offset, e.offset + e.length).toLowerCase() === '@' + bot.username.toLowerCase());
-      if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${m.media_group_id}`, { ...m, __botId: botId }, trigger);
-      else deliver(botId, [m], trigger);
+      const triggers=messageTriggers(m,db.getBot(botId),JSON.parse(db.getChat(botId,m.chat.id).triggers)),trigger=triggers.length>0;
+      if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${m.media_group_id}`, { ...m, __botId: botId, __triggers:triggers }, trigger);
+      else deliver(botId, [{...m,__triggers:triggers}], trigger);
     },
     idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await gate.idle(); await closing; },
     close() { websockets.shutdown(); for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= agent.close?.(); },
