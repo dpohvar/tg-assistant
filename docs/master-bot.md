@@ -8,8 +8,8 @@ The master bot manages child registrations. It has no conversational agent. Only
 
 | Command | Result |
 |---|---|
-| `/help` | Master command help |
-| `/help bot` | Bot management section (the only master help section) |
+| `/help` | English argument-formatting guide and bot management section description |
+| `/help bot` | Detailed English bot management help (the only master help section) |
 | `/bot`, `/bot list [RANGE]` | Registered child bots |
 | `/bot add TOKEN [OWNER_ID]` | Register a child bot and assign its application owner |
 | `/bot info @BotName` | Profile, Telegram bot ID, owner and chat/agent counts |

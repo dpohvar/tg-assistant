@@ -12,7 +12,7 @@ import {
   validateArguments,
 } from "./arguments.mjs";
 import { parseTarget, pagination, commandError } from "./contract.mjs";
-import { helpSections } from "./help.mjs";
+import { helpSections, helpMessages } from "./help.mjs";
 import { createAccess } from "../access/scope.mjs";
 import { createAdministrativeCommands, range } from "./administrative.mjs";
 import { formatAgents } from "./agents-format.mjs";
@@ -62,6 +62,8 @@ export function createCommands(deps) {
       if (!match) return false;
       const section = match[1].toLowerCase();
       if (quoted && !["rules", "upload"].includes(section)) return false;
+      // Only the argument-free rules invitation accepts a document reply.
+      if (quoted && section === 'rules' && !/^\/rules(?:@[\w]+)?\s+set\s*$/i.test(source.text ?? '')) return false;
       if (
         match[2] &&
         match[2].toLowerCase() !== db.getBot(botId)?.username.toLowerCase()
@@ -176,6 +178,7 @@ export function createCommands(deps) {
         if (
           parsed.some((a) => a.type === "pre") &&
           section !== "edit" && !(section === "mcp" && parts[0] === "set" && parsed.length===3 && parsed[2].type === "pre" && parsed[0].type !== "pre" && parsed[1].type !== "pre") &&
+          !(section === 'rules' && parsed.length === 2 && parsed[0].type !== 'pre' && parts[0] === 'set' && parsed[1].type === 'pre') &&
           !(section === "git" && parts[0] === "sync")
         )
           throw syntaxError("Pre blocks are not accepted here.");
@@ -200,13 +203,7 @@ export function createCommands(deps) {
           });
           if (parts[0] && !help[parts[0]])
             throw syntaxError("Unknown or unavailable section.");
-          await send(
-            parts[0]
-              ? help[parts[0]]
-              : Object.entries(help)
-                  .map(([k, v]) => k + "\n" + v)
-                  .join("\n\n") || "Нет доступных команд.",
-          );
+          for (const message of helpMessages(help, parts[0])) await send(message);
           return true;
         }
         if (botId === "master") {
@@ -465,6 +462,14 @@ export function createCommands(deps) {
         let name = section,
           args = parsed;
         if (section === "rules") {
+          if (parts.length === 2 && parts[0] === 'set' && parsed[1].type === 'pre') {
+            requireAdmin();
+            if (m.chat.type !== 'private') throw syntaxError('Rules can be changed only in private chats.');
+            if (!parts[1].trim()) throw syntaxError('The rules pre block must not be empty.');
+            await deps.updateRules(botId, {text:parts[1]}, false);
+            await send('Правила обновлены. Контекст агентов будет очищен.');
+            return true;
+          }
           if (parts.length === 1 && parts[0] === "set") {
             name = "set_rules";
             args = parsed.slice(1);

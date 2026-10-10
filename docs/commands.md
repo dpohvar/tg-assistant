@@ -8,16 +8,16 @@ In the tables, **local** means `user` or higher in a private chat and `manager` 
 
 ## Syntax, formatting and help
 
-Optional arguments appear in brackets; uppercase names are placeholders. Commands may use the Telegram suffix `/command@BotName`; a suffix naming another bot is ignored. Ordinary whitespace, including newlines, separates arguments. Telegram inline `code` and `spoiler` entities preserve their contents as one argument; a `pre` entity preserves a multiline argument. Entity boundaries also separate arguments. Quotes alone do not group words. Other styling, overlapping entities, and formatting over the command name are rejected. Pre blocks are accepted only for `/edit`, `/git sync`, and the TOML argument of `/mcp set`. Send actual Telegram formatted entities: literal Markdown fence characters alone do not create a pre block.
+Optional arguments appear in brackets; uppercase names are placeholders. Commands may use the Telegram suffix `/command@BotName`; a suffix naming another bot is ignored. Ordinary whitespace, including newlines, separates arguments. Telegram inline `code` and `spoiler` entities preserve their contents as one argument; a `pre` entity preserves a multiline argument. Entity boundaries also separate arguments. Quotes alone do not group words. Other styling, overlapping entities, and formatting over the command name are rejected. Pre blocks are accepted only for `/edit`, `/git sync`, the instructions argument of `/rules set`, and the TOML argument of `/mcp set`. Send actual Telegram formatted entities: literal Markdown fence characters alone do not create a pre block.
 
 `RANGE` is a positive one-based position `N` or inclusive `FROM-TO`, for example `11-20`. The default is positions 1–10. Filters apply before pagination. Lists show `FROM-TO / TOTAL` or an empty-result message. Long formatted output may be truncated; it is not automatically attached as a file. Responses and errors reply to the command. Syntax errors offer the relevant help section where recognized. Commands are handled by the controller without a model turn; command text is not ordinary agent history.
 
 | Command | Result |
 |---|---|
-| `/help` | Commands available to the caller in this chat |
+| `/help` | Argument-formatting guide and an index of available sections with descriptions |
 | `/help SECTION` | One available section: `agent`, `task`, `chat`, `triggers`, `ws`, `mcp`, `vault`, `user`, `owner`, `rules`, `git`, `file`, or `temp` |
 
-Help follows role and chat restrictions; an unavailable or unknown section is an error. Master help is documented on [Master bot](master-bot.md).
+Help is in English and follows role and chat restrictions; an unavailable or unknown section is an error. `/help SECTION` explains each available command's effects, targets, defaults, permissions and retained/deleted data. Command syntax uses code entities. Long help is sent as multiple replies, split between entries without truncation. `/help user` also explains all four roles and their inherited permissions, distinct from Telegram administrator rights. Master help is documented on [Master bot](master-bot.md).
 
 ## Agent lifecycle
 
@@ -114,10 +114,11 @@ These commands require Admin and a private chat, except that ownership transfer 
 | `/owner set USER_ID` | Transfer ownership to an already authorized user |
 | `/rules` | Download current bot-wide `AGENTS.md` |
 | `/rules set` | Replace rules using the document reply protocol below |
+| `/rules set PRE_BLOCK` | Replace rules with the exact contents of one nonempty Telegram pre block |
 
 Users sort by owner/admin/manager/user, then ascending user ID. Admin can manage only user/manager, cannot change another admin, assign admin, or change itself. Owner can manage admins but cannot alter/remove the owner through `/user`. Ownership transfer is atomic; the previous owner becomes admin. Transfer to self is unchanged. No confirmation is required. This changes application ownership, not BotFather ownership. Master assignment differs; see [Master bot](master-bot.md).
 
-Rules are shared by all bot agents. Updating them waits for current work and clears contexts to replace instructions; history, notes, wiki and tasks remain. `/rules set` has no `force` argument. See [Security](security.md).
+Rules are shared by all bot agents. Updating them waits for current work and clears contexts to replace instructions; history, notes, wiki and tasks remain. `/rules set` has no `force` argument. The inline form accepts exactly one pre block and preserves whitespace; whitespace-only content is rejected. It ignores the quoted message entirely, including an attached document and its ownership/edit status. Sending a document in reply to the inline form is not a rules upload: only the argument-free `/rules set` invitation accepts one. See [Security](security.md).
 
 ## Files and Git
 

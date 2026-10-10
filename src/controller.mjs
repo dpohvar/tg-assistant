@@ -292,7 +292,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   };
   const fetchDocument = async (botId, document) => { const f = await telegram.call(botId, 'getFile', { file_id: document.file_id }); const response = await fetch(`https://api.telegram.org/file/bot${await telegram.getToken(botId)}/${f.file_path}`); if (!response.ok) throw new Error('Download failed'); return Buffer.from(await response.arrayBuffer()); };
   const updateRules = async (botId, document, force) => {
-    const bytes = await fetchDocument(botId, document); new TextDecoder('utf8', { fatal: true }).decode(bytes);
+    const bytes = typeof document.text === 'string' ? Buffer.from(document.text, 'utf8') : await fetchDocument(botId, document); new TextDecoder('utf8', { fatal: true }).decode(bytes);
     const rulesDir = path.join(config.dataDir, 'rules', botId); fs.mkdirSync(rulesDir, { recursive: true }); fs.writeFileSync(path.join(rulesDir, 'AGENTS.md'), bytes);
     db.sql.prepare('UPDATE bots SET rulesVersion=rulesVersion+1 WHERE botId=?').run(botId);
     for (const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(botId)) {
