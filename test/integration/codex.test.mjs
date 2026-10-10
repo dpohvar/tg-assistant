@@ -114,6 +114,10 @@ test('rules version belongs to instructions read before awaited thread creation'
  for(let i=0;i<100&&!fs.existsSync(marker);i++) await new Promise(r=>setTimeout(r,10));
  const instructions=fs.readFileSync(marker,'utf8'); assert.match(instructions,/Bot data/); assert.match(instructions,/Profile description/); assert.match(instructions,/Short profile/); assert.match(instructions,/\"userId\":42/);
  assert.match(instructions,/triggers lists why a group message was delivered/);assert.match(instructions,/mention:@username/);
+ assert.match(instructions,/call user_roles to check their current role/);
+ assert.match(instructions,/do not rely on memory or earlier results/);
+ assert.match(instructions,/If the role is irrelevant to the current action, do not query it/);
+ assert.match(instructions,/separate from Telegram chat administrator status/);
  assert.ok(fs.existsSync(marker)); db.sql.prepare('UPDATE bots SET rulesVersion=rulesVersion+1 WHERE botId=?').run('b');
  await work; assert.equal(db.agent('b',1).threadRulesVersion,version); assert.notEqual(version,db.getBot('b').rulesVersion);
 });

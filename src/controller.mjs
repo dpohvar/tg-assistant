@@ -82,6 +82,12 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (db.getChat(scope.botId, scope.chatId)?.chatType === 'private' && !db.role(scope.botId, scope.chatId)) throw new Error('Private user is no longer authorized');
     if (name === 'rich_help') return richHelp();
     if (name === 'time') return { now: new Date().toISOString() };
+    if (name === 'user_roles') {
+      if (!Array.isArray(args.userIds) || args.userIds.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+        throw Object.assign(new Error('userIds must be an array of positive safe integers.'), { code: 'invalid_argument' });
+      }
+      return { users: args.userIds.map(userId => ({ userId, role: db.role(scope.botId, userId) })) };
+    }
     if (name === 'browser_read') return browserRead(args, { files: filesFor(scope) });
     if (name === 'pdf_read') return pdfRead(filesFor(scope), args);
     if (name === 'schedule') return scheduler.schedule(scope, args);
