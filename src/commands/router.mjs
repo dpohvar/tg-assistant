@@ -1,3 +1,4 @@
+import {handleMcpCommand} from './mcp.mjs';
 import {handleWebSocketCommand} from './websocket.mjs';
 import {createVault} from '../storage/vault.mjs';
 import { handleChat } from "./chat.mjs";
@@ -153,7 +154,7 @@ export function createCommands(deps) {
               items.map(render).join("\n")
           : "Записей нет";
       };
-      let sensitive = (section === "vault" && /^\s*set(?:\s|$)/.test(source.text.slice(match[0].trimEnd().length))) ||
+      let sensitive = (section === "mcp" && /^\s*set(?:\s|$)/.test(source.text.slice(match[0].trimEnd().length))) || (section === "vault" && /^\s*set(?:\s|$)/.test(source.text.slice(match[0].trimEnd().length))) ||
         (section === "bot" &&
           /^\s*add(?:\s|$)/.test(
             source.text.slice(match[0].trimEnd().length),
@@ -169,15 +170,16 @@ export function createCommands(deps) {
           parts = parsed.map((a) => a.value);
         sensitive =
           sensitive ||
-          (section === "vault" && parts[0] === "set") ||
+          (section === "mcp" && parts[0] === "set") || (section === "vault" && parts[0] === "set") ||
           (section === "bot" && parts[0] === "add") ||
           (section === "git" && parts[0] === "setup" && parts.length > 1);
         if (
           parsed.some((a) => a.type === "pre") &&
-          section !== "edit" &&
+          section !== "edit" && !(section === "mcp" && parts[0] === "set" && parsed.length===3 && parsed[2].type === "pre" && parsed[0].type !== "pre" && parsed[1].type !== "pre") &&
           !(section === "git" && parts[0] === "sync")
         )
           throw syntaxError("Pre blocks are not accepted here.");
+        if (section === "mcp") { requireAdmin(); if(botId === "master" || m.chat.type !== "private") throw syntaxError("MCP settings are available only in private chats with a child bot."); await handleMcpCommand({botId,parsed,send,db,requestMcpRefresh:deps.requestMcpRefresh,testMcp:deps.testMcp}); return true; }
         if (section === "ws") { requireAdmin(); if(botId === "master") throw syntaxError("WebSockets are available only for child bots."); await handleWebSocketCommand({botId,message:m,parts,manager:deps.websockets,target,send}); return true; }
         if (section === "vault") {
           if (botId === "master" || group || m.chat.type !== "private") throw syntaxError("Vault commands are available only in private chats with a child bot.");

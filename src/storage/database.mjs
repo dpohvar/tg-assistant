@@ -12,8 +12,8 @@ export function openDatabase(filename) {
     sql.exec('BEGIN IMMEDIATE');
     sql.exec('CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY)');
     const version = sql.prepare('SELECT COALESCE(MAX(version),0) AS version FROM schema_migrations').get().version;
-    if (version > 9) throw new Error('Database uses a newer schema than this controller supports.');
-    for (let n = 1; n <= 9; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
+    if (version > 10) throw new Error('Database uses a newer schema than this controller supports.');
+    for (let n = 1; n <= 10; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
       sql.exec(fs.readFileSync(new URL(`./migrations/${String(n).padStart(3, '0')}.sql`, import.meta.url), 'utf8'));
     }
     sql.exec('COMMIT');

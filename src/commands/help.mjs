@@ -25,6 +25,7 @@ export function helpSections({ master = false, role, group = false }) {
       "\n/chat list [RANGE]\n/chat info CHAT_ID\n/chat leave CHAT_ID";
   }
   if (admin && !group) {
+    if(!group) result.mcp="/mcp list\n/mcp show NAME\n/mcp set NAME PRE_TOML\n/mcp test NAME\n/mcp delete NAME";
     result.vault = "/vault list\n/vault set NAME TOKEN\n/vault delete NAME";
     result.user =
       "/user list [RANGE]\n/user set USER_ID [role]\n/user delete USER_ID";

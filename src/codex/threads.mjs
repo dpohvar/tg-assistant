@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { RpcProcess } from './rpc.mjs';
+import {createMcpStore} from '../mcp/store.mjs';
+import {isolatedMcpArgs,testMcpRuntime} from '../mcp/runtime.mjs';
 const tool = (name, description, properties, required = []) => ({ type: 'function', name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } });
 export const dynamicTools = [
   tool('ws_open','Open a controller-owned ws/wss connection. Description <=100 characters without secrets. URL/headers may contain secrets: build them inside JavaScript, never print them. Incoming messages trigger short notifications; use ws_pull. Up to 10 records including closed.',{url:{type:'string'},description:{type:'string'},headers:{type:'object'}},['url','description']),
@@ -69,8 +71,9 @@ export class CodexAgent {
     fs.mkdirSync(path.join(cwd, '.git'), { recursive: true });
     const allow = { ':minimal': 'read', [cwd]: 'write', [path.join(cwd, '.git')]: 'deny', [path.join(cwd, '.temp')]: 'deny', [path.join(cwd, '.temp', scope.agentId)]: 'write', [path.dirname(this.config.codexExecutable)]: 'read' };
     const toml = '{' + Object.entries(allow).map(([p, v]) => `${JSON.stringify(p)}=${JSON.stringify(v)}`).join(',') + '}';
-    const args = this.spawnArgs ?? ['app-server', '--stdio', '--strict-config', '-c', 'approval_policy="never"', '-c', 'default_permissions="tg-agent"', '-c', `permissions.tg-agent.filesystem=${toml}`, '-c', 'permissions.tg-agent.network={enabled=true}', '-c', 'web_search="live"', '-c', 'features.multi_agent=true'];
+    let args = this.spawnArgs ?? ['app-server', '--stdio', '--strict-config', '-c', 'approval_policy="never"', '-c', 'default_permissions="tg-agent"', '-c', `permissions.tg-agent.filesystem=${toml}`, '-c', 'permissions.tg-agent.network={enabled=true}', '-c', 'web_search="live"', '-c', 'features.multi_agent=true'];
     const env = { ...process.env, CODEX_HOME: this.config.codexHome }; for (const k of Object.keys(env)) if (/TOKEN|SECRET|PASSWORD|API_KEY/i.test(k)) delete env[k];
+    if(!this.spawnArgs) args=await isolatedMcpArgs({executable:this.config.codexExecutable,args,cwd,env,botId:scope.botId,entries:createMcpStore(this.db).list(scope.botId)});
     const s = { scope, invoke, owned: new Set(), pendingChildren: new Set(), childFailure: null, turnId: null };
     const rpc = new RpcProcess({ executable: this.config.codexExecutable, args, cwd, env, handleRequest: async m => {
       if (m.method !== 'item/tool/call' || !s.owned.has(m.params.threadId)) throw new Error('Unknown request');
@@ -135,6 +138,14 @@ export class CodexAgent {
   async steer(agentId, events) { const s = this.sessions.get(agentId); if (!s?.turnId) throw Object.assign(new Error('No active turn'), { code: 'steer_expired' }); try { return await s.rpc.request('turn/steer', { threadId: s.threadId, expectedTurnId: s.turnId, input: [{ type: 'text', text: JSON.stringify(events), text_elements: [] }] }); } catch (error) { if (s.deleted) throw Object.assign(new Error('Session intentionally replaced.'), { code: 'rules_replaced' }); throw error; } }
   async deleteSession(agentId, savedThreadId) { const s = this.sessions.get(agentId); if (!s) { if (savedThreadId) await (await this.catalogRpc()).request('thread/delete', { threadId: savedThreadId }); return; } s.deleted = true; this.sessions.delete(agentId); try { if (s.turnId) { try { await s.rpc.request('turn/interrupt', { threadId: s.threadId, turnId: s.turnId }); } catch {} } if (s.threadId) await s.rpc.request('thread/delete', { threadId: s.threadId }); } finally { await s.rpc.close(); } }
   detach(agentId) { const s = this.sessions.get(agentId); if (s) { s.rpc.close(); this.sessions.delete(agentId); } }
+  async refreshSession(agentId) {const s=this.sessions.get(agentId);if(!s)return;this.sessions.delete(agentId);await s.rpc.close();}
+  async testMcp(botId,entry) {
+    const cwd=path.join(this.config.botsDir,botId);fs.mkdirSync(cwd,{recursive:true});
+    const toml='{":minimal"="read",'+JSON.stringify(cwd)+'="read",'+JSON.stringify(path.dirname(this.config.codexExecutable))+'="read"}';
+    const args=['app-server','--stdio','--strict-config','-c','approval_policy="never"','-c','default_permissions="tg-mcp-test"','-c',`permissions.tg-mcp-test.filesystem=${toml}`,'-c','permissions.tg-mcp-test.network={enabled=true}'];
+    const env={...process.env,CODEX_HOME:this.config.codexHome};for(const k of Object.keys(env))if(/TOKEN|SECRET|PASSWORD|API_KEY/i.test(k))delete env[k];
+    return testMcpRuntime({executable:this.config.codexExecutable,args,cwd,env,botId,entry});
+  }
   async catalogRpc() {
     if (!this.catalog) {
       const env = { ...process.env, CODEX_HOME: this.config.codexHome }; for (const k of Object.keys(env)) if (/TOKEN|SECRET|PASSWORD|API_KEY/i.test(k)) delete env[k];

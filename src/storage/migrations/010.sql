@@ -1,0 +1,8 @@
+CREATE TABLE mcp_servers(
+ botId TEXT NOT NULL REFERENCES bots(botId) ON DELETE CASCADE,
+ name TEXT NOT NULL,
+ configJson TEXT NOT NULL,
+ PRIMARY KEY(botId,name)
+);
+ALTER TABLE bots ADD COLUMN mcpRevision INTEGER NOT NULL DEFAULT 0;
+INSERT INTO schema_migrations VALUES(10);

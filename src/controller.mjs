@@ -326,8 +326,21 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     return () => { release(); resumeBot(botId); };
   };
   const rawFileCommands = config ? createFileCommands({ db, config, telegram, fetchDocument, gitSetup: (botId, args, old) => gitSetup({ db, config, pauseBot }, botId, args, old) }) : undefined;
+  const mcpRefreshes=new Map();
+  const requestMcpRefresh=botId=>{
+    for(const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(botId)){
+      const id=a.agentId;if(mcpRefreshes.has(id))continue;
+      queue.setHeld(id,'mcp-refresh',true);
+      const work=Promise.resolve().then(async()=>{
+        await queue.idleAgent(id);await agent.waitBackground?.(id);await gate.idleScope(id);
+        if(!lifecycle.closed&&!deleting.has(botId)&&db.sql.prepare('SELECT 1 FROM agents WHERE botId=? AND agentId=?').get(botId,id))await agent.refreshSession?.(id);
+      }).catch(async e=>{onError(e);if(!lifecycle.closed&&db.getChat(botId,a.chatId))try{await telegram.call(botId,'sendMessage',{chat_id:a.chatId,text:`MCP refresh failed for agent ${id}. The next request will retry loading configuration.`});}catch{}})
+      .finally(()=>{mcpRefreshes.delete(id);queue.setHeld(id,'mcp-refresh',false);});
+      mcpRefreshes.set(id,work);
+    }
+  };
   const fileCommands = rawFileCommands ? (botId, name, ...args) => name === 'git_setup' ? rawFileCommands(botId, name, ...args) : gate.run(botId, () => rawFileCommands(botId, name, ...args)) : undefined;
-  const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'выключается' : availability.get(id) ?? 'свободен',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets, masterCommands, fileCommands });
+  const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'выключается' : availability.get(id) ?? 'свободен',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets, requestMcpRefresh, testMcp:(botId,entry)=>agent.testMcp(botId,entry), masterCommands, fileCommands });
   for (const record of db.sql.prepare('SELECT * FROM agents').all()) {if(!db.getChat(record.botId,record.chatId).agentEnabled)queue.setHeld(record.agentId,'disabled',true);if(record.stopPending)finishStop(record);else if(record.contextResetPending)resetContext(record);}
   return {
     queue, lifecycle, invoke, scheduler, stopAgent, websockets,
@@ -409,7 +422,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${m.media_group_id}`, { ...m, __botId: botId }, trigger);
       else deliver(botId, [m], trigger);
     },
-    idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values()]); } while (queue.jobs.size || resets.size || stateStops.size); await gate.idle(); await closing; },
+    idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await gate.idle(); await closing; },
     close() { websockets.shutdown(); for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= agent.close?.(); },
   };
 }
