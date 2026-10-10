@@ -15,4 +15,4 @@ export function parseMcpConfig(text){
 export const redactMcpConfig=c=>({...c,url:new URL(c.url).origin,...(c.http_headers?{http_headers:Object.fromEntries(Object.keys(c.http_headers).map(k=>[k,'[hidden]']))}:{})});
 export const nativeServerName=(botId,name)=>'tg_'+createHash('sha256').update(botId).digest('hex').slice(0,16)+'_'+name;
 const inline=v=>typeof v==='string'?JSON.stringify(v):Array.isArray(v)?'['+v.map(inline).join(',')+']':v&&typeof v==='object'?'{'+Object.entries(v).map(([k,x])=>JSON.stringify(k)+'='+inline(x)).join(',')+'}':String(v);
-export function nativeMcpOverrides(botId,entries){return ['-c','mcp_servers='+inline(Object.fromEntries(entries.map(e=>[nativeServerName(botId,e.name),e.config])))];}
+export function nativeMcpOverrides(botId,entries){return ['-c','mcp_servers='+inline(Object.fromEntries(entries.map(e=>[nativeServerName(botId,e.name),{...e.config,default_tools_approval_mode:"approve"}])))];}

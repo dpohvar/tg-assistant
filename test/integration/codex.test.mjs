@@ -5,6 +5,29 @@ import os from 'node:os';
 import path from 'node:path';
 import { openDatabase } from '../../src/storage/database.mjs';
 import { CodexAgent, dynamicTools } from '../../src/codex/threads.mjs';
+import {isolatedMcpArgs} from '../../src/mcp/runtime.mjs';
+
+test('shutdown cancels and reaps the actual MCP configuration preflight process',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-preflight-rpc-')),db=openDatabase(path.join(root,'db.sqlite')),marker=path.join(root,'waiting');
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);
+ const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs'),'blocked-config',marker],prepareMcpArgs:isolatedMcpArgs});
+ t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ const work=agent.run(scope,[],async()=>{});const rejected=assert.rejects(work,{code:'rules_replaced'});
+ const end=Date.now()+5000;while(!fs.existsSync(marker)){if(Date.now()>end)throw Error('Preflight did not start');await new Promise(r=>setTimeout(r,10));}
+ assert.equal(agent.processes.size,1);await agent.close();await rejected;assert.equal(agent.processes.size,0);assert.equal(agent.sessions.size,0);
+});
+
+for(const action of ['close','deleteSession','detach'])test(`MCP preflight cannot launch a model after ${action}`,async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-preflight-')),db=openDatabase(path.join(root,'db.sqlite'));
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);
+ let release,entered=false,signal;const blocked=new Promise(r=>release=r);
+ const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath,defaultTimezone:'UTC'},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs')],prepareMcpArgs:async options=>{entered=true;signal=options.signal;await blocked;return options.args;}});
+ t.after(async()=>{release();await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ const calls=[],work=agent.run(scope,[],async(...args)=>calls.push(args));work.catch(()=>{});await new Promise(r=>setImmediate(r));
+ assert.equal(entered,true);if(action==='close')await agent.close();else await agent[action](scope.agentId);
+ assert.equal(signal.aborted,true);release();await assert.rejects(work,{code:'rules_replaced'});
+ assert.equal(agent.processes.size,0);assert.equal(calls.length,0);assert.equal(db.agent('b',1).threadId,null);
+});
 test('agent schemas expose the accepted message and discussion capabilities', () => {
   assert.equal(dynamicTools.some(tool => tool.name === 'listen'), false);
   const properties = name => dynamicTools.find(tool => tool.name === name).inputSchema.properties;

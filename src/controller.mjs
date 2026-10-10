@@ -180,6 +180,9 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   agent.onAvailability = (id, status) => { availability.set(id, status); queue.setWaiting(id, status === 'waiting'); updateAction(id); };
   agent.onImageStatus = (id, image, active) => { if (!images.has(id)) images.set(id, new Set()); active ? images.get(id).add(image) : images.get(id).delete(image); updateAction(id); };
   agent.assertCurrent = scope => assertCurrent(scope);
+  if(config?.botsDir)for(const a of db.sql.prepare('SELECT botId,agentId FROM agents').all()){
+    try{new BotFiles(path.join(config.botsDir,a.botId),a.agentId).remove(`.temp/${a.agentId}/websocket`);}catch(e){if(e.code!=='ENOENT')onError(Object.assign(new Error('Old WebSocket files could not be removed.'),{code:'websocket_cleanup_failed'}));}
+  }
   const websockets = new WebSocketManager({botsDir:config?.botsDir,clock,onError,onEvent:(owner,event)=>{
     const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(owner.botId,owner.agentId);
     if(!a||!db.getChat(a.botId,a.chatId)?.agentEnabled||deleting.has(a.botId)||isStopping(a.botId,a.chatId)||lifecycle.closed)return;

@@ -1,5 +1,8 @@
 # Active WebSocket Implementation Plan
 
+**Execution status (2026-10-10):** implementation complete. Transport/config/storage/commands/runtime refresh and review fixes are committed in feat/websocket-mcp. The original checklist below is retained as the planning record; final delivered files and verification are recorded in [../../websocket-mcp-check-results.md](../../websocket-mcp-check-results.md). Live probes are consolidated in test/live/websocket-mcp.mjs, websocket-tls.mjs and mcp-failure.mjs. No merge/push is included in this task.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans for native execution, or superpowers:subagent-driven-development if explicitly selected. Steps use checkbox syntax for tracking.
 
 **Goal:** Агент открывает WebSocket, получает короткие уведомления и извлекает текст/бинарные сообщения из буфера; админ управляет соединениями.
