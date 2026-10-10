@@ -4,7 +4,7 @@ const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 function alias(c,old,key){if(Object.hasOwn(c,old)){if(Object.hasOwn(c,key)&&JSON.stringify(c[key])!==JSON.stringify(c[old]))fail();c[key]=c[old];delete c[old];}}
 export const validMcpName=name=>typeof name==='string'&&/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name);
 export function parseMcpConfig(text){
- let c;try{c=text.trimStart().startsWith('{')?JSON.parse(text):parse(text);}catch{fail();}if(!object(c))fail();alias(c,'serverUrl','url');if(object(c.oauth)){alias(c.oauth,'clientId','client_id');alias(c.oauth,'clientSecret','client_secret');}
+ let c;try{c=text.trimStart().startsWith('{')?JSON.parse(text):parse(text);}catch{fail();}if(!object(c))fail();if(Object.hasOwn(c,'type')){if(c.type!=='http')fail();delete c.type;}alias(c,'serverUrl','url');alias(c,'headers','http_headers');if(object(c.oauth)){alias(c.oauth,'clientId','client_id');alias(c.oauth,'clientSecret','client_secret');}
  const allowed=['url','http_headers','enabled','startup_timeout_sec','tool_timeout_sec','enabled_tools','disabled_tools','oauth'];
  if(Object.keys(c).some(k=>!allowed.includes(k))||typeof c.url!=='string')fail();
  let u;try{u=new URL(c.url);}catch{fail();}if(!['http:','https:'].includes(u.protocol))fail();

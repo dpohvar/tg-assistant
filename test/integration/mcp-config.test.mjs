@@ -19,4 +19,14 @@ test('JSON aliases normalize, secrets are hidden in displays and native clients 
  const args=nativeMcpOverrides('a',[{name:'calendar',config:c}]);assert.ok(args.join(' ').includes('"client_secret"="secret-canary"'));
  for(const value of [null,[],{url:'https://a.test',serverUrl:'https://b.test'},{url:'https://a.test',oauth:{clientId:'a',client_id:'b'}},{url:'https://a.test',oauth:{clientSecret:''}},{url:'https://a.test',oauth:{clientSecret:'secret'}}])assert.throws(()=>parseMcpConfig(JSON.stringify(value)));
 });
+test('HTTP transport and header aliases normalize JSON and TOML without leaking secrets',()=>{
+ for(const input of [JSON.stringify({type:'http',url:'https://api.githubcopilot.com/mcp/',headers:{Authorization:'Bearer alias-canary'}}),'type="http"\nurl="https://api.githubcopilot.com/mcp/"\nheaders={Authorization="Bearer alias-canary"}']){
+  const c=parseMcpConfig(input);assert.deepEqual(JSON.parse(JSON.stringify(c)),{url:'https://api.githubcopilot.com/mcp/',http_headers:{Authorization:'Bearer alias-canary'}});
+  assert.ok(!JSON.stringify(redactMcpConfig(c)).includes('alias-canary'));
+ }
+ const url='https://example.test/mcp';
+ assert.deepEqual(parseMcpConfig(JSON.stringify({url,headers:{X:'a'},http_headers:{X:'a'}})),{url,http_headers:{X:'a'}});
+ for(const type of ['stdio','HTTP','sse',null,1])assert.throws(()=>parseMcpConfig(JSON.stringify({url,type})),{code:'invalid_argument'});
+ for(const extra of [{headers:{X:'a'},http_headers:{X:'b'}},{headers:{X:1}},{headers:{X:'a\nb'}}])assert.throws(()=>parseMcpConfig(JSON.stringify({url,...extra})),{code:'invalid_argument'});
+});
 test('MCP scope, replace not merge, revision and cascade',t=>{const db=openDatabase(':memory:');t.after(()=>db.close());for(const botId of ['a','b'])db.registerBot({botId,telegramId:botId==='a'?1:2,username:botId,ownerId:1});const store=createMcpStore(db);store.set('a','x',{url:'https://a.test'});store.set('b','x',{url:'https://b.test'});store.set('a','x',{url:'https://a2.test'});assert.equal(store.get('a','x').config.url,'https://a2.test');assert.equal(store.revision('a'),2);store.delete('a','x');assert.equal(store.revision('a'),3);db.sql.prepare('DELETE FROM bots WHERE botId=?').run('b');assert.equal(db.sql.prepare('SELECT count(*) n FROM mcp_servers').get().n,0);});

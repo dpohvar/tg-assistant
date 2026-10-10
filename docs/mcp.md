@@ -20,7 +20,8 @@ http_headers = { Authorization = "Bearer EXAMPLE_ONLY" }
 | Field | Requirement |
 |---|---|
 | `url` | Required HTTP(S) URL |
-| `http_headers` | Optional table of string headers, valid names, no newlines |
+| `http_headers` / `headers` | Optional table of string headers, valid names, no newlines |
+| `type` | Optional compatibility field; only `"http"` is accepted and discarded |
 | `enabled` | Optional boolean; omitted uses Codex's default |
 | `startup_timeout_sec` | Optional positive finite number |
 | `tool_timeout_sec` | Optional positive finite number |
@@ -43,7 +44,7 @@ callback_url = "http://127.0.0.1/callback"
 
 `client_id` and optional `client_secret` must be nonempty strings without newlines; `scopes` is an array of nonempty strings without whitespace. The callback uses HTTPS, or HTTP on a loopback host, without credentials or a fragment. Optional `callback_port` is an integer from 1 to 65535. Codex determines the exact redirect URI and any provider-specific callback suffix. Register that exact address with the provider; the controller does not replace its validation. Native callback/client behavior may depend on the Codex version.
 
-Both formats accept `serverUrl` as an alias for `url`, and `clientId`/`clientSecret` as aliases for `client_id`/`client_secret`. Conflicting aliases fail validation. `client_secret` requires `client_id` and is masked by `/mcp show`. It is stored in the controller database and supplied to native Codex configuration; it may appear in server process arguments/records, which are visible to server administrators. OAuth scopes are mapped to the native server-level `scopes` setting. This is single-entry compatibility, not support for whole Antigravity/Claude configuration files.
+Both formats accept `serverUrl` as an alias for `url`, `headers` as an alias for `http_headers`, and `clientId`/`clientSecret` as aliases for `client_id`/`client_secret`. Optional `type: "http"` is discarded; other transport types are rejected. Conflicting aliases fail validation. `client_secret` requires `client_id` and is masked by `/mcp show`. It is stored in the controller database and supplied to native Codex configuration; it may appear in server process arguments/records, which are visible to server administrators. OAuth scopes are mapped to the native server-level `scopes` setting. This is single-entry compatibility, not support for whole Antigravity/Claude configuration files.
 
 For example, send `/mcp set calendar` followed by this pre block:
 
