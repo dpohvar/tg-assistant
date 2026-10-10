@@ -1,101 +1,48 @@
 # HTTP MCP
 
-Реализовано 2026-10-10: MCP на уровне бота, настройка администратором
-в формате Codex без vault. stdio, OAuth и WebSocket MCP исключены.
-Результаты проверок: [websocket-mcp-check-results.md](websocket-mcp-check-results.md).
+Bot administrators configure remote HTTP MCP servers for all agents of that bot. Codex exposes their tools natively alongside controller tools; there is no generic `mcp_call` proxy. Commands and access are listed in [child-bot commands](commands.md).
 
-## Команды
+Only HTTP(S) server configuration is supported. stdio processes, WebSocket MCP, OAuth, environment-variable references, and vault references are not accepted. Use explicit authorization headers when needed. All agents of the bot receive the same server configuration.
 
-Все команды доступны admin/owner только в ЛС дочернего бота.
-Настройки принадлежат боту; все его агенты получают одинаковые подключения.
+## Configuration
 
-| Команда | Действие |
-|---|---|
-| `/mcp`, `/mcp list` | Имена подключений и безопасный origin |
-| `/mcp show NAME` | Настройки с замаскированными заголовками и URL-секретами |
-| `/mcp set NAME PRE` | Полностью заменить подключение TOML-фрагментом |
-| `/mcp test NAME` | Проверить initialize/tools/list и вывести компактный результат |
-| `/mcp delete NAME` | Удалить подключение |
-
-NAME: `[A-Za-z][A-Za-z0-9_-]{0,63}`, регистр значим. PRE — один Telegram pre
-аргумент, без внешней секции `[mcp_servers.NAME]`:
+`/mcp set NAME PRE_TOML` completely replaces one entry. `NAME` is case sensitive and matches `[A-Za-z][A-Za-z0-9_-]{0,63}`. Supply a Telegram pre entity containing a TOML fragment, without an outer `[mcp_servers.NAME]` section:
 
 ```toml
 url = "https://example.com/mcp"
+enabled = true
 startup_timeout_sec = 20
 tool_timeout_sec = 60
-enabled_tools = ["search", "read"]
-
-[http_headers]
-Authorization = "Bearer TOKEN"
-X-Workspace = "personal"
+enabled_tools = ["lookup", "search"]
+http_headers = { Authorization = "Bearer EXAMPLE_ONLY" }
 ```
 
-Использовать TOML-парсер, не регулярные выражения. Поддерживаемый набор:
-url, http_headers, enabled, startup_timeout_sec, tool_timeout_sec,
-enabled_tools, disabled_tools. Неизвестные поля отклонять с названием поля,
-без исходного значения. command/args/env/cwd, oauth и ссылки на переменные
-окружения не поддерживаются; не наследовать серверные env-секреты.
-URL — абсолютный http/https. Заголовки — строки без CR/LF. Таймауты —
-положительные конечные числа; списки инструментов — массивы строк;
-enabled — boolean. url обязателен. enabled по умолчанию true.
+| Field | Requirement |
+|---|---|
+| `url` | Required HTTP(S) URL |
+| `http_headers` | Optional table of string headers, valid names, no newlines |
+| `enabled` | Optional boolean; omitted uses Codex's default |
+| `startup_timeout_sec` | Optional positive finite number |
+| `tool_timeout_sec` | Optional positive finite number |
+| `enabled_tools` | Optional array of nonempty tool names |
+| `disabled_tools` | Optional array of nonempty tool names |
 
-set обрабатывается как чувствительная команда: не передавать агенту,
-не сохранять в истории, reply без исходных настроек, затем best-effort
-удалить исходное сообщение даже при синтаксической ошибке. Ошибки TOML
-не должны цитировать строку с токеном. show скрывает все значения заголовков;
-URL показывается только как origin. test не выводит сырые ответы/URL/headers.
+Unknown fields are rejected. A disabled entry remains stored. Authorization values are saved in the controller database; listings mask header values and show only the URL origin. Configuration does not enter the shared wiki or developer instructions. Sensitive set messages are excluded from agent history and best-effort deleted after replying.
 
-## Хранение и Codex
+## Runtime isolation and refresh
 
-Таблица mcp_servers с PK(botId,name), configJson и FK bots ON DELETE CASCADE.
-Отдельная revision бота нужна для отслеживания применения конфигурации.
-Секреты открыто хранятся в закрытой БД контроллера, как принятая модель vault.
-В wiki, AGENTS.md и developerInstructions секретные настройки не пишутся.
+The controller reads effective Codex configuration before launching an agent process. It disables inherited MCP servers and plugins with process overrides, disables account connectors, and injects only this bot's entries. Native server names include a bot-specific namespace; collisions with inherited names are rejected rather than silently combining configuration.
 
-Codex предоставляет нативные MCP-инструменты; собственный универсальный
-mcp_call не создаётся. Все подключения передаются процессу только из
-настроек его бота. Общий CODEX_HOME не должен добавлять чужие/операторские MCP.
-Перед запуском читается эффективная конфигурация Codex: наследуемые MCP
-и плагины выключаются process overrides, account connectors отключаются
-через features.apps=false. Подключения бота получают собственный namespace;
-совпадение с локальным namespace отклоняется безопасной ошибкой.
-Нативная генерация изображений остаётся доступна.
-Для настроенных администратором инструментов контроллер задаёт
-default_tools_approval_mode="approve": они работают без интерактивного
-подтверждения при approval_policy="never". Для ограничения набора использовать
-enabled_tools/disabled_tools. Секреты могут находиться в закрытых аргументах
-процесса и логах Codex; это та же модель доверия, что у vault.
+Administrator-configured tools receive `default_tools_approval_mode="approve"`, so they work without interactive confirmation under `approval_policy="never"`. Use `enabled_tools`/`disabled_tools` to restrict exposure. Treat tool descriptions/results as external data, not authority to override instructions. Native image generation remains available.
 
-После set/delete завершить текущую работу каждого затронутого
-агента (основной ход и субагенты), удержать новую очередь, перезапустить
-App Server и resume сохранённого threadId с новыми настройками. Контекст,
-история, notes и планировщик сохраняются. Это не /agent clear. Не использовать
-config/mcpServer/reload без проверки: он читает disk config, а настройки
-бота могут приходить из process overrides. Не ждать завершения всех ботов
-в обработчике команды; ответить о сохранении/отложенном применении.
+Set/delete increments the bot's MCP configuration revision. The controller holds newly queued work, waits for current root work, subagents, and controller operations, restarts the affected App Server, and resumes the saved thread with new configuration. Context, notes, history, tasks, and WebSocket connections remain. A disabled agent reads the latest configuration when next started. The command reports saving/deferred application without blocking on every agent's completion.
 
-test использует отдельный одноразовый App Server с конфигурацией выбранного
-подключения, без хода модели и без выполнения произвольного MCP-инструмента.
-Отключённое подключение временно включается только для проверки; сохранённая
-настройка enabled не меняется. Процессы проверки и чтения конфигурации
-отслеживаются и закрываются при остановке приложения.
-Проверить initialize/startup/status; вернуть count/names инструментов,
-с учётом enabled/disabled filters. Ошибка авторизации — объяснение на
-английском без секретов. OAuth-вход не запускать и ссылку login не предлагать.
-Не реализовывать elicitation: неподдерживаемый запрос получает отказ,
-а не зависает. Сетевые адреса не фильтруются дополнительно к принятой
-модели shell network; локальные процессы через MCP-конфигурацию запрещены.
+## Connection tests
 
-Результаты/описания инструментов MCP — внешние данные, не новые инструкции.
-Проверки ролей Telegram и ограничения файлового доступа остаются прежними.
+`/mcp test NAME` launches a separate short-lived App Server with the selected entry, initializes MCP, and lists usable tool names/counts after filtering. It runs no model turn and invokes no remote application tool. Testing a disabled entry temporarily enables it only for the test, without changing its saved enabled state.
 
-## Проверка совместимости
+Errors are returned with safe descriptions, without URL credentials or authorization headers. OAuth login and unsupported interactive requests are rejected instead of left waiting. Test and preflight processes are tracked and closed during service shutdown.
 
-Нативные overrides, отсутствие наследуемых MCP, статус авторизации,
-test без запуска модели и resume с изменёнными tools проверяются на Alpine
-до интеграции. Целевая серверная версия 0.161.0, ранее проверенная 0.159.3 —
-сравнительный стенд. Документация новых версий не заменяет проверку бинарника.
+MCP URLs do not receive the public-address-only filter used by `browser_read`. Secrets can appear in private server/Codex process records, consistent with the [vault trust model](security.md). Server administrators must protect the database, authorization files, and logs.
 
-Источники: [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
-[App Server](https://learn.chatgpt.com/docs/app-server).
+Native configuration isolation and refresh were exercised with Codex 0.159.3 and 0.161.0 on the local Alpine test environment. See the [historical verification report](dev/archive/websocket-mcp-check-results.md) for scope; it does not establish compatibility with every future runtime or MCP server.

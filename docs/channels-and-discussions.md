@@ -1,75 +1,49 @@
-> Обновление 2026-10-09: актуальный контракт команд и состояния агентов — [commands.md](commands.md). Его правила заменяют прежнее автоматическое включение групп, запрет агентов в супергруппах и разрушительный stop. Форумные группы запрещены.
+# Channels and discussions
 
-# Каналы, пассивные супергруппы и обсуждения v1
+Channels are passive: the bot records received publications and known reactions, but creates no channel agent and processes no commands there. Groups and non-forum supergroups can be passive or have an enabled agent. A comment supergroup can stay passive while another chat's agent analyzes it.
 
-Принято: 2026-10-07. Этот документ заменяет прежний полный запрет супергрупп и ограничения всех операций текущим чатом. Основные форматы инструментов остаются в agent-contract.md.
+## Publishing through a management chat
 
-## Модель
+Use an enabled private chat or group as the management agent. Its tasks can generate posts, publish to a connected passive channel, inspect reactions/comments, and save lessons in the shared workspace. Several managers can coordinate in one management group without switching a private conversation between agents.
 
-ЛС и включённые обычные группы/нефорумные супергруппы имеют собственных агентов.
-Новые группы и супергруппы пассивны, включаются через /agent start.
-В пассивных чатах сохраняются сообщения, редактирования и реакции независимо
-от наличия сохранённой записи агента. Команды управления доступны по роли.
-Каналы остаются пассивными без агента и без обработки команд.
-Форумные группы запрещены: бот выходит и удаляет данные диалога.
+There is no special channel-to-management binding. All agents of a bot share access to its connected non-private history. Cross-chat message operations may target passive supergroups/channels, but cannot bypass an enabled agent in another chat. For isolated publishing, use a separate bot with its own management group.
 
+`chats` lists connected groups, supergroups, channels, and the caller's own private chat. `chat_info` returns allowed metadata such as `linked_chat_id`, photo, reaction policy, member count, and bot status when available. Administrator `/chat list` provides chat IDs for management. See [commands](commands.md) and [agent contract](agent-contract.md).
 
-manager/admin/owner выбранного бота могут подключать канал или супергруппу. Принадлежность боту — граница доступа; дополнительных привязок агента к каналу нет. Все агенты этого бота могут читать историю подключённых групп, супергрупп и каналов. Другие боты изолированы; чужая история ЛС остаётся недоступной.
+Callback buttons are not interactive in passive destinations; the controller does not reroute them to the source agent. URL buttons do not create callbacks. Forwarded/copied rich callback buttons become disabled by Telegram; forwarding does not preserve a usable lower inline callback keyboard. See [messaging](messaging.md).
 
-Совместное управление каналом выполняется агентом обычной группы управления. Несколько менеджеров обсуждают поручения в одном контексте и управляют общим расписанием этой группы. Агент может генерировать и публиковать изображения, периодически анализировать комментарии/реакции, сохранять выводы в wiki и уведомлять личного агента владельца или заданного доступного получателя через agent_message. Генерация изображения по подписке Codex остаётся предметом ранее запланированной runtime-проверки. Специального агента или расписания в пассивном чате нет.
+## Reading comments in one call
 
-## Область инструментов
-
-chats() возвращает {chats:[...]}: текущие разрешённые подключённые публичные в рамках бота чаты (group/supergroup/channel) и текущий личный чат, если применимо; чужие личные чаты не раскрываются. Краткие сведения: chatId, chatType, name и agentId только при наличии агента. agents() остаётся списком реальных агентов по прежней политике приватных ID.
-
-chat_info({chatIds:[...]}) возвращает нативный профиль getChat в порядке запроса. Запрос допускается для любого числового chatId/userId, доступного через Telegram, без требования подключения. Поля invite_link, pinned_message и служебные сведения доступны только для подключённого чата, читаемого текущим агентом; чужие ЛС не открываются. Неизвестные поля скрываются. Полная политика, user_photos и новый download зафиксированы в agent-contract.md (2026-10-08).
-
-Во всех применимых операциях над сообщениями вводится необязательный chatId: history/search/read, send/edit/delete/pin/unpin/react, целевой чат forward/copy. Без него используется текущий чат. Источник forward/copy задаётся отдельным необязательным fromChatId. Без него источником является текущий чат агента независимо от chatId назначения. Проверка доступности чата выполняется контроллером.
-
-Чтение других подключённых group/supergroup/channel разрешено. Отправка и изменение в текущем чате разрешены по прежним правилам. Отправка, edit/delete/pin/unpin/react и прочие изменения в другом чате разрешены только для подключённого пассивного канала/супергруппы. В другой чат с включённым агентом писать/изменять запрещено: поручение передаётся через agent_message. Чужие ЛС закрыты независимо от наличия агента. Форматы и ограничения Telegram, сохранение типа edit и проверки download сохраняются.
-
-## Обсуждение через search/history
-
-Отдельный comments() не вводится. Параметр discussion задаётся объектом {chatId: CHANNEL_ID, messageId: CHANNEL_POST_ID}. Внешний chatId задаёт супергруппу поиска. Например:
+Use `search` or `history` with the discussion supergroup as the outer `chatId` and the original channel publication as `discussion`:
 
 ```json
 {
-  "chatId": -100789,
-  "discussion": {"chatId": -100456, "messageId": 42},
-  "text": ["скучно"],
-  "limit": 20
+  "chatId":-100789,
+  "discussion":{"chatId":-100456,"messageId":42},
+  "text":["funny"],
+  "limit":20
 }
 ```
 
-Поиск в БД выполняется в один вызов инструмента:
+The controller checks read access to both connected chats. It finds the saved automatic forward in the supergroup using:
 
-1. Проверить доступ к указанной супергруппе в рамках бота. Найти корневую автоматически пересланную публикацию по chat.id = внешнему chatId, is_automatic_forward=true, forward_origin.type="channel", forward_origin.chat.id = discussion.chatId, forward_origin.message_id = discussion.messageId. Ручная пересылка не подходит.
-2. Взять message_id найденной копии как корень в супергруппе. Собрать прямые ответы по reply_to_message.message_id, затем рекурсивно ответы на найденные комментарии в той же супергруппе до исчерпания. Предотвращать повторный обход одного сообщения.
-3. message_thread_id, если Telegram его передал, может дополнительно устанавливать принадлежность к известному корню. Наличие поля не гарантируется для каждого комментария. Внутренний индекс корня допускается для эффективности, не заменяет исходные поля.
-4. Исключить саму пересланную публикацию. Только после определения ветки применить существующие фильтры текста, автора, дат, вида и пагинацию search; фильтры не должны обрывать обход промежуточных ответов. В history якорь относится к комментарию, а discussion.messageId — к исходной публикации.
+- `is_automatic_forward: true`;
+- `forward_origin.type: "channel"`;
+- `forward_origin.chat.id` equal to the source channel ID;
+- `forward_origin.message_id` equal to the source publication ID.
 
-Текущий linked_chat_id для идентификации старой публикации не используется; перепривязка группы не меняет источник в сохранённом forward_origin. Результат содержит фактический chatId супергруппы для read/download.
+The forwarded copy has its own supergroup message ID. The controller recursively collects messages whose `reply_to_message.message_id` belongs to the discovered branch. `message_thread_id` equal to the known root also associates a message with it. The root itself is excluded. Search filters are applied after branch discovery, so a filtered intermediate reply does not truncate traversal.
 
-Если корень неизвестен или истёк в нашей истории — discussion_not_found с английским description. Если корень найден, но известных комментариев нет, возвращается пустая выдача. Полученные данные хранятся по общей политике 30 дней; это не гарантия полноты даже внутри срока, поскольку события могли быть пропущены. Утрата промежуточного сообщения может обрывать цепочку. Отдельное complete:true/false не вводится. Внутренние связи не обещают бессрочного восстановления удалённой истории.
+Channel and supergroup message IDs are separate namespaces; a publication ID alone is insufficient. The saved forward origin identifies old discussions even if the currently linked channel changes. A manual forward is not a discussion root.
 
-## Кнопки и реакции
+## Completeness and reactions
 
-В пассивных чатах callback не обрабатывается агентами в v1; интерактивные callback-кнопки исключены из использования там. Это касается rich и нижней клавиатуры. Кнопки-ссылки не вызывают агента; отдельного запрета URL-кнопок не принято. Контроллер не перенаправляет callback пересланной копии к агенту оригинала.
+Only messages received by this service can be searched. There is no Bot API operation to fetch arbitrary past history. Saved history expires after 30 days from first receipt. An expired root causes `discussion_not_found`; missing intermediate replies can make a branch incomplete. An available root with no known comments yields an empty result. No completeness flag promises a full discussion archive.
 
-Живая API-проверка подтвердила: forward сохраняет rich-кнопки как disabled:{}, удаляет их callback_data и не сохраняет нижнюю inline-клавиатуру. Copy также делает rich-кнопки неактивными; подтверждено полным Message при редактировании нижней клавиатуры копии. Новая нижняя клавиатура при одиночном copy поддерживается. Подробнее: [Telegram-стенд](telegram-check-results.md). Это проверка платформы на тестовом боте, не интеграция контроллера.
+Reaction updates are saved without triggering the agent. Count-only channel updates can arrive later than individual reactions and do not reveal users. Agents read the known snapshot through `read`; missing reaction data is unknown, not proof of zero votes. Telegram permissions and delivered update types determine visibility.
 
-Контроллер сохраняет известные реакции публикаций без отдельного запуска агента. Нужны подписки message_reaction/message_reaction_count и соответствующие права бота; отсутствие полученных счётчиков не равно известному нулю. Агент читает известные реакции через read и оценивает публикации по инструкции, отдельного инструмента оценки нет.
+## Chat lifecycle
 
-Живой стенд подтвердил linked_chat_id с обеих сторон, автоматический корень по is_automatic_forward/forward_origin, рекурсивное получение пяти комментариев в двух ветках и message_reaction_count канала. Сводные счётчики приходят с задержкой и не раскрывают пользователей; по документации Telegram задержка может достигать нескольких минут. [Отчёт проверки](telegram-check-results.md). Сохранение и запрос в БД контроллера ещё не реализованы.
+manager/admin/owner may add the bot to these chats. New groups and supergroups are passive; channels always stay passive. `/agent start` enables a non-forum group/supergroup. Basic-group migration preserves agent, history, notes, tasks, triggers, and enabled state under the new supergroup ID.
 
-## Подключение, миграция и удаление
-
-/chats [FROM-TO] в ЛС дочернему боту показывает подключённые чаты и chatId для управления. /chat leave CHAT_ID доступна admin/owner: выходит из выбранной группы/супергруппы/канала и удаляет связанные данные чата согласно политике удаления; постоянные файлы/wiki/Git сохраняются. Пассивным чатам agentId для этого не нужен. Доступ /chats принят как административный список для admin/owner; точные необязательные поля текстового вывода следуют краткому списку chats().
-
-Если обычная группа превращается в супергруппу, прежнее простое правило сохраняется: прекратить действия, выйти, удалить данные старого диалога, историю, агента, notes, очередь и расписание. Ничего автоматически не переносить. После повторного разрешённого добавления новая супергруппа работает пассивно с пустой историей.
-
-При удалении бота из пассивного чата удалить его сохранённую историю и связанные данные подключения; уведомление владельцу в v1 не отправлять. Утрата права записи приводит к ошибке соответствующего инструмента, без самостоятельного уведомления. Задачи управляющей группы не удаляются автоматически при утрате целевого канала: они принадлежат другому диалогу.
-
-Команды в пассивных чатах не выполняются; управление — в ЛС боту или обычной группе с агентом.
-
-Источники полей Telegram: https://core.telegram.org/bots/api#message и https://core.telegram.org/api/discussion. Реализация отсутствует; детали индексов БД и схема проверки доступа определяются при реализации в соответствии с этими правилами.
+Leaving/removal deletes the affected chat's saved data. Tasks in a separate management chat remain even when their target channel disappears; their next action can fail and should be handled by the agent. Lost posting permission produces a tool error rather than a separate owner notification. Forum groups are rejected, including conversion of an existing group into a forum.

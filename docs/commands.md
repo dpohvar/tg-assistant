@@ -1,493 +1,158 @@
-# Команды бота — новое обсуждение
+# Child bot commands
 
-Документ фиксирует команды и поведение, согласованные в текущем обсуждении.
-Контракт реализован в обновлении управления агентами и команд.
-Старые имена заменённых команд не поддерживаются.
+[Wiki home](index.md) · [Master bot](master-bot.md) · [Operations](operations.md)
 
-Команды `/ws` реализованы и описаны в
-[websocket.md](websocket.md#команды-администратора), команды `/mcp` — в
-[mcp.md](mcp.md#команды). Они доступны admin/owner; `/mcp` только в ЛС бота.
+These commands control the child bot receiving the message. Roles belong to that bot and inherit permissions: `user` → `manager` → `admin` → `owner`. Telegram chat administrators do not automatically receive application roles. Unauthorized private messages are ignored. Channels do not execute these commands. For chat routing and supported chat types, see [Channels and discussions](channels-and-discussions.md).
 
-## Роли
+In the tables, **local** means `user` or higher in a private chat and `manager` or higher in a group/supergroup. **Admin** means `admin` or `owner`. Explicit targets require Admin even when they identify the current chat. Commands cannot select another bot's data.
 
-Права наследуются: `user` → `manager` → `admin` → `owner`.
-Под «модератором» в обсуждении понимается роль приложения `manager`.
-Telegram-администратор чата не получает эту роль автоматически.
-Все команды ниже относятся только к текущему боту.
-Неавторизованные личные сообщения по-прежнему игнорируются.
+## Syntax, formatting and help
 
-## Управление агентом
+Optional arguments appear in brackets; uppercase names are placeholders. Commands may use the Telegram suffix `/command@BotName`; a suffix naming another bot is ignored. Ordinary whitespace, including newlines, separates arguments. Telegram inline `code` and `spoiler` entities preserve their contents as one argument; a `pre` entity preserves a multiline argument. Entity boundaries also separate arguments. Quotes alone do not group words. Other styling, overlapping entities, and formatting over the command name are rejected. Pre blocks are accepted only for `/edit`, `/git sync`, and the TOML argument of `/mcp set`. Send actual Telegram formatted entities: literal Markdown fence characters alone do not create a pre block.
 
-| Команда | Действие | Доступ |
+`RANGE` is a positive one-based position `N` or inclusive `FROM-TO`, for example `11-20`. The default is positions 1–10. Filters apply before pagination. Lists show `FROM-TO / TOTAL` or an empty-result message. Long formatted output may be truncated; it is not automatically attached as a file. Responses and errors reply to the command. Syntax errors offer the relevant help section where recognized. Commands are handled by the controller without a model turn; command text is not ordinary agent history.
+
+| Command | Result |
+|---|---|
+| `/help` | Commands available to the caller in this chat |
+| `/help SECTION` | One available section: `agent`, `task`, `chat`, `triggers`, `ws`, `mcp`, `vault`, `user`, `owner`, `rules`, `git`, `file`, or `temp` |
+
+Help follows role and chat restrictions; an unavailable or unknown section is an error. Master help is documented on [Master bot](master-bot.md).
+
+## Agent lifecycle
+
+| Command | Access | Result |
 |---|---|---|
-| `/agent`, `/agent status` | Состояние агента текущего чата | В ЛС: user и выше; в группе: manager и выше |
-| `/agent status AGENT_ID` | Состояние выбранного агента | admin, owner |
-| `/agent status in CHAT_ID` | Состояние выбранного чата, включая чат без агента | admin, owner |
-| `/agent start` | Включить агента текущего чата | В ЛС: user и выше; в группе: manager и выше |
-| `/agent start in CHAT_ID` | Включить агента выбранного подключённого чата | admin, owner |
-| `/agent stop` | Выключить агента текущего чата и удалить контекст | В ЛС: user и выше; в группе: manager и выше |
-| `/agent stop AGENT_ID` | Выключить выбранного агента и удалить контекст | admin, owner |
-| `/agent stop in CHAT_ID` | Выключить агента выбранного чата и удалить контекст | admin, owner |
-| `/agent stop *` | Выключить всех агентов текущего бота и удалить их контексты | admin, owner |
-| `/agent clear` | Сбросить контекст текущего агента и обновить инструкции | В ЛС: user и выше; в группе: manager и выше |
-| `/agent clear AGENT_ID` | Сбросить контекст выбранного агента и обновить инструкции | admin, owner |
-| `/agent clear in CHAT_ID` | Сбросить контекст агента выбранного чата и обновить инструкции | admin, owner |
-| `/agent clear *` | Сбросить контексты всех агентов текущего бота и обновить инструкции | admin, owner |
+| `/agent`, `/agent status` | Local | Current chat status |
+| `/agent status AGENT_ID`, `/agent status in CHAT_ID` | Admin | Selected agent/chat status, including a chat without an agent |
+| `/agent start` | Local | Enable the current chat's agent |
+| `/agent start in CHAT_ID` | Admin | Enable a connected chat's agent |
+| `/agent stop`, `/agent clear` | Local | Stop or reset the current agent |
+| `/agent stop AGENT_ID`, `/agent clear AGENT_ID` | Admin | Stop or reset the selected agent |
+| `/agent stop in CHAT_ID`, `/agent clear in CHAT_ID` | Admin | Stop or reset the selected chat's agent |
+| `/agent stop *`, `/agent clear *` | Admin | Stop or reset all existing agents of this bot |
+| `/agent list [RANGE]` | Admin | List agents, oldest first, including disabled agents |
 
-`AGENT_ID` и `CHAT_ID` в таблице — обязательные значения в соответствующих формах,
-а не буквальные аргументы. `in` без следующего `CHAT_ID` — ошибка синтаксиса.
-Явный выбор цели и `*` доступны только admin/owner, даже если цель — текущий чат.
+Start accepts the current chat or `in CHAT_ID`, not an agent ID or `*`. A target after `in` is required. New groups/supergroups are passive; their received history is stored while the agent is disabled. An authorized first private conversation may enable its agent automatically; an explicit stop requires `/agent start` to resume.
 
-Новая группа или супергруппа подключается с выключенным агентом.
-История записывается независимо от состояния агента, пока бот получает сообщения
-этого чата. Срок хранения истории остаётся 30 дней.
-Для нефорумных супергрупп предусмотрены оба режима: пассивный и с агентом.
-Каналы не получают агента в рамках этой правки. Добавление в форумные группы
-запрещено; при превращении подключённой группы в форумную бот выходит
-и удаляет все связанные данные диалога. Общая wiki/Git бота сохраняется.
+Stop disables triggers and loud mode, drops the pending operational queue, and waits for active work, including subagents, before removing the context. Scheduled items removed from the queue are recorded as missed with `agent_disabled`. Agent identity, model, notes, history, tasks, and shared wiki/Git remain. Start does not interrupt an in-progress stop. Clear waits for active work, resets context and instructions, retains the queue, and does not change enabled state. See [Agents](agents.md), [Message events](message-events.md), and [Scheduler](scheduler.md).
 
-### Остановка и запуск
+Status shows agent ID when present, enabled mode, execution state and queue size; only Admin sees the model. Agent lists format agent IDs as code and chat types/group IDs as italic text. They show username or title and enabled mode without exposing other private chat IDs.
 
-- Stop сразу прекращает новые триггеры, выключает громкий режим и очищает
-  ожидающую оперативную очередь агента.
-  События планировщика из этой очереди сохраняются как пропущенные
-  с причиной agent_disabled, без уведомления о техническом сбое.
-- Уже начатая работа, включая субагентов, завершается перед удалением контекста.
-  В этот период состояние — «выключается».
-- Сохраняются agentId, назначенная модель, заметки, история чата и записи
-  планировщика. Общие файлы бота и wiki сохраняются.
-- Выключенный агент не запускается от обычных сообщений или межагентных
-  поручений. Межагентное поручение отклоняется с понятной ошибкой отправителю.
-- В ЛС первый диалог авторизованного пользователя может включаться автоматически.
-  После явного stop для возобновления требуется `/agent start`.
-- Clear ждёт завершения всей текущей работы; ожидающая очередь сохраняется
-  и продолжает обработку после сброса. Clear не меняет включённость агента.
+## Model selection
 
-### Планировщик при выключенном агенте
+All forms require Admin. A selected chat must already have an agent.
 
-Записи задач сохраняются. Срабатывания во время выключения не поступают
-в оперативную очередь и не считаются техническим сбоем.
+| Command | Result |
+|---|---|
+| `/agent model [AGENT_ID]`, `/agent model in CHAT_ID` | Current or selected model |
+| `/agent model default` | Default for new agents |
+| `/agent model set MODEL_NAME` | Change the current agent |
+| `/agent model set AGENT_ID MODEL_NAME`, `/agent model set in CHAT_ID MODEL_NAME` | Change a selected agent |
+| `/agent model set * MODEL_NAME` | Change all existing agents, including disabled ones |
+| `/agent model set default MODEL_NAME` | Change only the default for new agents |
+| `/agent models` | Available runtime model names |
 
-| Тип задачи | Пока агент выключен | После запуска |
+The model must appear in the runtime catalog. Changes apply next turn without interrupting work or clearing context. Changing existing agents does not change the default; changing the default does not update existing agents. See [Agent contract](agent-contract.md).
+
+## Inter-agent message log
+
+All forms require Admin. The default selects the current chat; records are newest first, so the default page contains its newest 10 records. Retention is seven days.
+
+```text
+/agent messages [RANGE]
+/agent messages [RANGE] agent AGENT_ID
+/agent messages [RANGE] from agent AGENT_ID
+/agent messages [RANGE] to agent AGENT_ID
+/agent messages [RANGE] chat CHAT_ID
+/agent messages [RANGE] from chat CHAT_ID
+/agent messages [RANGE] to chat CHAT_ID
+```
+
+Use one filter. `from`/`to` select sender/recipient, independent of where the command is invoked. Without direction, both incoming and outgoing records match. Entries show `FROM_AGENT → TO_AGENT`, ISO date/time and message text. Long output is truncated. A connected chat without an agent or matching messages returns an empty result; unknown targets are errors. Viewing does not start an agent. Delivery semantics are in [Messaging](messaging.md).
+
+## Scheduled tasks
+
+| Command | Access | Result |
 |---|---|---|
-| Одноразовая at | Сохраняется как пропущенная | Передаётся одно событие |
-| Повторяющаяся cron | Учитываются пропущенные срабатывания | Передаётся одно объединённое событие с количеством пропусков |
+| `/task`, `/task list [RANGE]` | Local | Current agent's tasks |
+| `/task list [RANGE] in CHAT_ID`, `/task list [RANGE] agent AGENT_ID` | Admin | Selected agent's tasks |
+| `/task show TASK_ID`, `/task retry TASK_ID`, `/task delete TASK_ID` | Local for the current chat; Admin for another chat | Show, retry, or delete an individual task |
+| `/task retry *`, `/task delete *` | Local | All current chat tasks |
+| `/task retry * in CHAT_ID`, `/task delete * in CHAT_ID` | Admin | All selected chat tasks |
 
-Пропущенное событие содержит явную причину `missedReason: "agent_disabled"`.
-Остальные поля следуют существующему контракту событий планировщика;
-предыдущий пример JSON не переопределяет весь его формат.
-Агент оценивает актуальность просроченного поручения, вместо буквального
-повторения всех пропущенных действий.
+An individual task ID identifies its agent: do not add a target. Here `*` means tasks of one chat, never all bot agents. Bulk operations snapshot existing tasks, need no confirmation, and report successful/skipped counts and errors. Task lists show ID as code, execution time or cron/timezone in italic, state/missed count, description in bold and instruction text as pre; output can be truncated. Tasks can be listed/deleted in passive chats.
 
-После start пропущенные события передаются в обычную очередь.
-Ответ команды сообщает количество задач с пропущенными срабатываниями,
-например: «Агент включён. Пропущенных задач: 3».
-Правила пропусков при остановке всего сервера этой правкой не изменяются.
+Retry requires an enabled agent and does not enable it. It does not duplicate queued/processing events; a task with nothing missed or failed cannot be retried. A cron retry submits one combined missed event while retaining its schedule. Delete removes the task and future cron firings. Task creation belongs to agent scheduler tools, not these Telegram commands. See [Scheduler](scheduler.md) for ordering, recovery, and missed-event behavior.
 
-### Вывод состояния
+## Chats and group triggers
 
-Компактный статус показывает включённость, состояние выполнения и agentId,
-если агент существует. Для работающего агента полезен размер очереди;
-для пассивного группового чата — указание, что история сохраняется.
-Модель показывается только admin/owner.
-Окончательный текстовый формат статуса уточняется при дальнейшей проработке.
-
-## /agent list — список агентов
-
-| Команда | Действие | Доступ |
+| Command | Access | Result |
 |---|---|---|
-| `/agent list` | Первые 10 агентов текущего бота | admin, owner |
-| `/agent list FROM-TO` | Диапазон агентов | admin, owner |
-| `/agent list N` | Один агент по позиции | admin, owner |
+| `/chat`, `/chat info` | Local | Current chat details |
+| `/chat info CHAT_ID` | Admin | Selected connected chat details |
+| `/chat list [RANGE]` | Admin | Connected chats ordered by chat ID |
+| `/chat leave` | Local | Leave the current non-private chat |
+| `/chat leave CHAT_ID` | Admin | Leave a selected non-private chat |
+| `/triggers` | Manager or higher, group only | Current trigger phrases, each as code |
+| `/triggers set [TRIGGER …]` | Manager or higher, group only | Replace the phrases; no phrases clears them |
 
-Сортировка от старых агентов к новым. Выключенные агенты остаются в списке.
-Заголовок — `FROM-TO / TOTAL`. В строке: agentId в code, тип курсивом,
-username или название, групповой chatId курсивом и включённость.
-Чужие личные chatId/userId не показываются. Заменяет `/agents`.
+Chat lists/details hide other private chat IDs, using agent identity where available. Details include connection, type/title, agent state and available Telegram permissions. Leave removes that dialogue's history, context, notes, queue, tasks and related state, while preserving shared files/wiki/Git. It is not valid for a private chat; use stop there. Connecting a bot to a new chat is a Telegram action.
 
-## /agent messages — межагентная переписка
+At most 200 trigger phrases are accepted, each 2–50 characters with no newline. Use code/spoiler formatting for a phrase containing spaces, for example `/triggers set` followed by the inline-code phrase `Hello Assistant`. Matching ignores case and requires non-letter boundaries. Triggers remain while disabled and editing them does not enable the agent. See [Agents](agents.md) and [Channels and discussions](channels-and-discussions.md).
 
-В таблице `[RANGE]` — необязательный диапазон FROM-TO или одиночная позиция N.
-По умолчанию выводятся последние 10 записей. Все формы доступны только
-admin/owner и только в пределах текущего бота.
+## Users, ownership and rules
 
-| Команда | Действие | Доступ |
+These commands require Admin and a private chat, except that ownership transfer requires Owner.
+
+| Command | Result |
+|---|---|
+| `/user list [RANGE]` | Authorized users: ID as code, username/name, role in italic |
+| `/user set USER_ID [ROLE]` | Assign `user` (default), `manager`, or `admin` |
+| `/user delete USER_ID` | Remove authorization and stop/remove the user's dialogue |
+| `/owner` | Owner ID and available username/name |
+| `/owner set USER_ID` | Transfer ownership to an already authorized user |
+| `/rules` | Download current bot-wide `AGENTS.md` |
+| `/rules set` | Replace rules using the document reply protocol below |
+
+Users sort by owner/admin/manager/user, then ascending user ID. Admin can manage only user/manager, cannot change another admin, assign admin, or change itself. Owner can manage admins but cannot alter/remove the owner through `/user`. Ownership transfer is atomic; the previous owner becomes admin. Transfer to self is unchanged. No confirmation is required. This changes application ownership, not BotFather ownership. Master assignment differs; see [Master bot](master-bot.md).
+
+Rules are shared by all bot agents. Updating them waits for current work and clears contexts to replace instructions; history, notes, wiki and tasks remain. `/rules set` has no `force` argument. See [Security](security.md).
+
+## Files and Git
+
+All commands below require Admin in a private child-bot chat. Paths refer to this bot's directory. Path traversal, symlinks and protected dot directories are rejected; `.temp` is accessible to administrators. See [Storage](storage.md) for the layout.
+
+| Command | Result |
+|---|---|
+| `/ls [PATH]` | List a directory; default is the bot root |
+| `/cat PATH` | File name and UTF-8 text as pre, truncated after 3,000 content characters |
+| `/download PATH` | Send a file as a Telegram document |
+| `/upload PATH` | Save an uploaded document through the reply protocol |
+| `/edit PATH PRE_BLOCK` | Write exactly the pre-block contents |
+| `/mv FROM TO` | Move a file/directory |
+| `/rm PATH` | Remove a file/directory recursively, without confirmation |
+| `/git setup` | Show configuration and token presence, never token value |
+| `/git setup BRANCH [REMOTE_URL [TOKEN]]` | Replace wiki/Git with the selected remote branch |
+| `/git changes` | Show staged, unstaged, untracked files and unpushed commits |
+| `/git sync MESSAGE` | Stage changes including deletions, commit if needed, then push |
+| `/temp`, `/temp status` | Temporary file counts/bytes, including expired totals |
+| `/temp cleanup` | Delete `.temp` files older than 24 hours by mtime |
+
+For `/upload` and `/rules set`, either send a document replying to your command, or send the command replying to your document. The quoted message must be your own, unedited, in the same chat, and not sent on behalf of a chat. A command without a document prompts for one. Invalid document replies are handled as command failures rather than forwarded to the agent. For a spaced path, format the path as one inline-code argument, for example `wiki/Project notes.md`.
+
+Git setup requires an HTTPS remote without embedded credentials. Omitted remote/token reuse configured values; first setup needs a remote. Setup first clones into staging; a clone failure preserves the wiki. Successful replacement discards local modifications, ignored files and unpushed commits, preserving `.temp`; remote branches containing `.temp` are rejected. Git changes/sync do not fetch or pull. Sync still pushes when no new commit is necessary. The commit message may be ordinary words or a multiline pre block. Token-bearing setup messages are excluded from agent history and deletion is attempted even on failure. Cleanup retains fresh files and reports removed files/bytes and failures.
+
+## Vault, WebSocket and MCP
+
+| Command | Access | Result |
 |---|---|---|
-| `/agent messages [RANGE]` | Переписка текущего чата; неявный фильтр chat CURRENT_CHAT_ID | admin, owner |
-| `/agent messages [RANGE] agent AGENT_ID` | Входящие и исходящие выбранного агента | admin, owner |
-| `/agent messages [RANGE] from agent AGENT_ID` | Отправленные выбранным агентом | admin, owner |
-| `/agent messages [RANGE] to agent AGENT_ID` | Адресованные выбранному агенту | admin, owner |
-| `/agent messages [RANGE] chat CHAT_ID` | Входящие и исходящие агента выбранного чата | admin, owner |
-| `/agent messages [RANGE] from chat CHAT_ID` | Отправленные из выбранного чата | admin, owner |
-| `/agent messages [RANGE] to chat CHAT_ID` | Адресованные агенту выбранного чата | admin, owner |
-
-Допускается один фильтр на вызов. From/to обозначает отправителя/получателя
-независимо от места вызова команды. Фильтр применяется перед пагинацией.
-Сортировка от новых записей к старым; срок хранения — 7 дней.
-Формат: заголовок диапазона/количества, затем для каждой записи
-`FROM_AGENT → TO_AGENT DateTime` и текст сообщения.
-Длинная выдача обрезается без отдельного файла.
-Подключённый чат без агента или без переписки даёт «Записей нет»;
-неизвестный чат или агент — ошибку. Просмотр не запускает и не включает агента.
-Заменяет `/agent_messages`.
-
-## /agent model — выбор модели
-
-Чтение и изменение модели, а также список доступных моделей доступны
-только admin/owner. Слово `set` явно отделяет изменение от чтения.
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/agent model` | Показать модель текущего агента | admin, owner |
-| `/agent model AGENT_ID` | Показать модель выбранного агента | admin, owner |
-| `/agent model in CHAT_ID` | Показать модель агента выбранного чата | admin, owner |
-| `/agent model default` | Показать модель по умолчанию для новых агентов | admin, owner |
-| `/agent model set MODEL_NAME` | Изменить модель текущего агента | admin, owner |
-| `/agent model set AGENT_ID MODEL_NAME` | Изменить модель выбранного агента | admin, owner |
-| `/agent model set in CHAT_ID MODEL_NAME` | Изменить модель агента выбранного чата | admin, owner |
-| `/agent model set * MODEL_NAME` | Изменить модель всех существующих агентов бота | admin, owner |
-| `/agent model set default MODEL_NAME` | Изменить модель по умолчанию для новых агентов | admin, owner |
-| `/agent models` | Показать список доступных моделей | admin, owner |
-
-Смена модели применяется со следующего хода, не сбрасывает контекст
-и не прерывает текущую работу. `*` включает выключенных существующих агентов,
-но не меняет default. Изменение default не затрагивает существующих агентов.
-Если в выбранном чате агента ещё нет, возвращается ошибка без его создания.
-Все выбранные агенты должны принадлежать текущему боту.
-
-Новые формы заменяют `/get_model`, `/set_model` и `/models`.
-
-## /task — управление планировщиком
-
-Объединяет прежние `/tasks`, `/task`, `/retry_task` и `/cancel_task`.
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/task`, `/task list` | Первые 10 задач текущего агента | В ЛС: user и выше; в группе: manager и выше |
-| `/task list FROM-TO` | Указанный диапазон задач текущего агента | В ЛС: user и выше; в группе: manager и выше |
-| `/task list N` | Одна задача по позиции в списке текущего агента | В ЛС: user и выше; в группе: manager и выше |
-| `/task list in CHAT_ID` | Первые 10 задач выбранного чата | admin, owner |
-| `/task list FROM-TO in CHAT_ID`, `/task list N in CHAT_ID` | Диапазон или одна позиция в выбранном чате | admin, owner |
-| `/task list agent AGENT_ID` | Первые 10 задач выбранного агента | admin, owner |
-| `/task list FROM-TO agent AGENT_ID`, `/task list N agent AGENT_ID` | Диапазон или одна позиция выбранного агента | admin, owner |
-| `/task show TASK_ID` | Подробная информация о задаче | user и выше — свой личный агент; manager и выше — текущая группа; admin/owner — любой агент своего бота |
-| `/task retry TASK_ID` | Повторить пропущенное или неудачное событие | Как для show |
-| `/task delete TASK_ID` | Удалить задачу целиком, включая будущие срабатывания cron | Как для show |
-| `/task retry *` | Повторить все пропущенные или неудачные события задач текущего чата | В ЛС: user и выше; в группе: manager и выше |
-| `/task delete *` | Удалить все задачи текущего чата | В ЛС: user и выше; в группе: manager и выше |
-| `/task retry * in CHAT_ID` | Повторить все пропущенные или неудачные события задач выбранного чата | admin, owner |
-| `/task delete * in CHAT_ID` | Удалить все задачи выбранного чата | admin, owner |
-
-`TASK_ID` однозначно определяет задачу: дополнительный выбор чата или агента
-для show/retry/delete не требуется. Контроллер проверяет права на её агента.
-N — положительная позиция, FROM-TO — диапазон позиций в списке.
-Команды работают также в пассивном чате: сохранённые задачи выключенного
-агента можно просматривать и удалять без его запуска.
-
-В командах /task `*` означает только все задачи выбранного чата,
-а не всех агентов бота. Без `in CHAT_ID` выбирается текущий чат.
-Массовая операция применяется к задачам, существующим на момент её начала;
-созданные позже задачи она не затрагивает. Отдельное подтверждение не требуется.
-Ответ компактно сообщает количество повторно поставленных или удалённых задач,
-пропусков и ошибок, если они есть. Частичный успех не скрывается.
-
-### Повторная попытка
-
-- Уже находящееся в очереди или обрабатываемое событие не дублируется;
-  команда сообщает его состояние.
-- Если пропусков или неудачного события нет: «Нет события для повторной попытки».
-- Если агент выключен: «Агент выключен. Сначала выполните `/agent start`».
-  Retry не включает агента автоматически.
-- Для cron повторяется одно объединённое пропущенное событие;
-  запись расписания и будущие срабатывания сохраняются.
-- Retry * применяет те же проверки к каждой задаче: задачи без пропусков,
-  события в очереди и обрабатываемые события пропускаются без дублирования.
-  Если агент выбранного чата выключен, массовый retry возвращает ошибку
-  без включения агента или постановки событий в очередь.
-
-### Удаление
-
-Удаление отменяет будущие срабатывания и ещё не переданные агенту события
-этой задачи. Уже начатое агентом действие не прерывается.
-
-### Вывод
-
-Сохраняется согласованное форматирование списка: заголовок `FROM-TO / TOTAL`,
-для каждой задачи — ID в code, время at или cron с timezone курсивом,
-непустое описание жирным и непустая полная инструкция в pre.
-Дополнительно показываются пропуски и состояние: «ожидает», «в очереди»,
-«обрабатывается» или «агент выключен». Длинная выдача обрезается с корректными
-entities и пометкой об обрезании, без отправки отдельного файла.
-
-Ручное создание и редактирование задач командами пока не вводятся:
-агент использует существующие инструменты планировщика.
-Уведомления о сбое задачи должны предлагать новые формы
-`/task retry TASK_ID` и `/task delete TASK_ID`.
-
-## /chat — подключённые чаты
-
-Используется короткий синтаксис без `in`: цель этих команд всегда чат.
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/chat list [RANGE]` | Список подключённых чатов, включая пассивные | admin, owner |
-| `/chat`, `/chat info` | Подробности текущего чата | В ЛС: user и выше; в группе/супергруппе: manager и выше |
-| `/chat info CHAT_ID` | Подробности выбранного подключённого чата | admin, owner |
-| `/chat leave` | Выйти из текущей группы/супергруппы и удалить данные диалога | manager и выше |
-| `/chat leave CHAT_ID` | Выйти из выбранного подключённого группового чата или канала и удалить данные диалога | admin, owner |
-
-RANGE — необязательный FROM-TO или одиночная позиция N; по умолчанию первые
-10 записей. Список содержит тип, название/username, групповой chatId
-и режим агента: включён, выключен или без агента.
-Подробности содержат тип, название, username, состояние подключения,
-состояние агента, agentId при наличии и доступные боту права.
-Чужие личные chatId/userId не раскрываются; личный диалог обозначается
-через agentId. Ограничение не скрывает ID собственного текущего ЛС.
-
-Выход отличается от stop: удаляются история, контекст, заметки, очередь,
-задачи и связанные состояния диалога. Общие постоянные файлы/wiki и Git
-сохраняются. Повторное подключение — с нуля.
-Leave не применяется к личным диалогам: возвращается ошибка с указанием
-на `/agent stop`. Команды не добавляют бота в новые чаты; подключение
-выполняется средствами Telegram.
-
-Заменяет `/chats`, `/leave` и `/leave_chat`.
-
-## /user — пользователи и роли
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/user list [RANGE]` | Список авторизованных пользователей | admin, owner |
-| `/user set USER_ID [role]` | Назначить пользователю роль; без role используется user | admin — user/manager; owner — также admin |
-| `/user delete USER_ID` | Удалить авторизацию пользователя | admin — user/manager; owner — также admin |
-
-RANGE — необязательный диапазон FROM-TO или одиночная позиция N;
-по умолчанию первые 10 записей. Заголовок: `FROM-TO / TOTAL`.
-Каждая строка: USER_ID в code, username либо имя, роль курсивом.
-Сортировка: owner → admin → manager → user, внутри роли — userId по возрастанию.
-
-Роли относятся только к текущему боту. Admin не меняет себя, других admin
-или owner. Owner не может изменить собственную роль через `/user set`
-или удалить собственную авторизацию через `/user delete`.
-Роль owner не назначается через `/user set`: передача владения — отдельное действие.
-Заменяет `/users`, `/set_user` и `/remove_user`.
-
-## /owner — владение ботом
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/owner` | Показать USER_ID владельца и username либо имя | admin, owner |
-| `/owner set USER_ID` | Передать владение текущим ботом | Только owner |
-
-Новый владелец должен быть уже авторизован в текущем боте.
-Прежний владелец становится admin и теряет исключительные права owner:
-назначение/снятие администраторов и дальнейшую передачу владения.
-Передача самому себе ничего не меняет.
-Изменение атомарно: у бота всегда ровно один владелец.
-Дополнительное подтверждение не требуется; ответ сообщает нового владельца
-и новую роль прежнего. Контексты, правила, задачи, файлы и Git-настройки
-сохраняются. Меняется владелец в приложении, а не в BotFather.
-Заменяет `/transfer_owner` дочернего бота; управление владельцем через
-мастер-бота будет обсуждаться отдельно.
-
-## /rules — правила бота
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/rules` | Прислать текущий AGENTS.md файлом | admin, owner |
-| `/rules set` | Загрузить новые правила через reply | admin, owner |
-
-Сохраняются оба способа загрузки: команда отвечает на файл либо файл
-отвечает на команду `/rules set`. Цитируемое сообщение должно быть собственным,
-неотредактированным и находиться в текущем чате. Ошибка проверки возвращается
-сразу; недопустимый файл-ответ не передаётся агенту.
-Правила едины для всех агентов бота. Обновление очищает контексты и обновляет
-developer instructions по согласованной процедуре смены правил.
-Заменяет `/set_rules`; `/rules` сохраняется.
-
-## /triggers — обращения к боту в группе
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/triggers` | Показать триггеры текущей группы, каждый отдельной строкой в code | manager и выше |
-| `/triggers set TRIGGER …` | Заменить список триггеров текущей группы | manager и выше |
-| `/triggers set` | Очистить список триггеров текущей группы | manager и выше |
-
-До 200 строк-триггеров, каждая длиной 2–50 символов, без переносов строки.
-Совпадение ищется без учёта регистра; непосредственно слева и справа
-от совпадения не должно быть буквы. Остальные согласованные правила
-сопоставления и активации громкого режима сохраняются.
-Список относится к чату и сохраняется при остановке агента.
-Команды применимы также в пассивной группе/супергруппе, но не включают агента.
-Заменяет `/set_triggers`; `/triggers` сохраняется.
-
-## /git — синхронизация файлов бота
-
-Все команды доступны только admin/owner в ЛС дочернему боту.
-Директория предоставляется каждому боту независимо от настройки Git.
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/git setup` | Показать текущие настройки, скрыв токен | admin, owner; ЛС |
-| `/git setup BRANCH [REMOTE_URL [TOKEN]]` | Настроить Git и восстановить директорию из выбранной удалённой ветки | admin, owner; ЛС |
-| `/git changes` | Показать изменённые файлы и непереданные коммиты | admin, owner; ЛС |
-| `/git sync MESSAGE` | Добавить изменения в индекс, создать коммит при необходимости и выполнить push | admin, owner; ЛС |
-
-Setup с веткой сбрасывает локальные изменения и непереданные коммиты;
-локальная ветка пересоздаётся из удалённой. Неуказанные REMOTE_URL/TOKEN
-берутся из текущих настроек. Временная директория `.temp` сохраняется
-и принудительно исключается из синхронизации.
-Токен не попадает в историю сообщений, доступную агентам, или вывод команды.
-
-Changes учитывает staged, unstaged и untracked файлы. Sync добавляет
-изменения, включая удаления, в индекс; если коммит не нужен, всё равно
-выполняется push. Сообщение коммита можно передавать блоком pre с переносами
-строк; единые правила разбора аргументов сохраняются.
-При ненастроенном Git changes/sync возвращают понятную ошибку.
-Fetch/pull при changes/sync не выполняются; особое восстановление ветки
-через setup сохраняет ранее согласованное поведение.
-Компактные форматы результатов операций сохраняются.
-Заменяет `/git_setup`, `/git_changes`, `/git_sync`.
-
-## Файловые команды
-
-Сохраняются короткие имена. Все команды доступны только admin/owner в ЛС
-дочернему боту. Пути относятся к директории текущего бота; сохраняются
-существующие проверки путей и ограничения служебных директорий.
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/ls [PATH]` | Список файлов директории; без PATH — корень директории бота | admin, owner; ЛС |
-| `/cat PATH` | Показать имя файла и содержимое текстом в pre | admin, owner; ЛС |
-| `/download PATH` | Прислать файл | admin, owner; ЛС |
-| `/upload PATH` | Сохранить файл, переданный через reply | admin, owner; ЛС |
-| `/edit PATH PRE_BLOCK` | Записать содержимое обязательного pre-блока в файл | admin, owner; ЛС |
-| `/mv FROM TO` | Переместить файл или директорию | admin, owner; ЛС |
-| `/rm PATH` | Удалить файл или директорию целиком, без подтверждения | admin, owner; ЛС |
-
-Для upload сохраняются оба направления reply: команда → файл и файл → команда.
-Цитируемое сообщение собственное, неотредактированное, в текущем чате.
-Вне code/pre пробельные символы, включая переносы строк, разделяют аргументы.
-Code/pre — один аргумент с сохранением содержимого; их границы также
-разделяют аргументы. Прочее форматирование вызывает ошибку синтаксиса.
-Длинный текстовый вывод обрезается без автоматической отправки файла.
-
-## /temp — временные файлы
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/temp`, `/temp status` | Количество и общий размер временных файлов, отдельно просроченных | admin, owner; ЛС |
-| `/temp cleanup` | Удалить просроченные временные файлы | admin, owner; ЛС |
-
-Просроченность определяется по mtime старше 24 часов для файлов внутри
-`.temp`, включая произвольные временные поддиректории агентов.
-Свежие файлы cleanup не удаляет. Ответ показывает количество удалённых
-файлов, освобождённый размер и количество ошибок. При ошибках добавляется
-список путей; длинный вывод обрезается.
-Автоматическая ежедневная очистка сохраняется. Уведомление владельцу
-об ошибке удаления предлагает `/temp cleanup`.
-Отдельные команды списка просроченных файлов и удаления всех временных
-файлов не вводятся. Заменяет `/cleanup_temp`.
-
-## /bot — команды мастер-бота
-
-Все формы выполняются в ЛС мастер-боту и в текущей версии доступны только
-владельцу сервиса из конфигурации. Мастер-бот не использует агента.
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/bot`, `/bot list [RANGE]` | Список зарегистрированных ботов | Владелец сервиса |
-| `/bot add TOKEN [OWNER_ID]` | Зарегистрировать бота и назначить владельца | Владелец сервиса |
-| `/bot info @BotName` | Подробности зарегистрированного бота | Владелец сервиса |
-| `/bot owner @BotName` | Показать владельца | Владелец сервиса |
-| `/bot owner set @BotName USER_ID` | Административно назначить владельца | Владелец сервиса |
-| `/bot delete @BotName` | Показать сведения и полные команды удаления | Владелец сервиса |
-| `/bot delete @BotName BOT_ID` | Удалить подключение и данные бота, сохранив wiki/Git | Владелец сервиса |
-| `/bot delete @BotName BOT_ID all` | Удалить все данные бота, включая wiki/Git | Владелец сервиса |
-
-Для add без OWNER_ID владельцем становится автор команды, а не фиксированный
-владелец сервиса. Это правило сохраняется при возможном будущем расширении
-доступа к мастер-боту; само расширение доступа сейчас не вводится.
-
-RANGE — необязательный FROM-TO или одиночная позиция N; по умолчанию первые
-10 записей. Список показывает диапазон/количество и построчно username бота,
-BOT_ID и USER_ID владельца; идентификаторы форматируются как code.
-Info показывает имя, username, BOT_ID, владельца, количество подключённых
-чатов и включённых/выключенных агентов. Токен не показывается.
-
-Owner set в мастер-боте допускает назначение ещё не авторизованного
-в дочернем боте пользователя. Это отличается от передачи через `/owner set`
-самим владельцем дочернего бота. Прежний владелец становится admin.
-Удаление отключает бота от сервиса, но не удаляет Telegram-бота в BotFather.
-Заменяет `/newbot`, `/bots`, `/set_owner` и `/delete_bot` мастер-бота.
-
-## /help — справка и общие правила команд
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/help` | Вывести все доступные разделы и команды в текущем чате | Авторизованные пользователи согласно роли и месту вызова |
-| `/help SECTION` | Вывести доступные команды конкретного раздела | Как для help |
-
-«Всё» означает всю справку, доступную вызывающему пользователю в текущем
-чате; закрытые команды не раскрываются. Справка учитывает права и различает
-мастер-бота и дочернего бота. Имена разделов соответствуют группам команд,
-например agent, task, chat, user, owner, rules, triggers, git, file, temp, bot.
-Неизвестный раздел возвращает ошибку и предлагает `/help`.
-
-Ошибки синтаксиса и неизвестные команды обрабатываются контроллером сразу,
-без передачи агенту. Ошибка синтаксиса предлагает `/help SECTION`, если
-раздел распознан, иначе `/help`. Все ответы на команды, включая ошибки
-и справку, выполняются как reply. Единый разбор аргументов сохраняется.
-
-Старые имена заменённых команд удаляются без алиасов. Подсказки,
-справка и автоматические уведомления обновляются на новые имена.
-
-## Переход и совместимость базы данных
-
-- Существующие агенты остаются включёнными; обновление не удаляет их данные
-  и контексты. Уже подключённые пассивные супергруппы остаются пассивными.
-- Новые группы/супергруппы подключаются с выключенным агентом.
-- Повторные start/stop безопасны: «Уже включён»/«Уже выключен», без лишнего сброса.
-- Во время остановки start возвращает «Агент выключается. Повторите после
-  завершения», не отменяя начатую остановку.
-- При миграции обычной группы в супергруппу переносятся история, агент,
-  заметки, задачи, триггеры и включённость на новый chatId. Прежнее правило
-  выхода при такой миграции отменяется.
-
-Обновление приложения должно автоматически и без потери данных мигрировать
-существующую поддерживаемую БД. Нельзя пересоздавать БД или требовать ручного
-удаления данных для запуска новой версии. Изменения схемы версионируются;
-повторный запуск не повторяет уже применённые миграции.
-Миграция выполняется до приёма событий. При ошибке обновления схемы приложение
-не начинает обработку на частично обновлённой БД и выдаёт понятную диагностику;
-миграция должна быть транзакционной там, где это допускает используемая БД.
-
-Нужно сохранять желаемую включённость независимо от наличия контекста,
-а также сведения о пропущенных событиях во время выключения. Схема 8 добавляет chats.agentEnabled, agents.stopPending и
-task_firings.missedReason; используется существующий contextResetPending. Уже принятая остановка должна переживать
-перезапуск без самопроизвольного включения агента. Контексты, заметки, история,
-задачи и настройки сохраняются при обновлении. Проверки миграции на старой БД
-и повторного запуска входят в план реализации.
-Обратная совместимость с запуском старой версии приложения на новой схеме
-не подразумевается; неподдерживаемая версия схемы должна диагностироваться.
-
-## Замена прежних команд
-
-- `/agent stop …` заменяет `/stop_agent AGENT_ID`, с новым поведением:
-  бот остаётся в чате, история и заметки не удаляются.
-- `/agent clear …` заменяет `/clear …` и расширяет права для текущего чата.
-- Реализация и конкретная миграция схемы будут определены отдельным планом.
-  Временные алиасы не вводятся.
-
-
-## /vault — секреты бота
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/vault` или `/vault list` | Список имён без значений | admin/owner, ЛС |
-| `/vault set NAME TOKEN` | Создать/заменить секрет | admin/owner, ЛС |
-| `/vault delete NAME` | Удалить секрет | admin/owner, ЛС |
-
-Только в дочернем боте. NAME: `[A-Za-z][A-Za-z0-9_-]{0,63}`, регистр значим. TOKEN: 1–16384 UTF-8 байт, без обрезки пробелов. Значение с пробелами передаётся одним code/spoiler-аргументом; pre не допускается. Все агенты этого бота имеют доступ к секретам. Пользовательской команды раскрытия нет. `/vault set` отвечает с обычным reply и затем best-effort удаляет исходную команду, как `/bot add`. При неудачном удалении исходное сообщение может остаться в Telegram. Команда не сохраняется в истории и не передаётся агенту. Удаление бота удаляет vault; удаление чата/агента и Git reset его не затрагивают.
-
-Spoiler-entities разрешены во всех командах как code: содержимое — один аргумент, границы отделяют соседние аргументы. Это визуальное скрытие, не шифрование. Вложенное форматирование и пересечение code/pre/spoiler отвергаются. Правила pre для `/edit` и `/git sync` прежние.
+| `/vault`, `/vault list` | Admin, private | List secret names only |
+| `/vault set NAME TOKEN`, `/vault delete NAME` | Admin, private | Set/replace or delete a bot secret |
+| `/ws list [AGENT_ID]`, `/ws list in CHAT_ID` | Admin | Connections for the current/selected agent |
+| `/ws close CONNECTION_ID`, `/ws delete CONNECTION_ID` | Admin | Close a connection or delete its record |
+| `/mcp list`, `/mcp show NAME` | Admin, private | Show HTTP MCP configuration with sensitive values hidden |
+| `/mcp set NAME PRE_TOML` | Admin, private | Set/replace one server using a Telegram TOML pre block |
+| `/mcp test NAME`, `/mcp delete NAME` | Admin, private | Test or delete a configured server |
+
+Vault values are shared with agents of this bot through `vault_get`, never returned by Telegram commands. Set messages have deletion attempted even on failure. See [Security](security.md), [WebSocket](websocket.md), and [MCP](mcp.md) for name constraints, exact TOML fields, connection lifecycle and secret handling. Tool boundaries are described in [Agent contract](agent-contract.md); system responsibilities in [Architecture](architecture.md).

@@ -1,13 +1,20 @@
 # Telegram Assistant
 
-Личный Telegram-ассистент на Codex CLI: мастер-бот, отдельные агенты чатов, общая файловая wiki, планировщик и Git-синхронизация. Node.js 24.18.1+, Codex CLI 0.159.3; целевая среда — Alpine Linux, Windows используется для отладки.
+A Telegram assistant service powered by Codex CLI. Register separate bots through a master bot, enable agents in private chats or groups, and let them work with shared files, scheduled tasks, channels, and external tools.
 
-Установка и запуск по SSH: [docs/operations.md](docs/operations.md). Пример конфигурации: [config.example.json](config.example.json).
+- Per-bot ownership, roles, rules, model settings, and isolated workspaces.
+- Chat history, persistent notes, optional Git synchronization, and image generation.
+- Text, rich messages, albums, callback buttons, and media reuse.
+- Durable one-time/cron tasks, channel publishing, and comment searches.
+- Browser/PDF readers, secret vault, active WebSocket connections, and HTTP MCP.
 
-- [Контракт агента](docs/agent-contract.md)
-- [Роли и команды](docs/access-and-commands.md)
-- [Проверки и ограничения](docs/implementation-progress.md)
-- [Итоговая сверка](docs/v1-audit.md)
+The deployment target is Alpine Linux; Windows is used for development. Node.js **24.18.1 or newer** and an authenticated Codex CLI are required. Codex **0.159.3** is the validation baseline; other versions are allowed with a warning. Selected integrations were also checked with **0.161.0**.
+
+## Getting started
+
+Follow [installation and operations](docs/operations.md) for the complete SSH setup, dependencies, Codex login, token storage, and sandbox checks. Use [config.example.json](config.example.json) as a configuration template. Runtime data and credentials must stay outside the repository.
+
+After preparing configuration and authorization:
 
 ```sh
 npm ci
@@ -17,6 +24,14 @@ npm run service:alpine_status -- /absolute/path/config.json
 npm run service:alpine_stop -- /absolute/path/config.json
 ```
 
-Перед запуском установите Codex CLI (проверена версия 0.159.3; другие версии допускаются с предупреждением), авторизуйтесь им и создайте конфигурацию с отдельным файлом токена мастер-бота. Конфигурация, авторизация и данные не входят в репозиторий. Генерация использует авторизованный ChatGPT-аккаунт.
+Register and manage bots using the [master bot](docs/master-bot.md). Manage each bot's agents, access, rules, tasks, and files using [child-bot commands](docs/commands.md). New groups and non-forum supergroups are passive until `/agent start`; channels remain passive destinations. Forum groups are unsupported.
 
-Для browser_read/pdf_read на Alpine дополнительно установить `apk add chromium poppler-utils font-dejavu`. GPU и графический интерфейс не нужны. После обновления выполнить `/agent clear *`, чтобы обновить инструкции существующим агентам.
+## Documentation
+
+- [Wiki index](docs/index.md)
+- [Architecture](docs/architecture.md)
+- [Agent tools](docs/agent-contract.md) and [message events](docs/message-events.md)
+- [Security and privacy](docs/security.md)
+- [Development archive](docs/dev/index.md)
+
+After updating the application, use `/agent clear *` when existing agents need refreshed service instructions. Follow the [upgrade procedure](docs/operations.md) for backups and database migrations.

@@ -1,157 +1,75 @@
-# Активные WebSocket-соединения
+# WebSocket connections
 
-Реализованный контракт от 2026-10-10. Проверки описаны в
-[websocket-mcp-check-results.md](websocket-mcp-check-results.md).
+The controller holds `ws`/`wss` connections independently of Codex turns. Incoming messages enter a per-connection FIFO buffer; only short notifications enter the ordinary agent queue. A socket does not keep an agent busy or automatically enable Telegram typing.
 
-## Назначение и область доступа
+Connections belong to one agent of one bot. Agents can only operate their own records. Admin/owner may inspect, close, and delete connections of their bot using [child-bot commands](commands.md).
 
-Контроллер держит соединение независимо от активного хода Codex. Входящие
-данные копятся в отдельном FIFO-буфере соединения; в существующую очередь
-агента поступают только короткие уведомления. Открытое соединение не делает
-агента занятым и не включает статус «печатает».
+## Tools
 
-Соединение принадлежит одному агенту одного бота. Агент работает только со
-своими соединениями. admin/owner могут просматривать, закрывать и удалять
-соединения любых агентов текущего бота.
+| Tool | Arguments | Result |
+|---|---|---|
+| `ws_open` | `url`, `description`, optional `headers` | `{connectionId}` |
+| `ws_list` | None | `{connections:[...]}` |
+| `ws_pull` | `connectionId`, positive integer `count` | `{messages:[...],remaining}` |
+| `ws_send` | `connectionId`, exactly one `text` or `path` | `{status:"sent"}` |
+| `ws_close` | `connectionId` | `{status:"closed"}` |
+| `ws_delete` | `connectionId` | `{status:"deleted"}` |
 
-## Инструменты агента
+`description` is 1–100 Unicode code points and must not contain secrets. Headers have string values without newlines. The opening handshake has a 15-second timeout. Closing or deleting during a handshake settles the waiting open call with an error.
 
-| Вызов | Действие |
-|---|---|
-| `ws_open({url, description, headers?})` | Открыть соединение; вернуть `{connectionId}` |
-| `ws_list()` | Получить собственные открытые и закрытые соединения |
-| `ws_pull({connectionId, count})` | Извлечь первые count элементов из буфера |
-| `ws_send({connectionId, text})` | Отправить одно текстовое сообщение |
-| `ws_send({connectionId, path})` | Отправить доступный агенту файл как одно бинарное сообщение |
-| `ws_close({connectionId})` | Закрыть соединение; сохранить запись, буфер и файлы |
-| `ws_delete({connectionId})` | Закрыть соединение, очистить буфер, удалить файлы и запись |
+Build secret-bearing URLs or headers inside Codex JavaScript, using `vault_get` where appropriate, and print only safe results. Lists expose the origin rather than the full URL. The service does not apply a public-address-only filter to WebSocket destinations.
 
-description — короткое назначение соединения, до 100 символов, без секретов.
-headers — необязательный объект строковых HTTP-заголовков без CR/LF.
-URL и headers можно построить с vault_get внутри JavaScript, не печатая секреты.
-text и path взаимоисключающие. count — положительное целое число.
-После закрытия отправка запрещена, но ws_pull остаётся доступен.
-Повторное закрытие успешно и не продлевает срок хранения.
+```json
+{"url":"wss://example.com/events","description":"Receive build notifications"}
+```
 
-ws_pull удаляет выданные элементы из буфера, но не удаляет бинарные файлы.
-Подтверждения обработки нет: сбой агента после извлечения может привести
-к потере извлечённых данных. Это принятое упрощение первой реализации.
+`ws_send` sends a text message verbatim or reads a permitted local file and sends it as binary. Each buffered element is one complete WebSocket message, not a frame. The controller does not parse text as JSON.
+
+## Buffering and notifications
+
+A transition from an empty to a nonempty buffer emits:
+
+```json
+{"eventType":"websocket_ready","connectionId":"w123"}
+```
+
+Identical waiting ready notifications are coalesced. Further packets in a nonempty buffer do not emit another ready event. If a pull leaves `remaining > 0`, the agent must keep pulling, schedule later work, or explicitly return to the connection. A notification can become stale and a pull can legitimately return an empty list.
+
+`ws_pull` destructively removes up to `count` messages in FIFO order. It can be called within JavaScript to process many packets and print only a useful summary:
 
 ```json
 {
-  "messages": [
-    {"type": "text", "data": "hello"},
-    {
-      "type": "binary",
-      "path": ".temp/a1/websocket/w1/packet-17.bin",
-      "bytes": 18342
-    },
-    {
-      "type": "binary",
-      "bytes": 524288,
-      "skipped": true,
-      "reason": "binary_storage_full"
-    }
+  "messages":[
+    {"type":"text","data":"{\"event\":\"done\"}"},
+    {"type":"binary","bytes":128,"path":".temp/a123/websocket/w123/packet-2.bin"},
+    {"type":"binary","bytes":256,"skipped":true,"reason":"binary_storage_full"}
   ],
-  "remaining": 0
+  "remaining":0
 }
 ```
 
-Каждый элемент соответствует целому WebSocket-сообщению, а не отдельному
-фрейму. Текст не разбирается как JSON контроллером. Агент может вызвать
-ws_pull внутри code-mode, обработать данные скриптом и вывести только итог.
+Backend/admin closure emits `websocket_closed` with a safe reason such as `server`, `admin`, `transport_error`, `storage_error`, or `buffer_overflow`. An available server close code is included. Buffer overflow reports `droppedMessages: 1` for the rejected packet. Arbitrary server close strings are not forwarded. An agent's own close does not echo a notification.
 
-## Список и счётчики
+Administrator deletion emits `websocket_deleted` with `reason: "admin"`; expiry deletion uses `reason: "expired"`. These events and ready notifications do not consume the ten chat-entry queue allowance.
 
-ws_list и административный список показывают connectionId, description,
-безопасный origin, status (opening/open/closed), дату открытия, общий объём полученных
-и отправленных данных, количество элементов и байт в буфере, объём бинарных
-файлов (binaryBytes). Закрытые записи с пустым буфером также видны.
+## Limits and counters
 
-URL не показывается: origin содержит только схему, hostname и порт,
-без credentials, пути, query и fragment. Секреты нельзя включать в описание
-и пользовательские ошибки. Общие счётчики учитывают полезные данные
-полностью полученных/успешно отправленных сообщений, без заголовков протокола.
-ws_pull уменьшает размер буфера, но не общий счётчик принятых данных.
+| Limit | Behavior |
+|---|---|
+| Ten records per agent | Opening, open, and closed records all occupy slots; delete frees a slot |
+| 10 MiB per incoming message | Larger messages are rejected by the transport |
+| 1 MiB FIFO accounting per connection | UTF-8 text payload bytes plus serialized binary/skipped metadata; overflow closes the connection and preserves earlier buffered entries |
+| Binary directory threshold of 10 MiB | Save a whole binary message if current directory size is at most the threshold; otherwise record a skipped message |
+| One hour after first close | Delete the record, remaining buffer, and binary files |
 
-## Уведомления агенту
+One MiB is 1,048,576 bytes. Binary content is outside FIFO byte accounting. Because the directory check happens before writing a whole message, saved binary files can grow to 20 MiB with the accepted per-message limit. Skipping a binary packet because storage is full does not itself close the socket.
 
-При переходе буфера из пустого в непустой:
+Each list record contains `connectionId`, `description`, `origin`, `status` (`opening`, `open`, `closed`), `openedAt`, optional `closedAt`, `receivedBytes`, `sentBytes`, `queued`, `queuedBytes`, and `binaryBytes`. Times are ISO 8601. Counters count received payloads and successful sends rather than transport headers. Pulling decreases FIFO size, not total received bytes.
 
-```json
-{"eventType":"websocket_ready","connectionId":"w1"}
-```
+## File and connection lifecycle
 
-Ожидающие одинаковые ready объединяются. Пока буфер непустой, новые данные
-не создают повторных ready. Если ws_pull оставил данные, агент должен
-продолжить чтение, отложить его сам или вернуться позже. Уведомление не
-содержит самих пакетов. Оно может устареть к моменту обработки;
-пустой результат ws_pull допустим.
+Binary files live under `.temp/AGENT_ID/websocket/CONNECTION_ID/`. Pulling does not delete them; the agent should delete processed files to free space. Move files elsewhere before `ws_delete` if they are still needed. A file already removed by cleanup returns as skipped with `reason: "file_expired"` when pulled.
 
-Закрытие сервером/контроллером создаёт websocket_closed. При закрытии
-администратором reason = admin; при переполнении буфера reason = buffer_overflow,
-с droppedMessages: 1 для сообщения, которое не удалось добавить.
-При наличии кода закрытия WebSocket можно передать code.
-Не передавать произвольную серверную строку причины без очистки от секретов.
-Явный ws_close агента не требует отдельного уведомления о собственном действии.
+Normal [temporary-file cleanup](storage.md) applies by `mtime`. Closed-connection expiry can remove files earlier. Repeated close does not extend the one-hour lifetime. Context clear, rules replacement, and agent stop close sockets; removal of the chat/bot deletes their resources. An MCP configuration refresh keeps sockets.
 
-Удаление администратором создаёт websocket_deleted с reason = admin.
-Автоматическое удаление — websocket_deleted с reason = expired.
-При удалении снимаются ожидающие ready для этого connectionId.
-
-## Лимиты
-
-- До 10 записей соединений на агента, включая закрытые. Удаление освобождает место.
-- Максимум 10 MiB (10 × 1024 × 1024 байт) на одно входящее сообщение.
-- Буфер одного соединения: максимум 1 MiB текстовых данных в UTF-8 и
-  метаданных бинарников/пропусков. Бинарное содержимое в этот лимит не входит.
-  Если очередной элемент не помещается, его не добавляют и соединение
-  закрывают. Уже накопленные элементы сохраняются.
-- Бинарное хранилище одного соединения: проверка перед записью. Если текущий
-  суммарный размер файлов ≤ 10 MiB, следующее сообщение сохраняют целиком.
-  Если размер уже > 10 MiB, файл не записывают, добавляют элемент skipped с
-  reason = binary_storage_full. Это не закрывает соединение само по себе.
-  Проверка/запись сериализованы. Максимум файлов при принятом размере
-  сообщения — 20 MiB. Агент удаляет прочитанные файлы для освобождения места.
-
-## Файлы и очистка
-
-Бинарные данные лежат в `.temp/AGENT_ID/websocket/CONNECTION_ID/`, доступны
-только соответствующему агенту и исключены из Git по общим правилам .temp.
-Суточная очистка файлов по mtime применяется без исключений. Если файл
-исчез до ws_pull, элемент возвращается как skipped с reason = file_expired,
-а не как доступный путь. Если исчез после выдачи пути, чтение может не
-удаться по обычным правилам временных файлов.
-
-Закрытая запись живёт 1 час с момента первого закрытия. Затем автоматически
-удаляются запись, буфер и оставшиеся бинарные файлы. Это относится также
-к соединениям, закрытым из-за переполнения. Пустая закрытая запись не
-удаляется раньше автоматически. Для долгого хранения агент переносит
-нужные файлы в wiki или другую временную директорию до удаления соединения.
-
-Остановка/очистка агента закрывает принадлежащие ему соединения. Удаление
-агента/чата/бота очищает принадлежащие им ресурсы. Записи и буферы находятся
-в памяти: перезапуск закрывает подключения и теряет непрочитанные данные.
-При запуске удаляются прежние директории `.temp/AGENT_ID/websocket/`
-зарегистрированных агентов, остальные временные файлы сохраняются.
-Автовосстановления и переподключения нет. Закрытие во время handshake
-завершает ожидающий ws_open ошибкой, не оставляя зависший вызов.
-Уведомления WebSocket не входят в лимит 10 событий чата.
-
-## Команды администратора
-
-| Команда | Действие | Доступ |
-|---|---|---|
-| `/ws`, `/ws list` | Список соединений агента текущего чата | admin, owner |
-| `/ws list AGENT_ID` | Список соединений выбранного агента | admin, owner |
-| `/ws list in CHAT_ID` | Список соединений агента указанного чата | admin, owner |
-| `/ws close CONNECTION_ID` | Закрыть, сохранить буфер/файлы/запись | admin, owner |
-| `/ws delete CONNECTION_ID` | Закрыть и удалить всё связанное с соединением | admin, owner |
-
-Команды следуют общему парсеру аргументов и отвечают reply.
-Чужой бот не может быть выбран через connectionId/agentId/chatId.
-
-## MCP
-
-WebSocket-транспорт MCP отложен. Нативные MCP через Streamable HTTP
-обсуждаются отдельно; обычные WebSocket-пакеты не считаются MCP-запросами.
+Records and buffers are in memory. Restart loses unread packets and does not reconnect. Startup removes old WebSocket directories for registered agents. Other temporary files remain under the normal cleanup policy. MCP over WebSocket is not supported; [HTTP MCP](mcp.md) is a separate native integration.

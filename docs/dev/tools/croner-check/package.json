@@ -1,0 +1,13 @@
+{
+  "name": "tg-assistant-croner-check",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test adapter.test.mjs",
+    "test:native": "node --test croner.test.mjs dst-probe.mjs"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "0.5.1",
+    "croner": "10.0.1"
+  }
+}

@@ -1,69 +1,32 @@
-> Обновление 2026-10-09: актуальный контракт команд и состояния агентов — [commands.md](commands.md). Его правила заменяют прежнее автоматическое включение групп, запрет агентов в супергруппах и разрушительный stop. Форумные группы запрещены.
+# Operations
 
-# Запуск и обслуживание
+[Wiki home](index.md) · [Architecture](architecture.md) · [Commands](commands.md) · [Master bot](master-bot.md)
 
-Реализация находится в `feat/controller-v1`; актуальные проверки и оставшиеся пробелы перечислены в `implementation-progress.md`. Успешный fake suite не заменяет проверку Telegram, Codex и ядра серверной ОС.
+Run the controller as a dedicated ordinary Linux user. The supported deployment workflow uses Alpine over SSH. Node.js must be at least **24.18.1**; the validated Codex CLI is **0.159.3**, with a native executable for the host architecture and musl. Startup executes `codex --version`: a different version produces a warning and continues with an unvalidated runtime; a failed version command prevents startup. Upgrading Codex requires fresh runtime and filesystem isolation checks.
 
-Используем Node.js 24.18.1 или новее и проверенный Codex CLI 0.159.3. Alpine-стенд проверен с нативным x86_64 musl бинарником; подробности окружения и Docker — в `alpine-check-results.md`. Процесс приложения запускается от отдельного обычного пользователя. На настоящем сервере до эксплуатации нужно повторить файловую проверку: возможность создания namespace зависит от ядра и внешних ограничений хостинга.
+## Install on Alpine over SSH
 
-1. Выполнить `npm ci` и `npm test` в каталоге приложения.
-2. Создать отдельные каталоги control, wiki и codex-home. Control и codex-home должны находиться вне wiki. Каталог бинарника Codex доступен песочнице на чтение: используйте отдельный каталог вроде /opt/codex/bin, без секретов и данных ботов. Служебные каталоги и файлы авторизации доступны только пользователю сервиса.
-3. Скопировать `config.example.json`, указать настоящий serviceOwnerId, абсолютные пути и часовой пояс. Токен мастер-бота записать отдельным файлом masterTokenFile. Не помещать конфигурацию, токены и CLI home в Git.
-4. Авторизоваться тем же пользователем: `CODEX_HOME=/srv/tg-assistant/codex-home /opt/codex/bin/codex login --device-auth`. Используется ChatGPT-подписка; API-ключ для генерации не требуется.
-5. Запустить `node src/main.mjs /абсолютный/путь/config.json`. Для менеджера процессов использовать эту команду непосредственно, с корректным рабочим каталогом и обычным пользователем сервиса.
-6. В ЛС мастер-боту выполнить `/bot add TOKEN [OWNER_ID]`. Регистрация и команды не передаются агенту и не сохраняются в его истории. Контроллер пытается удалить сообщения с токенами из Telegram; это не гарантирует удаления копий с клиентских устройств.
-
-В Windows меняются абсолютные пути и способ задания CODEX_HOME. Это отладочное окружение: Linux-проверки с закреплением директорий через file descriptor там пропускаются. Production-приёмка проводится на Linux с профилем `tg-agent`, без замены его на unrestricted.
-
-Одновременно разрешён один процесс с этой БД. Lock содержит PID и уникальный идентификатор запуска. После аварийного завершения мёртвый PID допускает восстановление. Если остался файл `controller.lock.reclaim`, сначала проверить отсутствие работающего процесса и вручную удалить только этот служебный файл; автоматическое конкурентное восстановление guard не применяется.
-
-SIGINT/SIGTERM прекращают новые активации, отзывают scopes и закрывают Codex-процессы. Закрытие БД ждёт всех Telegram pollers, включая подключённых после запуска, и уже начатых контроллерных действий. RAM-очередь не восстанавливается. Задачи и зарегистрированные исходники изображений сохраняются в БД; неоконченные задачи могут повторить ранее выполненные внешние действия.
-
-Ежедневная очистка удаляет историю старше 30 дней, межагентный журнал старше 7 дней и временные файлы старше 24 часов по mtime. Отложенные задачи и notes не удаляются вместе с историей. Исходники изображений удаляются только по реестру и только из служебного generated_images. Ошибки очистки отправляются владельцу, длинный отчёт обрезается. `/temp cleanup` повторяет только очистку временных файлов бота.
-
-Для резервной копии остановить процесс и сохранить SQLite, control/secrets, control/rules, wiki и codex-home. Копия содержит секреты и личные диалоги. Восстановление выполняется при остановленном сервисе, с тем же расположением каталогов и правами доступа. При смене абсолютных путей зарегистрированные пути и сохранённые native sessions требуют отдельной проверки.
-
-Для ротации токена остановить процесс, заменить соответствующий файл в control/secrets и запустить снова. Git-токены также хранятся вне wiki; `/git setup` без аргументов показывает только наличие токена. Вызов с веткой заменяет wiki состоянием remote-ветки и может потерять локальные коммиты и изменения; `.temp` сохраняется.
-
-Обновление Codex выполняется вручную после повторения runtime-проверок из `agent-contract.md`. При другой версии приложение пишет warning и продолжает запуск; совместимость новых версий отдельно не гарантируется. Полные raw RPC, изображения в base64 и URL Telegram с токенами не должны попадать в эксплуатационные логи.
-
-
-При изменении служебных developer instructions уже сохранённые контексты требуется пересоздать через /agent clear * от admin/owner (или /agent clear [agentId] выборочно). Команда ждёт полного завершения работы, удерживая очередь. /rules set обновляет правила; текущая работа завершается перед сбросом. Параметр force больше не принимается. Не полагаться на thread/resume для замены прежних установок. История, notes, wiki и задачи сохраняются.
-
-## Управление фоновым сервисом на Alpine через SSH
-
-Из каталога приложения, от того же обычного пользователя, который авторизован в Codex:
+An administrator installs system dependencies. Ensure the Alpine repositories supply the required Node version; do not assume the distribution default satisfies the engine requirement.
 
 ```sh
-npm run service:alpine_start
-npm run service:alpine_status
-npm run service:alpine_stop
+apk add --no-cache git nodejs npm ripgrep tzdata ca-certificates curl chromium poppler-utils font-dejavu
 ```
 
-По умолчанию читается config.json в текущем каталоге. Для отдельного конфига:
+`nohup` must also be available (BusyBox or coreutils). Install Codex separately, for example under `/opt/codex/bin`, and verify:
 
 ```sh
-npm run service:alpine_start -- /srv/tg-assistant/config.json
-npm run service:alpine_status -- /srv/tg-assistant/config.json
-npm run service:alpine_stop -- /srv/tg-assistant/config.json
+node --version
+npm --version
+/opt/codex/bin/codex --version
+command -v nohup
+chromium --version
+pdftotext -v
 ```
 
-Команды управляют всем сервисом (мастером и всеми подключёнными ботами). start использует nohup с отдельной группой процесса, закрытым stdin и логом dataDir/service.log. Ждёт controller.ready с PID и nonce текущего controller.lock, который приложение публикует после инициализации. Повторный start не создаёт второй экземпляр. status показывает running/starting/stopped, PID и путь к логу.
-
-stop проверяет lock, владельца процесса, исполняемый Node, entrypoint, путь конфигурации и время рождения процесса через /proc; затем посылает SIGTERM и ждёт до 60 секунд. Автоматического SIGKILL нет. При таймауте startup процесс может продолжать инициализацию — проверить status/лог и при необходимости выполнить stop. Конкурирующие start/stop защищены отдельным service-command.lock. Отметки готовности нет у сервиса, запущенного до обновления этой версии: один раз остановить и запустить его.
-
-nohup не обеспечивает автозапуск после перезагрузки или восстановление после падения. Состояние БД и задачи сохраняются, RAM-очередь при остановке теряется согласно контракту v1. На Windows эти команды отклоняются; для разработки доступен npm start -- CONFIG_FILE.
-
-Приложение явно игнорирует SIGHUP: Node сбрасывает унаследованную обработку сигнала, поэтому одного nohup недостаточно. SIGTERM продолжает инициировать штатную остановку.
-
-## Первоначальная установка по SSH
-
-На подготовленном Alpine нужны git, Node.js >=24.18.1, npm, ripgrep, tzdata, ca-certificates и nohup (BusyBox или coreutils). Codex CLI 0.159.3 установите отдельно, с нативным бинарником для архитектуры сервера и musl. Проверьте `node --version` и `/opt/codex/bin/codex --version`; другая версия Codex вызывает предупреждение, но не блокирует запуск. Установка системных пакетов выполняется администратором, приложение запускается обычным пользователем.
-
-После публикации ветки реализации, под пользователем сервиса:
+Then, as the service user:
 
 ```sh
-git clone --branch feat/controller-v1 https://github.com/dpohvar/tg-assistant.git
+git clone https://github.com/dpohvar/tg-assistant.git
 cd tg-assistant
 npm ci
 npm test
@@ -72,66 +35,97 @@ mkdir -p "$HOME/tg-assistant-data/control/secrets" "$HOME/tg-assistant-data/wiki
 cp config.example.json config.json
 ```
 
-В config.json заменить пути на абсолютные пути созданных каталогов, задать serviceOwnerId, masterTokenFile, codexExecutable и defaultTimezone. `$HOME` внутри JSON не раскрывается. Токен записать в masterTokenFile через редактор (одна строка), права файла 600; config.json и каталоги control/codex-home должны быть доступны только пользователю сервиса.
+Use the current reviewed application revision. The npm dependencies include `playwright-core`; it uses system Chromium rather than downloading a browser. PDF reading requires Poppler. Set `TG_CHROMIUM_PATH` if Chromium is installed at a nonstandard path. Chromium runs headless as the ordinary user with its own sandbox enabled; GPU/X11 is not required. The host must allow the namespaces needed by the browser and Codex sandboxes. See [Agent contract](agent-contract.md) and [Security](security.md).
 
-Авторизоваться и запустить (пути должны совпадать с config.json):
+## Configuration and authentication
+
+Edit `config.json`, starting from [config.example.json](../config.example.json):
+
+| Setting | Meaning |
+|---|---|
+| `serviceOwnerId` | Positive Telegram user ID allowed to operate the master |
+| `dataDir` | Absolute controller directory; SQLite, locks, secrets, rules and logs |
+| `botsDir` | Absolute parent of the individual bot wiki directories |
+| `codexHome` | Absolute private Codex authentication/session home |
+| `codexExecutable` | Absolute path to the Codex executable |
+| `masterTokenFile` | Absolute path to a file containing the master token |
+| `defaultTimezone` | Valid timezone, default `UTC` if omitted |
+| `defaultModel` | Initial model default for registered bots, default `gpt-6.1-sol` |
+
+JSON does not expand `$HOME`; write resolved absolute paths. `dataDir`, `codexHome` and `masterTokenFile` must be outside `botsDir`. The executable's containing directory must not contain any of those paths or `botsDir`, because the agent receives read access to that directory. Keep executable binaries in their own directory. Do not place secrets, config or authentication data in the wiki/Git tree. Give the service user access and restrict private directories/files (typically directories 700 and token/config files 600).
+
+Write the master token as one line into `masterTokenFile` using an editor, then authenticate as the same ordinary user and with the configured Codex home:
 
 ```sh
 CODEX_HOME="$HOME/tg-assistant-data/codex-home" /opt/codex/bin/codex login --device-auth
-npm run service:alpine_start
-npm run service:alpine_status
 ```
 
-Можно отключиться от SSH: процесс продолжит работу. Для остановки — `npm run service:alpine_stop`. В мастер-боте зарегистрировать рабочий бот через `/bot add TOKEN [OWNER_ID]`, затем задать ему правила. Перед эксплуатацией на новом ядре провести файловую проверку песочницы; успешный Docker-стенд этого не заменяет. До публикации feat/controller-v1 клонирование origin не содержит данную реализацию. Автозапуск после перезагрузки сервера в v1 не настроен.
+The intended setup uses a ChatGPT account authorized through Codex. Authentication and sessions are private controller data, not bot wiki content. Register child bots through [Master bot](master-bot.md); configure their rules through [Commands](commands.md). For custom TLS roots, provide `NODE_EXTRA_CA_CERTS` when starting Node; do not disable certificate validation. [WebSocket](websocket.md) and [MCP](mcp.md) need no separate service. HTTP MCP runs through the native Codex App Server; their stored settings and headers are part of the private database.
 
-После обновления с контрактом профилей/download: пересоздайте контексты через /agent clear *, чтобы агенты гарантированно получили Bot data и новый контракт download({fileIds:[...]}). Прежняя форма download({files:[{messageId,fileId}]}) заменена. История/notes/wiki/задачи сохраняются по обычным правилам обновления инструкций.
+## Service commands
 
-Миграция схемы 7 добавляет список триггеров чата и durable-флаг очистки контекста. Перед обновлением остановить сервис; миграция выполняется автоматически при следующем запуске. После этого старые версии со схемой <=6 не запускаются с обновлённой БД.
+From the application directory and as the service user:
 
-## Обновление схемы 8
+```sh
+npm run service:alpine_start
+npm run service:alpine_status
+npm run service:alpine_stop
+```
 
-Остановите старую службу, сделайте резервную копию SQLite средствами backup (либо копируйте БД после полного закрытия процесса), обновите код и зависимости и запустите службу. Миграции применяются автоматически в транзакции до приёма событий. Агенты существующих диалогов остаются включёнными; новые группы пассивны. Возврат к старому коду требует восстановления резервной копии: старая версия не поддерживает схему 8. При ошибке миграции не удаляйте БД, устраните причину и повторите запуск. Старые имена команд больше не работают; справка: /help.
+Each reads `config.json` by default. An explicit config path is accepted:
 
-## Browser и PDF
+```sh
+npm run service:alpine_start -- /srv/tg-assistant/config.json
+npm run service:alpine_status -- /srv/tg-assistant/config.json
+npm run service:alpine_stop -- /srv/tg-assistant/config.json
+```
 
-Установить зависимости на Alpine: `apk add chromium poppler-utils font-dejavu`. Приложение использует playwright-core (npm ci), системный Chromium и Poppler. При нестандартном пути задать TG_CHROMIUM_PATH. Chromium запускается от пользователя сервиса, не root, с включённой собственной песочницей; среда должна разрешать её запуск. Файловый профиль Codex tg-agent сохраняется; shell имеет сетевой доступ.
+These control the entire process: master and all children. Start uses `nohup`, a detached process group, closed stdin, and append-only output to `dataDir/service.log`. The application ignores `SIGHUP`; it can continue after SSH disconnects. Start waits up to 60 seconds for `controller.ready` matching the lock's PID/nonce. Readiness means controller initialization and poller startup, not proof of successful model/tool actions. Repeated start returns existing state. Status reports `running`, `starting` or `stopped`, PID when present, and log path.
 
-`browser_read({url})` возвращает title, окончательный url и видимый text (до 30000 символов, truncated:true при обрезке). Изолированный контекст на каждый вызов, без авторизации, cookies предыдущих запросов, действий и WebSocket. Контроллер проверяет и закрепляет публичный IP для каждого HTTP-запроса, включая редиректы и ресурсы. Только GET, HTTP(S), порты 80/443; 30 секунд, 200 запросов, 20 MiB на ответ и 100 MiB суммарно. Динамические данные ожидаются до стабилизации текста; это не гарантирует загрузку любой страницы. При CAPTCHA — browser_challenge с английским description, обход не выполняется. PDF URL возвращает contentType и path для pdf_read.
+Stop verifies `/proc` identity: user, Node executable, entrypoint, config path, lock identity and process birth time. It sends `SIGTERM` and waits up to 60 seconds, without automatic `SIGKILL`. A readiness timeout may leave an initializing process alive: inspect status/log and stop it if needed. Concurrent start/stop commands use `service-command.lock`. `nohup` supplies neither boot-time autostart nor crash recovery; arrange a process manager separately if needed, using the same user, config and runtime environment.
 
-`pdf_read({path,pages?,render?})` читает PDF через обычные проверки BotFiles. Вход до 20 MiB; pages — 1–10 уникальных номеров страниц, по умолчанию первые 10. Результат totalPages и pages:[{page,text,truncated?,imagePath?}], до 12000 символов на страницу. render:true сохраняет PNG выбранных страниц в .temp/agentId/pdf; агент открывает их нативным просмотром изображений. Извлечение не является OCR: текстовый слой может отсутствовать или терять символы. Время обработки — 30 секунд; промежуточная копия в OS temp удаляется, PNG живут по общим правилам .temp.
+For foreground use or an external process manager:
 
-Содержимое страниц/PDF — недоверенные данные, не инструкции. Ошибки возвращаются в обычном формате error/description. После обновления выполнить `/agent clear *`, чтобы действующие агенты получили новые инструкции.
+```sh
+node src/main.mjs /srv/tg-assistant/config.json
+```
 
-Chromium запускается headless без GPU; параметры --disable-gpu, --disable-software-rasterizer, --in-process-gpu выставляются приложением. Видеокарта/X11 не нужны. Последний параметр устраняет сбой GPU seccomp в проверенном Chromium 152 на Alpine; renderer sandbox включён. Docker-окружению может потребоваться разрешить user namespaces для песочницы Chromium; тестовый контейнер запускался с seccomp=unconfined, сам браузер — обычным пользователем с chromiumSandbox:true. Для обычного сервера по SSH специальных Docker-настроек нет.
+`npm start -- CONFIG_FILE` is also available. Alpine service commands reject Windows; Windows development does not exercise Linux file-descriptor path protections or production sandbox behavior.
 
-Нативные проверки: `TG_READERS_NATIVE=1 npm test` (требуются системный Chromium и Poppler). Без этой переменной три проверки нативных reader-компонентов пропускаются; остальные тесты выполняются.
+## Validation and operational probes
 
+Run `npm test` after installation/upgrade. With system Chromium and Poppler available, also run:
 
-## Vault и обновление
+```sh
+TG_READERS_NATIVE=1 npm test
+```
 
-Миграция схемы 8 → 9 создаёт таблицу vault, сохраняет существующие данные, применяется транзакционно. Секреты не зашифрованы и входят в резервную копию БД; контроллерная директория должна оставаться вне вики и песочницы агента. Доступны admin/owner через `/vault` в ЛС; значения доступны всем агентам одного бота. Закрытые логи shell/Codex могут содержать секреты, не публикуйте их пользователям.
+Without this variable, three native-reader integration tests are skipped. Offline/fake-provider tests do not prove Telegram access, Codex authentication, or kernel sandbox support. Before production on a new host or after a Codex upgrade, repeat a bounded live check with the real `tg-agent` profile: confirm permitted wiki/own-temp access and denial of controller/auth/secret files, other bots, and another agent's temp. Do not replace the profile with unrestricted access to make a failed probe pass. Check a real Telegram send and a native Codex turn; inspect external action results rather than treating a completed turn as acceptance. The contract is in [Agent contract](agent-contract.md), [Messaging](messaging.md), and [Security](security.md).
 
-После обновления перезапустите сервис, затем `/agent clear *`, чтобы действующие сессии получили новый инструмент и инструкции. Сеть shell теперь разрешена; для curl на Alpine: `apk add --no-cache curl ca-certificates`. Файловую проверку изоляции повторите на сервере после обновления Codex. Запрет частных адресов у browser_read остаётся отдельной политикой этого инструмента.
+Shell network access is enabled while filesystem isolation remains enforced. `browser_read` has its own public-address restriction; this does not constrain arbitrary shell networking. Native reader checks should include a JavaScript page and PDF text/rendering. A Docker success does not establish support on a different host kernel. See [Agent contract](agent-contract.md) for reader bounds and challenge/error behavior.
 
-## WebSocket и HTTP MCP
+## Locks, shutdown and retention
 
-Обновление автоматически мигрирует БД со схемы 9 на 10, сохраняя vault,
-агентов и задачи. Дополнительного сервиса не требуется: WebSocket держит
-контроллер, HTTP MCP использует нативный Codex App Server. Зависимости
-устанавливаются обычным `npm ci`; нужны доступные CA-сертификаты.
-Для собственного CA используйте NODE_EXTRA_CA_CERTS при запуске Node,
-не отключайте проверку TLS.
+Only one controller may use the database. `controller.lock` contains a PID and unique nonce. A dead PID permits guarded recovery. If `controller.lock.reclaim` remains after a crash, verify that no relevant controller/recovery process is running, then remove only that stale guard. Do not delete an active lock to start another process.
 
-После обновления перезапустите сервис. Для уже существующего контекста
-выполните `/agent clear *`, чтобы обновить инструкции и схемы инструментов.
-Последующие `/mcp set/delete` сами перезапускают App Server после завершения
-работы, сохраняя контекст; ручная очистка после них не нужна.
-Настройки MCP и заголовки хранятся в закрытой БД, входят в её резервную копию.
-`/mcp test NAME` проверяет соединение без хода модели; отключённый сервер
-временно включается только в процессе проверки. Подробности и TOML-пример:
-[mcp.md](mcp.md). Пользовательские stdio/OAuth не поддерживаются.
+`SIGINT`/`SIGTERM` stop new activations, revoke scopes and close Codex processes. Database closure waits for pollers (including dynamically added children), in-flight controller work and cleanup. The RAM queue is not persisted. Schedules and registered generated-image sources survive; unfinished tasks may repeat external actions after recovery. See [Message events](message-events.md) and [Scheduler](scheduler.md).
 
-Подключения WebSocket не переживают перезапуск. Их бинарные файлы лежат
-в отдельной временной директории, которая очищается при запуске контроллера.
-Другие файлы .temp не затрагиваются этой очисткой. Список/закрытие/удаление:
-`/ws list`, `/ws close ID`, `/ws delete ID`; см. [websocket.md](websocket.md).
+Daily cleanup retains message history for 30 days, inter-agent messages for seven days, and `.temp` files for 24 hours by mtime. Notes/tasks are not deleted when message history expires. Registered image sources are cleaned through their registry, not arbitrary paths. Cleanup errors are reported to the bot owner; `/temp cleanup` retries only expired temporary-file cleanup. WebSocket connections do not survive restart; their separate binary temporary directory is cleared at controller startup. See [Storage](storage.md) and [WebSocket](websocket.md).
+
+## Backups and restoration
+
+For a straightforward filesystem backup, stop the service and confirm the process/database are closed. Save the entire controller directory (including SQLite, secrets, rules and registered image sources), bot wiki/Git directories and Codex home. A live SQLite backup must use SQLite backup facilities rather than copying an active WAL database file alone. Backups contain credentials, MCP headers, unencrypted vault values and private conversations; protect them as private service data.
+
+Restore only while stopped, with the same directory layout and permissions. If absolute paths change, verify stored file paths, credential references and native sessions before live operation. Restart and inspect status/logs, then run bounded operational probes. To rotate a Telegram token, stop, replace the corresponding secret file, and restart. Git setup can discard local wiki changes and unpushed commits; back up first when they must be retained.
+
+## Application and runtime upgrades
+
+1. Stop the service, confirm shutdown, and take a recoverable backup.
+2. Update to the reviewed code revision and run `npm ci` and `npm test`; run native reader tests where their dependencies are installed.
+3. Start using the same config and inspect status/logs. Database migrations run automatically in a transaction before Telegram events are accepted.
+4. After instruction or tool-contract changes, use Admin `/agent clear *` in each child bot, or clear selected agents. Clear waits for current work and retains queued input, history, notes, files and tasks. A resumed native session alone is not a replacement for resetting stale instructions.
+5. Complete bounded live runtime/tool probes appropriate to the upgrade.
+
+The current schema is **10**. Migration records prevent reapplying completed migrations; a database newer than the controller supports is rejected. Do not delete/recreate the database to resolve migration failure: diagnose the cause and retry. Rolling back code after a schema change may require restoring the pre-upgrade backup. For details see [Storage](storage.md). `/rules set` clears contexts itself; MCP set/delete waits for current work and refreshes the App Server while preserving context, so those changes do not require a manual clear.
+
+Keep logs private. Do not publish raw RPC payloads, base64 image results, token-bearing Telegram URLs or unsanitized shell/Codex logs; those can contain vault credentials. For the permissions and secret boundaries, see [Security](security.md). Runtime version warnings indicate unvalidated compatibility, not successful production acceptance.
