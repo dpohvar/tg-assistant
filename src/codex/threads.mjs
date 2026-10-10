@@ -126,6 +126,8 @@ export class CodexAgent {
     this.checkStartup(scope,startup);
     s.threadId = started.thread.id; s.owned.add(s.threadId);
     this.db.sql.prepare('UPDATE agents SET threadId=?,threadRulesVersion=? WHERE agentId=?').run(s.threadId, rulesVersion, scope.agentId);
+    await this.reportMcpStatus(scope.botId,rpc);
+    this.checkStartup(scope,startup);
     return s;
     } catch (error) { if (this.sessions.get(scope.agentId) === s) this.sessions.delete(scope.agentId); await rpc.close(); if (s.deleted) throw Object.assign(new Error('Session intentionally replaced.'), { code: 'rules_replaced' }); throw error; }
   }
@@ -140,6 +142,7 @@ export class CodexAgent {
     const turn = await s.rpc.request('turn/start', { threadId: s.threadId, model: this.db.agent(scope.botId, scope.chatId).model, input: [{ type: 'text', text: JSON.stringify(events), text_elements: [] }] });
     s.turnId = turn.turn.id;
     const result = await done; s.turnId = null;
+    await this.reportMcpStatus(scope.botId,s.rpc);
     if (result.params.turn.status !== 'completed') throw Object.assign(new Error('Codex turn did not complete.'), { code: s.deleted ? 'rules_replaced' : 'agent_failed' });
     const settled = (s.pendingChildren.size ? s.rpc.waitFor(() => !s.pendingChildren.size) : Promise.resolve()).then(() => { if (s.childFailure) throw s.childFailure; }).catch(error => { if (s.deleted) throw Object.assign(new Error('Rules replaced.'), { code: 'rules_replaced' }); throw error; });
     settled.catch(() => {});
@@ -154,6 +157,7 @@ export class CodexAgent {
   async deleteSession(agentId, savedThreadId) { this.startups.get(agentId)?.abort();const s = this.sessions.get(agentId); if (!s) { if (savedThreadId) await (await this.catalogRpc()).request('thread/delete', { threadId: savedThreadId }); return; } s.deleted = true; this.sessions.delete(agentId); try { if (s.turnId) { try { await s.rpc.request('turn/interrupt', { threadId: s.threadId, turnId: s.turnId }); } catch {} } if (s.threadId) await s.rpc.request('thread/delete', { threadId: s.threadId }); } finally { await s.rpc.close(); } }
   detach(agentId) { this.startups.get(agentId)?.abort();const s = this.sessions.get(agentId); if (s) { s.deleted=true;s.rpc.close(); this.sessions.delete(agentId); } }
   async refreshSession(agentId) {const s=this.sessions.get(agentId);if(!s)return;this.sessions.delete(agentId);await s.rpc.close();}
+  async reportMcpStatus(botId,rpc){if(!this.onMcpStatus||!createMcpStore(this.db).list(botId).length)return;try{const rows=[];let cursor;do{const page=await rpc.request('mcpServerStatus/list',cursor?{cursor}:{},5000);rows.push(...page.data);cursor=page.nextCursor;}while(cursor);await this.onMcpStatus(botId,rows);}catch{}}
   async testMcp(botId,entry) {
     const cwd=path.join(this.config.botsDir,botId);fs.mkdirSync(cwd,{recursive:true});
     const toml='{":minimal"="read",'+JSON.stringify(cwd)+'="read",'+JSON.stringify(path.dirname(this.config.codexExecutable))+'="read"}';

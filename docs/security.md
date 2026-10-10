@@ -42,9 +42,11 @@ Admin/owner manage named per-bot secrets through private-chat vault commands. `v
 
 Calling `vault_get` within Codex JavaScript and printing only a sanitized result can avoid exposing the value to model context. It does not eliminate the secret from every internal log, process argument, or command record. Shell quoting and checking remote responses remain the agent's responsibility. A remote server can echo a credential; verbose curl and shell tracing can expose it.
 
-Vault values and MCP authorization headers are stored in SQLite, not encrypted against the server administrator. Token files, database backups, and Codex logs require server-level access control. The server administrator is trusted. No vault origin-binding mechanism or OAuth flow is implemented.
+Vault values and MCP authorization headers are stored in SQLite, not encrypted against the server administrator. OAuth credentials are stored by Codex in protected file storage outside bot directories and are separated using bot-specific native MCP server names. Token files, database backups, and Codex logs require server-level access control. The server administrator is trusted. No vault origin-binding mechanism is implemented. OAuth lifecycle is described in [HTTP MCP](mcp.md).
 
 Sensitive administration messages are excluded from agent history and best-effort deleted from Telegram after a reply. Deletion can fail; a spoiler hides text visually but does not encrypt it. MCP command output masks headers and limits displayed URLs to safe origins. WebSocket descriptions must not contain secrets; connection listings omit URL paths, query strings, fragments, and credentials.
+
+OAuth callback URLs are processed only by the controller and waiting native login process. Edited callbacks and recognizable unquoted callback URLs are rejected without persistence/model delivery. The controller validates invitation identity and callback/state, passes the URL through stdin and never fetches it. Only the initiating administrator may complete the attempt; current role is checked again before submission. Authorization links are intentionally shown to that administrator with previews disabled. Tokens are not delivered to the model or Telegram. Local logout is not provider-side revocation.
 
 ## HTTP MCP isolation
 

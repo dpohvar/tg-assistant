@@ -72,7 +72,7 @@ export async function handleTask({
     return true;
   }
   if (action === "retry" && tasks.some((t) => !scheduler.enabled(t.agentId)))
-    throw syntaxError("Агент выключен. Сначала выполните /agent start");
+    throw syntaxError("Agent is disabled. Run /agent start first");
   let ok = 0,
     skipped = 0,
     errors = [];
@@ -87,7 +87,7 @@ export async function handleTask({
     }
   }
   await send(
-    `Успешно: ${ok}; пропущено: ${skipped}` +
+    `Succeeded: ${ok}; skipped: ${skipped}` +
       (errors.length ? "\n" + [...new Set(errors)].join("\n") : ""),
   );
   return true;

@@ -10,7 +10,7 @@ In the tables, **local** means `user` or higher in a private chat and `manager` 
 
 Optional arguments appear in brackets; uppercase names are placeholders. Commands may use the Telegram suffix `/command@BotName`; a suffix naming another bot is ignored. Ordinary whitespace, including newlines, separates arguments. Telegram inline `code` and `spoiler` entities preserve their contents as one argument; a `pre` entity preserves a multiline argument. Entity boundaries also separate arguments. Quotes alone do not group words. Other styling, overlapping entities, and formatting over the command name are rejected. Pre blocks are accepted only for `/edit`, `/git sync`, the instructions argument of `/rules set`, and the TOML argument of `/mcp set`. Send actual Telegram formatted entities: literal Markdown fence characters alone do not create a pre block.
 
-`RANGE` is a positive one-based position `N` or inclusive `FROM-TO`, for example `11-20`. The default is positions 1–10. Filters apply before pagination. Lists show `FROM-TO / TOTAL` or an empty-result message. Long formatted output may be truncated; it is not automatically attached as a file. Responses and errors reply to the command. Syntax errors offer the relevant help section where recognized. Commands are handled by the controller without a model turn; command text is not ordinary agent history.
+`RANGE` is a positive one-based position `N` or inclusive `FROM-TO`, for example `11-20`. The default is positions 1–10. Filters apply before pagination. Lists show `FROM-TO / TOTAL` or an empty-result message. Long formatted output may be truncated; it is not automatically attached as a file. Controller replies, prompts, statuses and errors are in English; user-supplied names and content retain their original language. Responses and errors reply to the command. Syntax errors offer the relevant help section where recognized. Commands are handled by the controller without a model turn; command text is not ordinary agent history.
 
 | Command | Result |
 |---|---|
@@ -152,8 +152,12 @@ Git setup requires an HTTPS remote without embedded credentials. Omitted remote/
 | `/vault set NAME TOKEN`, `/vault delete NAME` | Admin, private | Set/replace or delete a bot secret |
 | `/ws list [AGENT_ID]`, `/ws list in CHAT_ID` | Admin | Connections for the current/selected agent |
 | `/ws close CONNECTION_ID`, `/ws delete CONNECTION_ID` | Admin | Close a connection or delete its record |
-| `/mcp list`, `/mcp show NAME` | Admin, private | Show HTTP MCP configuration with sensitive values hidden |
-| `/mcp set NAME PRE_TOML` | Admin, private | Set/replace one server using a Telegram TOML pre block |
+| `/mcp list`, `/mcp show NAME` | Admin, private | List live connection statuses or show HTTP MCP configuration with sensitive values hidden |
+| `/mcp set NAME PRE_CONFIG` | Admin, private | Set/replace one server using a Telegram TOML pre block |
+| `/mcp auth NAME` | Admin, private | Start OAuth; send the browser callback URL replying to your own unedited command within ten minutes |
+| `/mcp logout NAME` | Admin, private | Cancel pending login and remove local OAuth credentials |
 | `/mcp test NAME`, `/mcp delete NAME` | Admin, private | Test or delete a configured server |
 
-Vault values are shared with agents of this bot through `vault_get`, never returned by Telegram commands. Set messages have deletion attempted even on failure. See [Security](security.md), [WebSocket](websocket.md), and [MCP](mcp.md) for name constraints, exact TOML fields, connection lifecycle and secret handling. Tool boundaries are described in [Agent contract](agent-contract.md); system responsibilities in [Architecture](architecture.md).
+Vault values are shared with agents of this bot through `vault_get`, never returned by Telegram commands. Set messages have deletion attempted even on failure. See [Security](security.md), [WebSocket](websocket.md), and [MCP](mcp.md) for name constraints, exact JSON/TOML fields, connection lifecycle and secret handling. Tool boundaries are described in [Agent contract](agent-contract.md); system responsibilities in [Architecture](architecture.md).
+
+OAuth callback replies are service input, excluded from agent history and best-effort deleted. Their quoted `/mcp auth NAME` command must belong to the same user/chat and must not be edited. Both login completion and logout refresh agents after active work while retaining context. MCP replacement/deletion removes local OAuth credentials; logout does not remove static headers or necessarily revoke the external account grant.

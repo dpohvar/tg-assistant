@@ -46,5 +46,12 @@ export class RpcProcess extends EventEmitter {
     });
   }
   fail(error) { if (this.failure) return; this.failure = error; for (const p of this.pending.values()) p.reject(error); for (const w of this.waiters) w.reject(error); this.pending.clear(); this.waiters.clear(); this.emit('closed'); }
-  close() { this.fail(new Error('Codex connection closed.')); this.child.stdin.end(); this.child.kill(); return this.exited; }
+  close(graceMs = 1000) {
+    if (this.closing) return this.closing;
+    this.fail(new Error('Codex connection closed.')); this.child.stdin.end(); this.child.kill();
+    const wait = async () => { let timer; try { return await Promise.race([this.exited.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), graceMs); })]); } finally { clearTimeout(timer); } };
+    this.closing = (async () => { if (await wait()) return; this.child.kill('SIGKILL'); if (!await wait()) throw new Error('Codex process could not be stopped.'); })();
+    // Some callers close from an event callback; awaiting callers still receive failures.
+    this.closing.catch(() => {}); return this.closing;
+  }
 }

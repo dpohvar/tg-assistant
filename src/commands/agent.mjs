@@ -28,11 +28,11 @@ export async function handleAgent({
     if (action === "status") {
       const { chat, a } = v;
       await send(
-        `Агент: ${a?.agentId ?? "не создан"}\nРежим: ${chat.agentEnabled ? "включён" : "выключен"}` +
+        `Agent: ${a?.agentId ?? "not created"}\nMode: ${chat.agentEnabled ? "enabled" : "disabled"}` +
           (a
-            ? `\nСтатус: ${agentStatus(a.agentId).status}\nОчередь: ${agentStatus(a.agentId).queue ?? 0}/10${admin ? "\nМодель: " + a.model : ""}`
+            ? `\nStatus: ${agentStatus(a.agentId).status}\nQueue: ${agentStatus(a.agentId).queue ?? 0}/10${admin ? "\nModel: " + a.model : ""}`
             : "") +
-          (group ? "\nИстория: сохраняется" : ""),
+          (group ? "\nHistory: retained" : ""),
       );
       return true;
     }
@@ -56,7 +56,7 @@ export async function handleAgent({
       } catch (e) {
         results.push(`${id}: ${e.message}`);
       }
-    await send(results.join("\n") || "Записей нет");
+    await send(results.join("\n") || "No records");
     return true;
   }
   requireAdmin();
@@ -113,7 +113,7 @@ export async function handleAgent({
         `${x.fromAgentId} → ${x.toAgentId} ${new Date(x.date).toISOString()}\n${x.text}`,
     );
     await send(
-      output.length > 4000 ? output.slice(0, 3950) + "\n[обрезано]" : output,
+      output.length > 4000 ? output.slice(0, 3950) + "\n[truncated]" : output,
     );
     return true;
   }
@@ -148,7 +148,7 @@ export async function handleAgent({
               .prepare("UPDATE agents SET model=? WHERE agentId=?")
               .run(model, a.agentId);
         });
-      await send("Модель сохранена для следующего хода");
+      await send("Model saved for the next turn");
     } else
       await send(
         def

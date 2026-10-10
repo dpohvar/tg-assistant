@@ -23,7 +23,7 @@ test('manager configures group triggers and clears current context; trigger acti
  const batches=[];const f=setup(t,{run:async(s,e)=>batches.push(e),deleteSession:async()=>{}});
  await f.send(1,'/triggers set Артём',-1,2);await f.send(2,'Артём, привет',-1,2);await f.c.idle();assert.equal(batches.length,1);
  await f.send(3,'ещё вопрос',-1,2);await f.c.idle();assert.equal(batches.length,2);
- await f.send(4,'/agent clear',-1,2);assert.match(f.replies.at(-1).text,/Контекст очищен/);
+ await f.send(4,'/agent clear',-1,2);assert.match(f.replies.at(-1).text,/Context cleared/);
  await f.send(5,'/triggers',-1,2);assert.equal(f.replies.at(-1).entities[0].type,'code');assert.equal(f.replies.at(-1).text,'Артём');
 });
 

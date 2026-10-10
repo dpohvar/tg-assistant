@@ -1,6 +1,6 @@
 import {RpcProcess} from '../codex/rpc.mjs';
 import {nativeMcpOverrides,nativeServerName} from './config.mjs';
-function trackedRpc(options){options.signal?.throwIfAborted();const rpc=new RpcProcess(options);options.onRpc?.(rpc);const cancel=()=>rpc.close();options.signal?.addEventListener('abort',cancel,{once:true});rpc.exited.finally(()=>options.signal?.removeEventListener('abort',cancel));return rpc;}
+function trackedRpc(options){options.signal?.throwIfAborted();const rpc=new RpcProcess(options);options.onRpc?.(rpc);const cancel=()=>{void rpc.close().catch(()=>{});};options.signal?.addEventListener('abort',cancel,{once:true});rpc.exited.finally(()=>options.signal?.removeEventListener('abort',cancel));return rpc;}
 export async function initializeRpc(rpc){await rpc.request('initialize',{clientInfo:{name:'tg_assistant',version:'0.1'},capabilities:{experimentalApi:true}});rpc.notify('initialized');}
 export async function isolatedMcpArgs({executable,args,cwd,env,botId,entries,readConfig,signal,onRpc}){
  let rpc;let config;
@@ -17,6 +17,7 @@ export async function testMcpRuntime({executable,args,cwd,env,botId,entry,signal
  try{await initializeRpc(rpc);await rpc.request('thread/start',{cwd,approvalPolicy:'never',ephemeral:true});
   const rows=[];let cursor;do{const page=await rpc.request('mcpServerStatus/list',{...(cursor?{cursor}:{})});rows.push(...page.data);cursor=page.nextCursor;}while(cursor);
   const server=rows.find(x=>x.name===nativeServerName(botId,entry.name));
+  if(server?.authStatus==='notLoggedIn'&&server.toolsError)throw Object.assign(new Error('MCP requires authorization. Run /mcp auth NAME in a private chat as an administrator.'),{code:'mcp_auth_required',safe:true});
   if(!server||server.toolsError)throw new Error('Unavailable');return {status:'connected',tools:Object.keys(server.tools??{}),authStatus:server.authStatus};
- }catch{throw Object.assign(new Error('MCP connection failed. Check URL, headers and server availability; OAuth and interactive authentication are not supported.'),{code:'mcp_connection_failed',safe:true});}finally{await rpc.close();}
+ }catch(e){if(e.code==='mcp_auth_required')throw e;throw Object.assign(new Error('MCP connection failed. Check URL, headers and server availability. Use /mcp auth NAME if the service requires OAuth; other interactive requests are not supported.'),{code:'mcp_connection_failed',safe:true});}finally{await rpc.close();}
 }

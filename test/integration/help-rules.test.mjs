@@ -21,7 +21,7 @@ test('inline rules preserve pre contents and ignore an invalid quoted document',
   const f=fixture(t), value='  Be helpful.\n\nKeep spaces.  ', text='/rules set '+value;
   await f.send(text,{entities:[{type:'pre',offset:11,length:value.length}],reply_to_message:{from:{id:99},chat:{id:999},edit_date:10,document:{file_id:'unused'}}});
   assert.deepEqual(f.writes,[['b',{text:value},false]]);
-  assert.match(f.calls.at(-1).text,/Правила обновлены/);
+  assert.match(f.calls.at(-1).text,/Rules updated/);
 });
 test('inline rules reject plain/code text, extras, whitespace and forbidden callers',async t=>{
   const f=fixture(t);
@@ -52,7 +52,7 @@ test('help is a formatted English section index and detailed role-aware command 
 test('long help stays complete, splits at entries and replies to the command',async t=>{
   const f=fixture(t); await f.send('/help agent');
   assert.ok(f.calls.length>1);
-  for(const x of f.calls){assert.ok(x.text.length<=4000);assert.equal(x.reply_parameters.message_id,8);assert.doesNotMatch(x.text,/обрезано/);for(const e of x.entities)assert.ok(e.offset+e.length<=x.text.length);}
+  for(const x of f.calls){assert.ok(x.text.length<=4000);assert.equal(x.reply_parameters.message_id,8);assert.doesNotMatch(x.text,/truncated/);for(const e of x.entities)assert.ok(e.offset+e.length<=x.text.length);}
   assert.match(f.calls.map(x=>x.text).join('\n'),/\/agent models/);
 });
 test('every role/chat and master help has complete descriptions and valid formatted chunks',()=>{

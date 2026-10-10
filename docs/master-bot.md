@@ -41,3 +41,5 @@ The short delete form only displays the bot's identity and exact confirmation sy
 ```
 
 Deletion first stops the poller. It removes the bot's database records, token and Git credential files, rules, registered generated-image sources and `.temp`. Without `all`, permanent bot files and the Git repository remain on disk; with `all`, the entire directory is removed. It does not delete the Telegram bot in BotFather. Retained files do not preserve the removed conversations, agents, notes, schedules or settings. Take a [backup](operations.md#backups-and-restoration) before deletion if those data must remain recoverable.
+
+Controller command replies and errors are in English. User-supplied content retains its original language.

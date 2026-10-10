@@ -1,4 +1,5 @@
 import {handleMcpCommand} from './mcp.mjs';
+import {isMcpAuthReply,handleMcpAuthReply} from './mcp-auth-reply.mjs';
 import {handleWebSocketCommand} from './websocket.mjs';
 import {createVault} from '../storage/vault.mjs';
 import { handleChat } from "./chat.mjs";
@@ -43,12 +44,12 @@ export function createCommands(deps) {
     return {
       ...t,
       state: !db.getChat(a.botId, a.chatId).agentEnabled
-        ? "агент выключен"
+        ? "agent disabled"
         : f.some((x) => x.state === "processing")
-          ? "обрабатывается"
+          ? "processing"
           : scheduler.queued.has(t.taskId)
-            ? "в очереди"
-            : "ожидает",
+            ? "queued"
+            : "waiting",
       missed: f
         .filter((x) => x.state === "pending" && (x.failed || x.missedReason))
         .reduce((n, x) => n + x.count, 0),
@@ -56,6 +57,7 @@ export function createCommands(deps) {
   };
   return {
     async handle(botId, m) {
+      if(isMcpAuthReply(m,deps.mcpOAuth,botId))return handleMcpAuthReply({botId,message:m,db,telegram,mcpOAuth:deps.mcpOAuth});
       const quoted = m.document && m.reply_to_message;
       const source = quoted || m,
         match = /^\/([a-z_]+)(?:@([\w]+))?(?:\s|$)/i.exec(source.text ?? "");
@@ -84,7 +86,7 @@ export function createCommands(deps) {
         if (payload.entities && payload.text.length > 4000) {
           let end = 3950;
           if (/^[\uD800-\uDBFF]$/.test(payload.text[end - 1])) end--;
-          payload.text = payload.text.slice(0, end) + "\n[обрезано]";
+          payload.text = payload.text.slice(0, end) + "\n[truncated]";
           payload.entities = payload.entities
             .map((e) => ({
               ...e,
@@ -154,7 +156,7 @@ export function createCommands(deps) {
         return items.length
           ? `${a + 1}-${a + items.length} / ${values.length}\n` +
               items.map(render).join("\n")
-          : "Записей нет";
+          : "No records";
       };
       let sensitive = (section === "mcp" && /^\s*set(?:\s|$)/.test(source.text.slice(match[0].trimEnd().length))) || (section === "vault" && /^\s*set(?:\s|$)/.test(source.text.slice(match[0].trimEnd().length))) ||
         (section === "bot" &&
@@ -182,15 +184,15 @@ export function createCommands(deps) {
           !(section === "git" && parts[0] === "sync")
         )
           throw syntaxError("Pre blocks are not accepted here.");
-        if (section === "mcp") { requireAdmin(); if(botId === "master" || m.chat.type !== "private") throw syntaxError("MCP settings are available only in private chats with a child bot."); await handleMcpCommand({botId,parsed,send,db,requestMcpRefresh:deps.requestMcpRefresh,testMcp:deps.testMcp}); return true; }
+        if (section === "mcp") { requireAdmin(); if(botId === "master" || m.chat.type !== "private") throw syntaxError("MCP settings are available only in private chats with a child bot."); await handleMcpCommand({botId,parsed,send,db,requestMcpRefresh:deps.requestMcpRefresh,testMcp:deps.testMcp,mcpOAuth:deps.mcpOAuth,message:m}); return true; }
         if (section === "ws") { requireAdmin(); if(botId === "master") throw syntaxError("WebSockets are available only for child bots."); await handleWebSocketCommand({botId,message:m,parts,manager:deps.websockets,target,send}); return true; }
         if (section === "vault") {
           if (botId === "master" || group || m.chat.type !== "private") throw syntaxError("Vault commands are available only in private chats with a child bot.");
           requireAdmin();
           const vault=createVault(db), action=parts[0] ?? 'list';
-          if(action==='list' && parts.length<=1) await send(vault.list(botId).join('\n') || 'Секретов нет');
-          else if(action==='set' && parts.length===3) {vault.set(botId,parts[1],parts[2]);await send('Секрет сохранён');}
-          else if(action==='delete' && parts.length===2) await send(vault.delete(botId,parts[1])?'Секрет удалён':'Секрет не найден');
+          if(action==='list' && parts.length<=1) await send(vault.list(botId).join('\n') || 'No secrets');
+          else if(action==='set' && parts.length===3) {vault.set(botId,parts[1],parts[2]);await send('Secret saved');}
+          else if(action==='delete' && parts.length===2) await send(vault.delete(botId,parts[1])?'Secret deleted':'Secret not found');
           else throw syntaxError('Invalid vault arguments.');
           return true;
         }
@@ -218,7 +220,7 @@ export function createCommands(deps) {
               selected = rows.slice(lo, hi);
             let text = selected.length
               ? `${lo + 1}-${lo + selected.length} / ${rows.length}\n`
-              : "Записей нет";
+              : "No records";
             const entities = [];
             for (const b of selected) {
               text += "@" + b.username + " ";
@@ -227,7 +229,7 @@ export function createCommands(deps) {
                 offset: text.length,
                 length: String(b.telegramId).length,
               });
-              text += b.telegramId + " — владелец ";
+              text += b.telegramId + " — owner ";
               entities.push({
                 type: "code",
                 offset: text.length,
@@ -250,9 +252,9 @@ export function createCommands(deps) {
                 profile = await telegram.call(b.botId, "getMe");
               } catch {}
             await send(
-              `${profile.first_name ?? b.username}\n@${b.username} ${b.telegramId}\nВладелец: ${b.ownerId}` +
+              `${profile.first_name ?? b.username}\n@${b.username} ${b.telegramId}\nOwner: ${b.ownerId}` +
                 (action === "info"
-                  ? `\nЧатов: ${db.sql.prepare("SELECT COUNT(*) AS n FROM chats WHERE botId=?").get(b.botId).n}\nАгентов включено: ${db.sql.prepare("SELECT COUNT(*) AS n FROM chats JOIN agents USING(botId,chatId) WHERE botId=? AND agentEnabled=1").get(b.botId).n}\nАгентов выключено: ${db.sql.prepare("SELECT COUNT(*) AS n FROM chats JOIN agents USING(botId,chatId) WHERE botId=? AND agentEnabled=0").get(b.botId).n}`
+                  ? `\nChats: ${db.sql.prepare("SELECT COUNT(*) AS n FROM chats WHERE botId=?").get(b.botId).n}\nEnabled agents: ${db.sql.prepare("SELECT COUNT(*) AS n FROM chats JOIN agents USING(botId,chatId) WHERE botId=? AND agentEnabled=1").get(b.botId).n}\nDisabled agents: ${db.sql.prepare("SELECT COUNT(*) AS n FROM chats JOIN agents USING(botId,chatId) WHERE botId=? AND agentEnabled=0").get(b.botId).n}`
                   : ""),
             );
             return true;
@@ -343,7 +345,7 @@ export function createCommands(deps) {
                 " " +
                 (user.username
                   ? "@" + user.username
-                  : (profile?.name ?? "имя неизвестно")),
+                  : (profile?.name ?? "unknown name")),
               entities: [
                 { type: "code", offset: 0, length: String(bot.ownerId).length },
               ],
@@ -363,7 +365,7 @@ export function createCommands(deps) {
                 .run(id, botId);
             });
           await send(
-            `Владелец: ${id}; прежний владелец: ${id === bot.ownerId ? "owner" : "admin"}`,
+            `Owner: ${id}; previous owner: ${id === bot.ownerId ? "owner" : "admin"}`,
           );
           return true;
         }
@@ -389,7 +391,7 @@ export function createCommands(deps) {
             selected = rows.slice(lo, hi);
           let text = selected.length
               ? `${lo + 1}-${lo + selected.length} / ${rows.length}\n`
-              : "Записей нет",
+              : "No records",
             entities = [];
           for (const u of selected) {
             const chat = db.getChat(botId, u.userId),
@@ -404,7 +406,7 @@ export function createCommands(deps) {
               " " +
               (profile.username
                 ? "@" + profile.username
-                : chat?.name || "имя неизвестно") +
+                : chat?.name || "unknown name") +
               " ";
             entities.push({
               type: "italic",
@@ -450,12 +452,12 @@ export function createCommands(deps) {
             const errors = cleanTemp(root),
               after = stats();
             await send(
-              `Удалено: ${before.files - after.files} файлов, ${before.bytes - after.bytes} байт.\nОшибок: ${errors.length}` +
+              `Deleted: ${before.files - after.files} files, ${before.bytes - after.bytes} bytes.\nErrors: ${errors.length}` +
                 (errors.length ? "\n" + errors.join("\n").slice(0, 3000) : ""),
             );
           } else
             await send(
-              `Всего: ${before.files} файлов, ${before.bytes} байт.\nПросрочено: ${before.expired} файлов, ${before.expiredBytes} байт.`,
+              `Total: ${before.files} files, ${before.bytes} bytes.\nExpired: ${before.expired} files, ${before.expiredBytes} bytes.`,
             );
           return true;
         }
@@ -467,7 +469,7 @@ export function createCommands(deps) {
             if (m.chat.type !== 'private') throw syntaxError('Rules can be changed only in private chats.');
             if (!parts[1].trim()) throw syntaxError('The rules pre block must not be empty.');
             await deps.updateRules(botId, {text:parts[1]}, false);
-            await send('Правила обновлены. Контекст агентов будет очищен.');
+            await send('Rules updated. Agent context will be cleared.');
             return true;
           }
           if (parts.length === 1 && parts[0] === "set") {
@@ -516,7 +518,7 @@ export function createCommands(deps) {
         await send(
           commandError(
             section,
-            e.code === "access_denied" ? "Нет доступа" : e.message,
+            e.code === "access_denied" ? "Access denied" : e.message,
           ),
         );
         return true;

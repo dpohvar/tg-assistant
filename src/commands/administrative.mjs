@@ -12,7 +12,7 @@ export function range(value) {
     Number(m[2] ?? m[1]) < Number(m[1]) ||
     !Number.isSafeInteger(Number(m[2] ?? m[1]))
   )
-    throw new Error("Укажите позицию N или диапазон FROM-TO.");
+    throw new Error("Specify a position N or a range FROM-TO.");
   return [Number(m[1]) - 1, Number(m[2] ?? m[1])];
 }
 export function createAdministrativeCommands({
@@ -45,7 +45,7 @@ export function createAdministrativeCommands({
       chat_id: m.chat.id,
       text:
         [...text].slice(0, 4000).join("") +
-        ([...text].length > 4000 ? "\n[обрезано]" : ""),
+        ([...text].length > 4000 ? "\n[truncated]" : ""),
       reply_parameters: { message_id: m.message_id },
     });
   const list = (values, arg) => {
@@ -53,7 +53,7 @@ export function createAdministrativeCommands({
     const page = values.slice(a, b);
     return page.length
       ? `${a + 1}–${a + page.length} / ${values.length}\n` + page.join("\n")
-      : "Записей нет";
+      : "No records";
   };
   return {
     async handle(botId, m) {
@@ -81,7 +81,7 @@ export function createAdministrativeCommands({
         if (name === "start" && m.chat.type === "private") return false;
         const triggerCommand = ["triggers", "set_triggers"].includes(name);
         if (triggerCommand && !["group", "supergroup"].includes(m.chat.type)) {
-          await reply(botId, m, "Команда доступна только в группе с агентом.");
+          await reply(botId, m, "This command is available only in a group with an agent.");
           return true;
         }
         const taskCommand = false;
@@ -95,7 +95,7 @@ export function createAdministrativeCommands({
           name !== "leave"
         ) {
           if (privateCommands.has(name)) {
-            await reply(botId, m, "Команда доступна только в ЛС.");
+            await reply(botId, m, "This command is available only in a private chat.");
             return true;
           }
           return false;
@@ -120,16 +120,16 @@ export function createAdministrativeCommands({
             throw Object.assign(new Error(message), { safe: true });
           };
           if (quoted.chat?.id !== m.chat.id)
-            reject("Нужно ответить на сообщение в текущем чате.");
+            reject("Reply to a message in the current chat.");
           if (
             !Number.isSafeInteger(m.from?.id) ||
             quoted.from?.id !== m.from.id ||
             quoted.sender_chat
           )
-            reject("Нужно ответить на своё собственное сообщение.");
+            reject("Reply to your own message.");
           if (quoted.edit_date !== undefined)
             reject(
-              "Нельзя загружать файл ответом на отредактированное сообщение. Отправьте новое сообщение.",
+              "Cannot upload a file in reply to an edited message. Send a new command.",
             );
         }
         const source = uploadReply ? m.reply_to_message : m;
@@ -154,9 +154,9 @@ export function createAdministrativeCommands({
             db.sql
               .prepare("UPDATE chats SET triggers=? WHERE botId=? AND chatId=?")
               .run(JSON.stringify(values), botId, m.chat.id);
-            result = `Триггеры сохранены: ${values.length}`;
+            result = `Triggers saved: ${values.length}`;
           } else {
-            if (!values.length) result = "Триггеры не заданы";
+            if (!values.length) result = "No triggers configured";
             else {
               const chunks = [];
               let text = "",
@@ -201,7 +201,7 @@ export function createAdministrativeCommands({
             !["user", "manager", "admin"].includes(newRole)
           )
             throw new Error(
-              "Недопустимый пользователь или роль. Admin управляет только user/manager.",
+              "Invalid user or role. Admin can manage only user/manager roles.",
             );
           if (name === "set_user") db.setRole(botId, userId, newRole);
           else {
@@ -210,7 +210,7 @@ export function createAdministrativeCommands({
               .run(botId, userId);
             await stopAgent(botId, userId, { leave: false });
           }
-          result = "Сохранено";
+          result = "Saved";
         } else if (name === "rules" || name === "set_rules") {
           const rulesPath = path.join(
             config.dataDir,
@@ -219,7 +219,7 @@ export function createAdministrativeCommands({
             "AGENTS.md",
           );
           if (name === "rules") {
-            if (parts.length) throw new Error("/rules без аргументов");
+            if (parts.length) throw new Error("/rules takes no arguments");
             await telegram.call(
               botId,
               "sendDocument",
@@ -248,10 +248,10 @@ export function createAdministrativeCommands({
             ? m.document
             : m.reply_to_message?.document;
           if (!document)
-            result = "Отправьте файл цитатой на своё сообщение /rules set";
+            result = "Send a document in reply to your own /rules set command";
           else {
             await updateRules(botId, document, parts[0] === "force");
-            result = "Правила обновлены. Контекст агентов будет очищен.";
+            result = "Rules updated. Agent context will be cleared.";
           }
         } else if (
           fileCommands &&
@@ -270,7 +270,7 @@ export function createAdministrativeCommands({
           ].includes(name)
         ) {
           result = await fileCommands(botId, name, parsed, m);
-        } else throw new Error("Неизвестная команда.");
+        } else throw new Error("Unknown command.");
         if (result === null) return true;
         if (result?.parse_mode || result?.entities)
           await telegram.call(botId, "sendMessage", {
@@ -289,10 +289,10 @@ export function createAdministrativeCommands({
           botId,
           m,
           e.code === "access_denied"
-            ? "Нет доступа"
+            ? "Access denied"
             : e.safe
               ? e.message
-              : "Команда не выполнена. Проверьте синтаксис, роль и доступность данных. /help",
+              : "Command failed. Check syntax, permissions and data availability. /help",
         );
       } finally {
         if (sensitive) {

@@ -10,7 +10,7 @@ for(const name of ['rules set','upload'])for(const direction of ['file-replies-c
   if(invalid==='other-chat')quote.chat.id=2;
   const message={message_id:2,chat:{id:1,type:'private'},from:{id:1},reply_to_message:quote,...(direction==='file-replies-command'?{document:{file_id:'file'}}:{text:`/${name}${name==='upload'?' file.txt':''}`})};
   assert.equal(await router.handle('b',message),true);assert.equal(writes,0);assert.equal(replies.length,1);assert.equal(replies[0].reply_parameters.message_id,2);
-  assert.match(replies[0].text,invalid==='edited'?/отредактирован/:invalid==='foreign'?/собственн|своё/:/текущем чате/);
+  assert.match(replies[0].text,invalid==='edited'?/edited/:invalid==='foreign'?/your own/:/current chat/);
  });
 }
 for(const name of ['rules set','upload'])for(const direction of ['file-replies-command','command-replies-file'])test(`${name} accepts own unedited target (${direction})`,async t=>{

@@ -31,7 +31,7 @@ export async function handleChat({
           .all(botId),
         parts[0],
         (c) =>
-          `${c.chatType} ${c.name} ${c.chatType === "private" && c.chatId !== m.chat.id ? (c.agentId ?? "личный диалог") : c.chatId} — ${c.agentEnabled ? "агент включён" : "агент выключен"}`,
+          `${c.chatType} ${c.name} ${c.chatType === "private" && c.chatId !== m.chat.id ? (c.agentId ?? "private dialog") : c.chatId} — ${c.agentEnabled ? "agent enabled" : "agent disabled"}`,
       ),
     );
     return true;
@@ -46,7 +46,7 @@ export async function handleChat({
   if (action === "leave") {
     if (c.chatType === "private")
       throw syntaxError("Use /agent stop for a private chat.");
-    await send("Выхожу из чата; данные диалога удаляются. Wiki сохранится.");
+    await send("Leaving the chat and deleting its dialog data. The wiki is retained.");
     await stopAgent(botId, id);
     return true;
   }
@@ -60,7 +60,7 @@ export async function handleChat({
       });
     } catch {}
   await send(
-    `${c.name} (${c.chatType})\n${c.chatType === "private" && id !== m.chat.id ? "" : "chatId: " + id + "\n"}${detail.username ? "@" + detail.username + "\n" : ""}Подключён\nАгент: ${db.agent(botId, id)?.agentId ?? "нет"}\nРежим: ${c.agentEnabled ? "включён" : "выключен"}${detail.botMember ? "\nПрава: " + JSON.stringify(detail.botMember) : ""}`,
+    `${c.name} (${c.chatType})\n${c.chatType === "private" && id !== m.chat.id ? "" : "chatId: " + id + "\n"}${detail.username ? "@" + detail.username + "\n" : ""}Connected\nAgent: ${db.agent(botId, id)?.agentId ?? "none"}\nMode: ${c.agentEnabled ? "enabled" : "disabled"}${detail.botMember ? "\nPermissions: " + JSON.stringify(detail.botMember) : ""}`,
   );
   return true;
 }
