@@ -17,7 +17,9 @@ Date: 2026-10-11. Scope: [approved plan](forum-groups-plan.md). Feature branch: 
 - Final Windows suite: 278 tests, 270 passed, 8 skipped, 0 failed. Final Alpine suite as ordinary uid 1000: 278 tests, 275 passed, 3 skipped, 0 failed.
 - Real Codex 0.159.3 on Alpine with the existing named tg-agent permission profile: synthetic authorized inputs produced real sends to two newly owned topics and General through one agent. Native start and detached-session resume both worked. All three routing assertions passed; temporary Telegram topics/messages were removed. No private production agent session or DB was reused.
 - Wiki validation: 16 English articles, 317 local links, 15 JSON examples and 40 controller tools checked; diff whitespace check passed.
-- Remaining integration operations: commit, fast-forward main, push verification and restoration of the regular test service.
+- Committed release artifact documentation check on Alpine: 16 articles, 314 local links, 15 JSON examples, 40 tools. The local worktree count above also includes unrelated untracked React discussion material, excluded from the release.
+- Regular test service restored on the committed feature build after a SQLite backup; schema 11 opened successfully. Raw forum poller was stopped and its offset synchronized, leaving one normal application consumer. Service start/status both report running; the connected forum remains passive until `/agent start`.
+- Integration uses a fast-forward of remote main. The primary checkout has overlapping untracked user files, so its working tree and local main are preserved.
 
 Automated controller tests use a fake Telegram transport and fake model. They validate application behavior; they do not establish Telegram client rendering or real-model compliance. Prior live native API evidence is recorded in [the discussion](forum-groups-discussion.md).
 
