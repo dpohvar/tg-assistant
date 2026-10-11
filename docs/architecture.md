@@ -19,6 +19,7 @@ An enabled private chat, group, or supergroup has one agent record and a persist
 | Chat controller | Save messages, collect albums, detect triggers, route events, manage lifecycle |
 | Agent queue | Batch admitted events, queue during work, steer during recognized waits |
 | Codex adapter | Start/resume threads, provide instructions and tools, observe root/subagent activity |
+| Usage accounting | Attribute reported token deltas and native image counts/bytes to bots; provide master reports |
 | Message layer | Validate chat access and media provenance, call Telegram, persist known results |
 | Scheduler | Store tasks/firings, coalesce occurrences, recover failures and overdue one-time events |
 | WebSocket manager | Hold connections independently of turns and buffer incoming data |

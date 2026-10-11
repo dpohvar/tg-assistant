@@ -58,7 +58,7 @@ test('long help stays complete, splits at entries and replies to the command',as
 test('every role/chat and master help has complete descriptions and valid formatted chunks',()=>{
   for(const role of [undefined,'user','manager','admin','owner'])for(const group of [false,true])for(const master of [false,true]){
     const sections=helpSections({role,group,master});
-    if(master)assert.deepEqual(Object.keys(sections),['bot']);
+    if(master)assert.deepEqual(Object.keys(sections),['usage','bot']);
     if(group)assert.equal(sections.user,undefined);
     for(const [name,s] of Object.entries(sections)){
       assert.ok(s.description);

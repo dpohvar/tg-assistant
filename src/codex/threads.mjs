@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { RpcProcess } from './rpc.mjs';
+import {createUsageStore} from '../storage/usage.mjs';
 import {createMcpStore} from '../mcp/store.mjs';
 import {isolatedMcpArgs,testMcpRuntime} from '../mcp/runtime.mjs';
 const tool = (name, description, properties, required = []) => ({ type: 'function', name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } });
@@ -67,7 +68,7 @@ propertiesFor('edit').media = inputMediaSchema;
 for (const name of ['delete', 'pin', 'unpin', 'react']) propertiesFor(name).reaction.items = { type: 'object', properties: { type: { type: 'string' }, emoji: { type: 'string' }, custom_emoji_id: { type: 'string' } }, required: ['type'], additionalProperties: false };
 export class CodexAgent {
   sessions = new Map(); processes = new Set(); startups = new Map(); tests = new Set(); closed = false;
-  constructor({ db, config, spawnArgs, prepareMcpArgs, onAvailability = () => {}, assertCurrent = () => {} }) { Object.assign(this, { db, config, spawnArgs, prepareMcpArgs, onAvailability, assertCurrent }); }
+  constructor({ db, config, spawnArgs, prepareMcpArgs, onAvailability = () => {}, assertCurrent = () => {} }) { Object.assign(this, { db, config, spawnArgs, prepareMcpArgs, onAvailability, assertCurrent });this.usage=db.sql?createUsageStore(db):null; }
   trackRpc(rpc) { this.processes.add(rpc);rpc.exited.finally(()=>this.processes.delete(rpc)); }
   checkStartup(scope,startup) { if(this.closed||startup.signal.aborted)throw Object.assign(new Error('Session intentionally replaced.'),{code:'rules_replaced'});this.assertCurrent(scope); }
   async session(scope, invoke) {
@@ -87,7 +88,9 @@ export class CodexAgent {
     const env = { ...process.env, CODEX_HOME: this.config.codexHome }; for (const k of Object.keys(env)) if (/TOKEN|SECRET|PASSWORD|API_KEY/i.test(k)) delete env[k];
     if(!this.spawnArgs||this.prepareMcpArgs)try{args=await (this.prepareMcpArgs??isolatedMcpArgs)({executable:this.config.codexExecutable,args,cwd,env,botId:scope.botId,entries:createMcpStore(this.db).list(scope.botId),signal:startup.signal,onRpc:rpc=>this.trackRpc(rpc)});}catch(e){this.checkStartup(scope,startup);throw e;}
     this.checkStartup(scope,startup);
-    const s = { scope, invoke, owned: new Set(), pendingChildren: new Set(), childFailure: null, turnId: null };
+    const record = this.db.agent(scope.botId, scope.chatId);
+    const s = { scope, invoke, owned: new Set(), pendingChildren: new Set(), childFailure: null, turnId: null,threadId:record.threadId,activeTurns:new Map() };
+    if(record.threadId){s.owned.add(record.threadId);this.usage?.track(scope.botId,scope.agentId,record.threadId,{seed:true});}
     const rpc = new RpcProcess({ executable: this.config.codexExecutable, args, cwd, env, handleRequest: async m => {
       if (m.method !== 'item/tool/call' || !s.owned.has(m.params.threadId)) throw new Error('Unknown request');
       this.assertCurrent(s.scope);
@@ -98,7 +101,19 @@ export class CodexAgent {
     } }); this.trackRpc(rpc); s.rpc = rpc; this.sessions.set(scope.agentId, s);
     rpc.on('notification', m => {
       const p = m.params, item = p?.item; if (!p || !s.owned.has(p.threadId)) return;
-      if (item?.type === 'subAgentActivity' && item.kind === 'started') { s.owned.add(item.agentThreadId); s.pendingChildren.add(item.agentThreadId); }
+      if (item?.type === 'subAgentActivity' && item.kind === 'started') { s.owned.add(item.agentThreadId); s.pendingChildren.add(item.agentThreadId);this.usage?.track(scope.botId,scope.agentId,item.agentThreadId,{rootThreadId:s.threadId,seed:!s.accountingActive}); }
+      try{
+        if(m.method==='turn/started')s.activeTurns.set(p.threadId,p.turn.id);
+        if(m.method==='thread/tokenUsage/updated'&&p.tokenUsage?.total){
+          const active=s.activeTurns.get(p.threadId);
+          if(!active||!p.turnId||active===p.turnId){if(this.usage?.tokens(p.threadId,p.tokenUsage.total,Date.now(),{turnId:p.turnId,allowReset:!!active&&active===p.turnId})?.reset)console.error('usage_counter_decreased');}
+        }
+        if(item?.type==='imageGeneration'&&['item/started','item/completed'].includes(m.method)){
+          let bytes=0;if(m.method==='item/completed'&&!item.failure&&item.savedPath){try{const file=fs.statSync(item.savedPath);if(file.isFile())bytes=file.size;}catch{console.error('usage_image_size_unavailable');}}
+          this.usage?.image(p.threadId,item.id,m.method==='item/started'?'started':'completed',bytes);
+        }
+        if(m.method==='turn/completed'&&p.threadId!==s.threadId)this.usage?.finish(p.threadId);
+      }catch{console.error('usage_accounting_failed');}
       if (p.threadId !== s.threadId) {
         if (m.method === 'thread/status/changed' && p.status?.type === 'active') s.pendingChildren.add(p.threadId);
         if (m.method === 'turn/completed' || m.method === 'thread/status/changed' && p.status?.type === 'notLoaded') {
@@ -117,7 +132,6 @@ export class CodexAgent {
     try {
     await rpc.request('initialize', { clientInfo: { name: 'tg_assistant', version: '0.1' }, capabilities: { experimentalApi: true } }); rpc.notify('initialized');
     this.checkStartup(scope,startup);
-    const record = this.db.agent(scope.botId, scope.chatId);
     const rulesPath = path.join(this.config.dataDir ?? this.config.botsDir, 'rules', scope.botId, 'AGENTS.md');
     const rulesVersion = this.db.getBot(scope.botId).rulesVersion;
     const rules = fs.existsSync(rulesPath) ? fs.readFileSync(rulesPath, 'utf8') : '';
@@ -127,6 +141,7 @@ export class CodexAgent {
     const started = await rpc.request(record.threadId ? 'thread/resume' : 'thread/start', { ...(record.threadId ? { threadId: record.threadId } : {}), cwd, permissions: 'tg-agent', approvalPolicy: 'never', model: record.model, developerInstructions: instructions, dynamicTools });
     this.checkStartup(scope,startup);
     s.threadId = started.thread.id; s.owned.add(s.threadId);
+    this.usage?.track(scope.botId,scope.agentId,s.threadId,{seed:!!record.threadId});
     this.db.sql.prepare('UPDATE agents SET threadId=?,threadRulesVersion=? WHERE agentId=?').run(s.threadId, rulesVersion, scope.agentId);
     await this.reportMcpStatus(scope.botId,rpc);
     this.checkStartup(scope,startup);
@@ -141,6 +156,7 @@ export class CodexAgent {
     const done = s.rpc.waitFor(m => m.method === 'turn/completed' && m.params.threadId === s.threadId);
     done.catch(() => {});
     this.onAvailability(scope.agentId, 'working');
+    s.accountingActive=true;
     const turn = await s.rpc.request('turn/start', { threadId: s.threadId, model: this.db.agent(scope.botId, scope.chatId).model, input: [{ type: 'text', text: JSON.stringify(events), text_elements: [] }] });
     s.turnId = turn.turn.id;
     const result = await done; s.turnId = null;
@@ -156,7 +172,7 @@ export class CodexAgent {
   async waitBackground(agentId) { await this.sessions.get(agentId)?.settled; }
   canSteer(agentId) { return Boolean(this.sessions.get(agentId)?.turnId); }
   async steer(agentId, events) { const s = this.sessions.get(agentId); if (!s?.turnId) throw Object.assign(new Error('No active turn'), { code: 'steer_expired' }); try { return await s.rpc.request('turn/steer', { threadId: s.threadId, expectedTurnId: s.turnId, input: [{ type: 'text', text: JSON.stringify(events), text_elements: [] }] }); } catch (error) { if (s.deleted) throw Object.assign(new Error('Session intentionally replaced.'), { code: 'rules_replaced' }); throw error; } }
-  async deleteSession(agentId, savedThreadId) { this.startups.get(agentId)?.abort();const s = this.sessions.get(agentId); if (!s) { if (savedThreadId) await (await this.catalogRpc()).request('thread/delete', { threadId: savedThreadId }); return; } s.deleted = true; this.sessions.delete(agentId); try { if (s.turnId) { try { await s.rpc.request('turn/interrupt', { threadId: s.threadId, turnId: s.turnId }); } catch {} } if (s.threadId) await s.rpc.request('thread/delete', { threadId: s.threadId }); } finally { await s.rpc.close(); } }
+  async deleteSession(agentId, savedThreadId) { this.startups.get(agentId)?.abort();const s = this.sessions.get(agentId); if (!s) { if (savedThreadId){ await (await this.catalogRpc()).request('thread/delete', { threadId: savedThreadId });this.usage?.forget(savedThreadId);} return; } s.deleted = true; this.sessions.delete(agentId); try { if (s.turnId) { try { await s.rpc.request('turn/interrupt', { threadId: s.threadId, turnId: s.turnId }); } catch {} } if (s.threadId) await s.rpc.request('thread/delete', { threadId: s.threadId }); } finally { await s.rpc.close();if(s.threadId)this.usage?.forget(s.threadId); } }
   detach(agentId) { this.startups.get(agentId)?.abort();const s = this.sessions.get(agentId); if (s) { s.deleted=true;s.rpc.close(); this.sessions.delete(agentId); } }
   async refreshSession(agentId) {const s=this.sessions.get(agentId);if(!s)return;this.sessions.delete(agentId);await s.rpc.close();}
   async reportMcpStatus(botId,rpc){if(!this.onMcpStatus||!createMcpStore(this.db).list(botId).length)return;try{const rows=[];let cursor;do{const page=await rpc.request('mcpServerStatus/list',cursor?{cursor}:{},5000);rows.push(...page.data);cursor=page.nextCursor;}while(cursor);await this.onMcpStatus(botId,rows);}catch{}}

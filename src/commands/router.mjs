@@ -1,4 +1,5 @@
 import {topicIdOf} from '../telegram/topics.mjs';
+import {usageReport} from './usage.mjs';
 import {handleMcpCommand} from './mcp.mjs';
 import {isMcpAuthReply,handleMcpAuthReply} from './mcp-auth-reply.mjs';
 import {handleWebSocketCommand} from './websocket.mjs';
@@ -212,6 +213,7 @@ export function createCommands(deps) {
           return true;
         }
         if (botId === "master") {
+          if(section==='usage'){await send(usageReport({db,args:parts,reply:m.reply_to_message,masterTelegramId:config.masterTelegramId}));return true;}
           if (section !== "bot") throw syntaxError("Unknown command.");
           const action = parts.shift() ?? "list";
           if (action === "list") {
@@ -273,7 +275,7 @@ export function createCommands(deps) {
             parts.map((value) => ({ type: "text", value })),
           );
           await deps.masterCommands(name, parts, m, async (b, msg, text) =>
-            send(text.replaceAll("/delete_bot", "/bot delete")),
+            send(typeof text==='string'?text.replaceAll("/delete_bot", "/bot delete"):text),
           );
           return true;
         }

@@ -1,7 +1,8 @@
 function availableCommands({ master = false, role, group = false }) {
   if (master)
     return {
-      bot: "/bot list [RANGE]\n/bot add TOKEN [OWNER_ID]\n/bot info @BotName\n/bot owner [set] @BotName [USER_ID]\n/bot delete @BotName [BOT_ID [all]]",
+      usage: '/usage\n/usage all\n/usage @BOT\n/usage @BOT hours|days|months|years',
+      bot: "/bot list [RANGE]\n/bot add TOKEN [OWNER_ID]\n/bot info @BotName\n/bot owner [set] @BotName [USER_ID]\n/bot delete @BotName",
     };
   const admin = ["admin", "owner"].includes(role),
     manager = admin || role === "manager",
@@ -41,6 +42,7 @@ function availableCommands({ master = false, role, group = false }) {
 }
 
 const descriptions = {
+  usage: 'Inspect reported token usage and native image generation across child bots. Master bot only, for the service owner in private messages. UTC calendar buckets; removed bots retain their statistics. Reply /usage to an intact master usage report to compare lifetime counters.',
   agent: 'Control conversational agents: inspect their state, start or stop them, reset context, inspect inter-agent messages and choose models. A local command needs user or higher in private chats, manager or higher in groups. Explicit targets and model commands need admin or owner.',
   task: 'Inspect scheduled actions, retry missed or failed actions, or delete schedules. Local operations need user or higher in private chats, manager or higher in groups. Operations on another chat need admin or owner. Ask the agent to create a task; these commands manage existing tasks.',
   chat: 'Inspect chats connected to this bot and their agent state, or make the bot leave a group/channel. Local information needs user or higher in private chats, manager or higher in groups. Explicit chat targets and lists need admin or owner.',
@@ -58,6 +60,10 @@ const descriptions = {
 };
 
 const details = {
+  '/usage': 'Show lifetime totals for each child bot, sorted by input tokens. Includes removed bots. Reply with this command to an intact usage report from the master to compare counters since its Telegram send time; comparisons sort by input-token increase. Exact image bytes in reports enable comparison without saved snapshots.',
+  '/usage all': 'Show lifetime usage summed across all child bots, including removed ones. No period option is accepted. Total from is the service collection start. Reply /usage to this report for the combined increase.',
+  '/usage @BOT': 'Show lifetime input/output tokens, native image generation starts and generated file bytes for one bot. Total from is its collection start, not registration history before this feature. This bot is resolved by username; reports include the stable Telegram ID.',
+  '/usage @BOT hours|days|months|years': 'Show lifetime totals and nonzero UTC calendar buckets, newest first: current hour plus 23 previous hours, current day plus 29 previous days, current month plus 11 previous months, or all recorded years. The open bucket is marked in progress. Truncation keeps complete blocks. This option requires one bot, not all.',
   '/agent status': 'Show the current chat’s agent ID, enabled/disabled mode, execution status and pending queue size. Admins also see the model. This does not start the agent; /agent is an alias.',
   '/agent start': 'Enable the current chat’s agent. New groups and supergroups initially record history without an agent. Starting restores operation and exposes accumulated missed scheduled actions. It does not interrupt a stop still in progress.',
   '/agent stop': 'Disable the current agent, stop triggers and loud mode, and discard its pending operational queue. Active work, including subagents, finishes before context removal. Agent ID, model, notes, history, schedules and shared files remain. Use /agent start to resume.',

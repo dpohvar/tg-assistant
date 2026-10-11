@@ -13,6 +13,7 @@ The original documentation was preserved under `archive/` during the wiki reorga
 | Later feature checks | [vault](archive/vault-check-results.md), [WebSocket and MCP](archive/websocket-mcp-check-results.md) |
 | MCP OAuth | [Implementation task](mcp-oauth-plan.md), [verification report](mcp-oauth-probe.md) |
 | Forum group agents | [Design discussion](forum-groups-discussion.md), [implementation plan](forum-groups-plan.md): one agent per forum and topic-aware messaging; [verification](forum-groups-verification.md) |
+| Master usage accounting | [Initial counter verification](usage-counters-verification.md), [implementation plan](master-usage-plan.md), [final verification](master-usage-verification.md): aggregate usage, reply comparisons and native image bytes |
 | Audits and progress | [contract review](archive/contract-review.md), [v1 audit](archive/v1-audit.md), [implementation progress](archive/implementation-progress.md) |
 | Original rich-message examples | [JSON examples](archive/rich-message-examples.json) |
 | Historical standalone probes | [Probe scripts](tools/index.md) |

@@ -23,7 +23,11 @@ export function createMaster({ db, config, onBotAdded = () => {}, onBotRemoved =
     if (!bot) throw new Error('Unknown bot');
     if (name === 'set_owner') { const userId = Number(args[1]); if (args.length !== 2 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error('Invalid owner ID'); if(userId!==bot.ownerId) db.transaction(()=>{db.setRole(bot.botId,bot.ownerId,'admin');db.sql.prepare('UPDATE bots SET ownerId=? WHERE botId=?').run(userId,bot.botId);}); await respond('Owner changed'); return; }
     if (name === 'delete_bot') {
-      if (args.length === 1) { await respond(`@${bot.username} ${bot.telegramId}, owner ${bot.ownerId}\n/delete_bot @${bot.username} ${bot.telegramId}\n/delete_bot @${bot.username} ${bot.telegramId} all`); return; }
+      if (args.length === 1) {
+        const full=`/bot delete @${bot.username} ${bot.telegramId} all`,keep=`/bot delete @${bot.username} ${bot.telegramId}`;
+        const text=`You are about to delete @${bot.username} (${bot.telegramId}), owner ${bot.ownerId}.\nYou cannot restore its chat history, agent contexts, notes, scheduled tasks, rules, roles, vault entries or MCP settings without a server backup. Bot credentials and temporary files are also removed. Usage statistics are retained.\n\nTo delete the bot completely, including its wiki and Git files, use:\n${full}\n\nTo delete the bot but keep its wiki and Git files, use:\n${keep}`;
+        await respond({text,entities:[{type:'code',offset:text.indexOf(full),length:full.length},{type:'code',offset:text.lastIndexOf(keep),length:keep.length}]});return;
+      }
       if (Number(args[1]) !== bot.telegramId || args.length > 3 || args[2] && args[2] !== 'all') throw new Error('Invalid deletion arguments');
       await onBotRemoved(bot.botId);
       const gitSecret = db.sql.prepare('SELECT secretRef FROM git_settings WHERE botId=?').get(bot.botId)?.secretRef;

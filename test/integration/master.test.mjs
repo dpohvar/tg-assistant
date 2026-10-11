@@ -5,6 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { openDatabase } from '../../src/storage/database.mjs';
 import { createMaster } from '../../src/commands/master.mjs';
+import {helpSections} from '../../src/commands/help.mjs';
+
+test('master help hides deletion confirmations; invitation explains loss and formats both commands',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-master-delete-')),db=openDatabase(path.join(root,'db'));t.after(()=>{db.close();fs.rmSync(root,{recursive:true,force:true});});
+ db.registerBot({botId:'b42',telegramId:42,username:'child',ownerId:1});const help=helpSections({master:true});const deletion=help.bot.commands.filter(c=>c.syntax.startsWith('/bot delete'));
+ assert.deepEqual(deletion.map(c=>c.syntax),['/bot delete @BotName']);
+ let result;const master=createMaster({db,config:{dataDir:root,botsDir:root}});await master('delete_bot',['@child'],{from:{id:1}},async(b,m,value)=>result=value);
+ assert.match(result.text,/cannot restore/i);assert.match(result.text,/chat history/i);assert.match(result.text,/Usage statistics are retained/);
+ assert.deepEqual(result.entities.filter(e=>e.type==='code').map(e=>result.text.slice(e.offset,e.offset+e.length)),['/bot delete @child 42 all','/bot delete @child 42']);assert(db.getBot('b42'));
+});
 
 test('master refuses its own token and deletes bot secrets while preserving wiki', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-master-')), db = openDatabase(path.join(root, 'db.sqlite'));

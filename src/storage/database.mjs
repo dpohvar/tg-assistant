@@ -1,6 +1,7 @@
 import { richText } from '../telegram/short-message.mjs';
 import {topicIdOf} from '../telegram/topics.mjs';
 import {createTopicStore} from './topics.mjs';
+import {createUsageStore} from './usage.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,8 +15,8 @@ export function openDatabase(filename) {
     sql.exec('BEGIN IMMEDIATE');
     sql.exec('CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY)');
     const version = sql.prepare('SELECT COALESCE(MAX(version),0) AS version FROM schema_migrations').get().version;
-    if (version > 11) throw new Error('Database uses a newer schema than this controller supports.');
-    for (let n = 1; n <= 11; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
+    if (version > 12) throw new Error('Database uses a newer schema than this controller supports.');
+    for (let n = 1; n <= 12; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
       sql.exec(fs.readFileSync(new URL(`./migrations/${String(n).padStart(3, '0')}.sql`, import.meta.url), 'utf8'));
     }
     if(version<11){
@@ -32,6 +33,7 @@ export function openDatabase(filename) {
     transaction(fn) { sql.exec('BEGIN IMMEDIATE'); try { const result = fn(); if (result?.then) throw new Error('Transactions must be synchronous'); sql.exec('COMMIT'); return result; } catch (error) { sql.exec('ROLLBACK'); throw error; } },
     registerBot(bot) {
       sql.prepare('INSERT INTO bots(botId,telegramId,username,ownerId,defaultModel) VALUES(?,?,?,?,?)').run(bot.botId, bot.telegramId, bot.username, bot.ownerId, bot.defaultModel ?? 'gpt-6.1-sol');
+      createUsageStore(db).sync();
     },
     getBot,
     role(botId, userId) { if (getBot(botId)?.ownerId === userId) return 'owner'; return sql.prepare('SELECT role FROM roles WHERE botId=? AND userId=?').get(botId, userId)?.role ?? null; },
