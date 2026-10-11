@@ -21,7 +21,7 @@
 - [x] Reports RED/GREEN: commands, comparisons, formatting, strict parsing, permissions, whole-block truncation and help.
 - [x] Adapter RED/GREEN: root/child usage, resume baseline, image file size and session cleanup; Windows suite.
 - [x] English master/storage/architecture wiki, Alpine suite and isolated live adapter smoke.
-- [ ] Independent branch review, fixes and final verification; commit intended changes and fast-forward/push main.
+- [x] Independent branch review, fixes and final verification; commit intended changes and fast-forward/push main.
 
 ## Ledger
 
@@ -30,4 +30,4 @@
 
 - Independent review identified reset-baseline suppression and reused-child cleanup hazards. Both were reproduced with failing tests, corrected and verified.
 - Reset values are rebased only after an observed new native turn; stale decreases are ignored. Image dedup records expire after seven days without updates.
-- Final checks and live evidence: [verification report](master-usage-verification.md). Integration is authorized and will fast-forward remote main after the implementation commit.
+- Final checks and live evidence: [verification report](master-usage-verification.md). Implementation commit `d6c18c9` was fast-forwarded and pushed to remote main after successful verification.
