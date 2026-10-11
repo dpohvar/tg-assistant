@@ -1,11 +1,12 @@
 export const serviceFields = ["new_chat_members", "left_chat_member", "chat_owner_left", "chat_owner_changed", "new_chat_title", "new_chat_photo", "delete_chat_photo", "group_chat_created", "supergroup_chat_created", "channel_chat_created", "message_auto_delete_timer_changed", "migrate_to_chat_id", "migrate_from_chat_id", "pinned_message", "successful_payment", "refunded_payment", "users_shared", "chat_shared", "gift", "unique_gift", "gift_upgrade_sent", "connected_website", "write_access_allowed", "passport_data", "proximity_alert_triggered", "boost_added", "chat_background_set", "checklist_tasks_done", "checklist_tasks_added", "community_chat_added", "community_chat_joined", "community_chat_removed", "direct_message_price_changed", "forum_topic_created", "forum_topic_edited", "forum_topic_closed", "forum_topic_reopened", "general_forum_topic_hidden", "general_forum_topic_unhidden", "giveaway_created", "giveaway_completed", "managed_bot_created", "paid_message_price_changed", "poll_option_added", "poll_option_deleted", "suggested_post_approved", "suggested_post_approval_failed", "suggested_post_declined", "suggested_post_paid", "suggested_post_refunded", "video_chat_scheduled", "video_chat_started", "video_chat_ended", "video_chat_participants_invited", "web_app_data"];
+import {topicFields} from './topics.mjs';
 export function richText(value) {
   const texts = [];
   const walk = item => { if (!item || typeof item !== 'object') return; if (typeof item.text === 'string') texts.push(item.text); for (const child of Object.values(item)) if (child && typeof child === 'object') walk(child); };
   walk(value); return texts.join('\n');
 }
 export function shortMessage(m, eventType = 'message') {
-  const out = { eventType, messageId: m.message_id, date: new Date(m.date * 1000).toISOString() };
+  const out = { eventType, messageId: m.message_id, date: new Date(m.date * 1000).toISOString(), ...topicFields(m) };
   const service = serviceFields.find(field => m[field] !== undefined); if (service) out.service = service;
   if (m.edit_date) out.editDate = new Date(m.edit_date * 1000).toISOString();
   const sender = m.sender_chat ?? m.from;

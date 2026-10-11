@@ -1,3 +1,4 @@
+import {topicIdOf} from '../telegram/topics.mjs';
 import {handleMcpCommand} from './mcp.mjs';
 import {isMcpAuthReply,handleMcpAuthReply} from './mcp-auth-reply.mjs';
 import {handleWebSocketCommand} from './websocket.mjs';
@@ -98,6 +99,7 @@ export function createCommands(deps) {
           await telegram.call(botId, "sendMessage", {
             chat_id: m.chat.id,
             ...payload,
+            ...(topicIdOf(m)>1?{message_thread_id:topicIdOf(m)}:{}),
             reply_parameters: { message_id: m.message_id },
           });
           return;
@@ -109,6 +111,7 @@ export function createCommands(deps) {
           await telegram.call(botId, "sendMessage", {
             chat_id: m.chat.id,
             text: text.slice(0, n),
+            ...(topicIdOf(m)>1?{message_thread_id:topicIdOf(m)}:{}),
             reply_parameters: { message_id: m.message_id },
           });
           text = text.slice(n);

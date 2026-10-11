@@ -1,3 +1,4 @@
+import {topicIdOf} from '../telegram/topics.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { BotFiles } from '../files/paths.mjs';
@@ -10,7 +11,7 @@ export function createFileCommands({ db, config, telegram, fetchDocument, gitSet
     const parts = args.map(a => a.value), filename = parts[0];
     if (name === 'ls') return store.list(filename ?? '.').join('\n');
     if (name === 'cat') { const bytes = store.read(filename), content = bytes.toString('utf8');  return { text: `${escape(filename.slice(0,200))}\n<pre>${escape(content.slice(0,3000))}</pre>${content.length>3000?'\n[truncated]':''}`, parse_mode: 'HTML' }; }
-    if (name === 'download') { await telegram.call(botId, 'sendDocument', { chat_id: message.chat.id, document: 'attach://file', reply_parameters: { message_id: message.message_id } }, { uploads: [{ name: 'file', filename: path.basename(filename), bytes: store.read(filename) }] }); return null; }
+    if (name === 'download') { await telegram.call(botId, 'sendDocument', { chat_id: message.chat.id, document: 'attach://file', ...(topicIdOf(message)>1?{message_thread_id:topicIdOf(message)}:{}), reply_parameters: { message_id: message.message_id } }, { uploads: [{ name: 'file', filename: path.basename(filename), bytes: store.read(filename) }] }); return null; }
     if (name === 'rm') { store.remove(filename); return 'Deleted'; }
     if (name === 'mv') { store.move(parts[0], parts[1]); return 'Moved'; }
     if (name === 'edit') { store.write(filename, Buffer.from(parts[1])); return 'Saved'; }

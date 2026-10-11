@@ -161,3 +161,5 @@ Git setup requires an HTTPS remote without embedded credentials. Omitted remote/
 Vault values are shared with agents of this bot through `vault_get`, never returned by Telegram commands. Set messages have deletion attempted even on failure. See [Security](security.md), [WebSocket](websocket.md), and [MCP](mcp.md) for name constraints, exact JSON/TOML fields, connection lifecycle and secret handling. Tool boundaries are described in [Agent contract](agent-contract.md); system responsibilities in [Architecture](architecture.md).
 
 OAuth callback replies are service input, excluded from agent history and best-effort deleted. Their quoted `/mcp auth NAME` command must belong to the same user/chat and must not be edited. Both login completion and logout refresh agents after active work while retaining context. MCP replacement/deletion removes local OAuth credentials; logout does not remove static headers or necessarily revoke the external account grant.
+
+In [forum groups](forum-groups.md), command replies and downloads stay in the invoking topic. `/agent start` enables one agent for the entire forum; topic changes do not create separate agents.

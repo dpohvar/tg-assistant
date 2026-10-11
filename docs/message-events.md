@@ -64,7 +64,7 @@ Private messages from authorized users need no group trigger. In groups/supergro
 
 Reasons are deduplicated case-insensitively. A trigger opens or refreshes a two-minute listening window allowing ten subsequent nontrigger delivery units. A batch of album members consumes one unit. A message without `triggers` may address someone else; delivery does not mean it is a request to the bot. A successful group button callback also opens this window. See [commands.md](commands.md) for configuring triggers.
 
-`historyGap:true` means saved group conversation was omitted from the agent's inputs, for example outside the listening window, while disabled, after a full queue or after queued input expired/was cleared. It is attached once to the first suitable next `message`, `message_edited` or `button` event. The marker does not claim deletion from storage, identify a missing interval or guarantee every missing message can still be read. If a request depends on prior conversation, inspect `history`/`read`. The marker is in-memory lifecycle state, not a durable backlog cursor.
+`historyGap:true` means saved group conversation was omitted from the agent's inputs, for example outside the listening window, while disabled, after a full queue or after queued input expired/was cleared. In forums it is tracked independently per topic and only consumed by an event in that topic; a mixed-topic batch can have several hints. It is attached once to the first suitable next `message`, `message_edited` or `button` event. The marker does not claim deletion from storage, identify a missing interval or guarantee every missing message can still be read. If a request depends on prior conversation, inspect `history`/`read`. The marker is in-memory lifecycle state, not a durable backlog cursor.
 
 Channel posts are saved but do not directly trigger a channel agent. Connected discussion messages are separate group history; see [channels-and-discussions.md](channels-and-discussions.md).
 
@@ -148,3 +148,5 @@ Close reasons emitted by the manager include `server`, `transport_error`, `stora
 ## Implementation references
 
 Current behavior is defined by [`src/telegram/short-message.mjs`](../src/telegram/short-message.mjs), [`src/telegram/triggers.mjs`](../src/telegram/triggers.mjs), [`src/telegram/albums.mjs`](../src/telegram/albums.mjs), [`src/controller.mjs`](../src/controller.mjs), [`src/agents/history.mjs`](../src/agents/history.mjs) and [`src/agents/queue.mjs`](../src/agents/queue.mjs). Focused tests include `short-message`, `message-triggers`, `history-gap`, `history-access`, `albums`, `buttons`, `agent-messages`, `scheduler` and `websocket-controller` under [`test/integration`](../test/integration).
+
+Forum events include `topicId` (General = 1) on short messages, edits and callbacks. Detailed `read` retains native fields; it does not add a thread ID to General. See [forum groups](forum-groups.md) for routing and mode transitions.

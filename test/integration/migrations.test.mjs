@@ -10,13 +10,13 @@ test('schema 9 upgrade retains vault values and adds empty per-bot MCP settings'
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-mcp-migration-')),file=path.join(root,'db.sqlite');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const sql=new DatabaseSync(file);
  for(let i=1;i<=9;i++)sql.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(i).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
  sql.exec("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',42,'bot',1);INSERT INTO vault VALUES('b','KEEP','synthetic')");sql.close();
- const db=openDatabase(file);try{assert.equal(db.sql.prepare('SELECT value FROM vault').get().value,'synthetic');assert.equal(db.getBot('b').mcpRevision,0);assert.equal(db.sql.prepare('SELECT count(*) n FROM mcp_servers').get().n,0);assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,10);}finally{db.close();}
+ const db=openDatabase(file);try{assert.equal(db.sql.prepare('SELECT value FROM vault').get().value,'synthetic');assert.equal(db.getBot('b').mcpRevision,0);assert.equal(db.sql.prepare('SELECT count(*) n FROM mcp_servers').get().n,0);assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,11);}finally{db.close();}
 });
 
 test('version 7 upgrades transactionally preserving agents, memory, tasks and passive chats',t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-upgrade-')),file=path.join(root,'db.sqlite');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const sql=new DatabaseSync(file);sql.exec('PRAGMA foreign_keys=ON');for(let i=1;i<=7;i++)sql.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(i).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
  sql.exec("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',42,'bot',1); INSERT INTO chats VALUES('b',-1,'group','Friends','{}','[]'),('b',-2,'supergroup','Passive','{}','[]'); INSERT INTO agents(agentId,botId,chatId,model,notes,createdAt) VALUES('a','b',-1,'m','keep',1); INSERT INTO tasks(taskId,agentId,description,text,at,createdAt) VALUES('t','a','keep','instruction','2099-01-01T00:00:00Z',1)");sql.close();
- let db=openDatabase(file);assert.equal(db.getChat('b',-1).agentEnabled,1);assert.equal(db.getChat('b',-2).agentEnabled,0);assert.equal(db.agent('b',-1).notes,'keep');assert.equal(db.sql.prepare('SELECT text FROM tasks WHERE taskId=?').get('t').text,'instruction');db.close();db=openDatabase(file);assert.equal(db.sql.prepare('SELECT MAX(version) v FROM schema_migrations').get().v,10);assert.equal(db.agent('b',-1).notes,'keep');db.close();
+ let db=openDatabase(file);assert.equal(db.getChat('b',-1).agentEnabled,1);assert.equal(db.getChat('b',-2).agentEnabled,0);assert.equal(db.agent('b',-1).notes,'keep');assert.equal(db.sql.prepare('SELECT text FROM tasks WHERE taskId=?').get('t').text,'instruction');db.close();db=openDatabase(file);assert.equal(db.sql.prepare('SELECT MAX(version) v FROM schema_migrations').get().v,11);assert.equal(db.agent('b',-1).notes,'keep');db.close();
 });
 
 test('an unsupported newer schema is refused without changing its data', t => {
@@ -25,4 +25,21 @@ test('an unsupported newer schema is refused without changing its data', t => {
   const db = openDatabase(file);
   db.sql.prepare('INSERT INTO schema_migrations VALUES(999)').run(); db.close();
   assert.throws(() => openDatabase(file), /newer schema/);
+});
+
+test('schema 10 upgrade backfills topics once, preserving native history and agent data',t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-forum-upgrade-')),file=path.join(root,'db.sqlite');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const sql=new DatabaseSync(file);
+ for(let i=1;i<=10;i++)sql.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(i).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
+ sql.exec("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',42,'bot',1);INSERT INTO chats(botId,chatId,chatType,name,json) VALUES('b',-1,'supergroup','forum','{\"id\":-1,\"type\":\"supergroup\",\"is_forum\":true}');INSERT INTO agents(agentId,botId,chatId,model,notes,createdAt) VALUES('a','b',-1,'model','keep',1);INSERT INTO tasks(taskId,agentId,description,text,at,createdAt) VALUES('t','a','keep','instruction','2099-01-01T00:00:00Z',1)");
+ const message={message_id:4,date:1,chat:{id:-1,type:'supergroup',is_forum:true},message_thread_id:4,forum_topic_created:{name:'old'}};
+ sql.prepare('INSERT INTO messages(botId,chatId,messageId,date,receivedAt,json,plainText,receiptSeq) VALUES(?,?,?,?,?,?,?,?)').run('b',-1,4,1,1,JSON.stringify(message),'',1);sql.close();
+ let db=openDatabase(file);assert.deepEqual(db.getMessage('b',-1,4),message);assert.equal(db.messageRecord('b',-1,4).topicId,4);assert.equal(db.sql.prepare('SELECT name FROM topics WHERE topicId=4').get().name,'old');
+ db.sql.exec("UPDATE topics SET name='new',nameAt=9 WHERE topicId=4");db.close();db=openDatabase(file);
+ assert.equal(db.sql.prepare('SELECT name FROM topics WHERE topicId=4').get().name,'new');assert.equal(db.agent('b',-1).notes,'keep');assert.equal(db.agent('b',-1).model,'model');assert.equal(db.sql.prepare('SELECT text FROM tasks').get().text,'instruction');db.close();
+});
+test('failed forum upgrade rolls back schema changes and version registration',t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-forum-rollback-')),file=path.join(root,'db.sqlite');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));let sql=new DatabaseSync(file);
+ for(let i=1;i<=10;i++)sql.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(i).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
+ sql.exec("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',42,'bot',1);INSERT INTO chats(botId,chatId,chatType,name,json) VALUES('b',-1,'supergroup','forum','{}');INSERT INTO messages(botId,chatId,messageId,date,receivedAt,json,plainText,receiptSeq) VALUES('b',-1,1,1,1,'broken','',1)");sql.close();
+ assert.throws(()=>openDatabase(file));sql=new DatabaseSync(file);assert.equal(sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,10);assert.equal(sql.prepare('PRAGMA table_info(messages)').all().some(r=>r.name==='topicId'),false);sql.close();
 });

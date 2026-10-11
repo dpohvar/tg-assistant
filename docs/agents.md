@@ -23,7 +23,7 @@ An enabled group agent is directly triggered by:
 
 Custom phrases are case insensitive. Neither adjacent character may be a Unicode letter; digits, punctuation, and underscores do not block a match. Trigger strings contain 2–50 Unicode code points, with at most 200 configured per chat. Internal spacing is literal; `e` and accented letters, or `е` and `ё`, are distinct. Automatic channel forwards do not activate custom phrase matching.
 
-Each direct trigger enables loud mode for two minutes and up to ten subsequent admitted messages. Another trigger restarts both allowances. An album counts as one chat event. Untriggered events admitted only by loud mode may expire before dispatch when the time window ends. Loud mode does not mean every message addresses the bot; deciding whether to answer remains the agent's responsibility.
+In forums each topic has an independent loud-mode bucket and history-gap hint; the operational queue and agent remain shared across the chat. See [forum groups](forum-groups.md). Each direct trigger enables loud mode for two minutes and up to ten subsequent admitted messages. Another trigger restarts both allowances. An album counts as one chat event. Untriggered events admitted only by loud mode may expire before dispatch when the time window ends. Loud mode does not mean every message addresses the bot; deciding whether to answer remains the agent's responsibility.
 
 Incoming short events explain direct causes using optional `triggers`, such as `mention:@example_bot`, `reply`, and `match:Rick`. Loud-only and private-chat events omit it. A `historyGap: true` hint means the controller observed group messages that were not delivered; the agent can consult history when needed. See [message events](message-events.md).
 

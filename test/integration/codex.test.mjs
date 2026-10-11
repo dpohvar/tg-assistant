@@ -34,6 +34,8 @@ test('agent schemas expose the accepted message and discussion capabilities', ()
   for (const field of ['location', 'venue', 'contact', 'poll', 'dice', 'video_note', 'disable_notification', 'protect_content', 'caption_entities']) assert.ok(properties('send')[field], field);
   assert.ok(properties('edit').media); assert.ok(properties('search').discussion); assert.ok(properties('history').discussion);
   assert.ok(properties('copy').caption);
+  for(const name of ['send','copy','forward','history','search'])assert.deepEqual(properties(name).topicId,{type:'integer',minimum:1});
+  assert.ok(dynamicTools.some(tool=>tool.name==='topics'));
 });
 test('a saved unloaded thread can be deleted without resuming its agent', async () => {
   const calls = [], agent = new CodexAgent({ db: {}, config: {} });
@@ -117,7 +119,10 @@ test('rules version belongs to instructions read before awaited thread creation'
  assert.match(instructions,/call user_roles to check their current role/);
  assert.match(instructions,/do not rely on memory or earlier results/);
  assert.match(instructions,/If the role is irrelevant to the current action, do not query it/);
- assert.match(instructions,/separate from Telegram chat administrator status/);
+  assert.match(instructions,/separate from Telegram chat administrator status/);
+  assert.match(instructions,/One agent serves the whole forum chat/);
+  assert.match(instructions,/Explicit General with a cross-topic or unknown reply is refused/);
+  assert.match(instructions,/history\/search can filter topicId even after forum mode is disabled/);
  assert.ok(fs.existsSync(marker)); db.sql.prepare('UPDATE bots SET rulesVersion=rulesVersion+1 WHERE botId=?').run('b');
  await work; assert.equal(db.agent('b',1).threadRulesVersion,version); assert.notEqual(version,db.getBot('b').rulesVersion);
 });

@@ -1,9 +1,10 @@
+import {topicIdOf} from '../telegram/topics.mjs';
 import {parseArguments,syntaxError} from './arguments.mjs';
 import {commandError} from './contract.mjs';
 const callbackText=text=>{try{const u=new URL((text??'').trim());return ['http:','https:'].includes(u.protocol)&&u.searchParams.has('state')&&(u.searchParams.has('code')||u.searchParams.has('error'));}catch{return false;}};
 export const isMcpAuthReply=(m,oauth,botId)=>/^\/mcp(?:@[\w]+)?\s+auth(?:\s|$)/i.test(m.reply_to_message?.text??'')||callbackText(m.text)||callbackText(m.reply_to_message?.text)||oauth?.hasInvitation?.(botId,m.reply_to_message?.chat?.id,m.reply_to_message?.message_id)||Boolean(m.edit_date!==undefined&&oauth?.hasInvitation?.(botId,m.chat.id,m.message_id));
 export async function handleMcpAuthReply({botId,message:m,db,telegram,mcpOAuth}){
-  const send=text=>telegram.call(botId,'sendMessage',{chat_id:m.chat.id,text,reply_parameters:{message_id:m.message_id}});
+  const send=text=>telegram.call(botId,'sendMessage',{chat_id:m.chat.id,text,...(topicIdOf(m)>1?{message_thread_id:topicIdOf(m)}:{}),reply_parameters:{message_id:m.message_id}});
   try{
     const role=db.role(botId,m.from?.id);
     if(botId==='master'||m.chat.type!=='private')throw syntaxError('OAuth callback replies are available only in private chats with a child bot.');

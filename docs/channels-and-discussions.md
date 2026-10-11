@@ -1,6 +1,6 @@
 # Channels and discussions
 
-Channels are passive: the bot records received publications and known reactions, but creates no channel agent and processes no commands there. Groups and non-forum supergroups can be passive or have an enabled agent. A comment supergroup can stay passive while another chat's agent analyzes it.
+Channels are passive: the bot records received publications and known reactions, but creates no channel agent and processes no commands there. Groups and supergroups can be passive or have an enabled agent. A comment supergroup can stay passive while another chat's agent analyzes it.
 
 ## Publishing through a management chat
 
@@ -44,6 +44,6 @@ Reaction updates are saved without triggering the agent. Count-only channel upda
 
 ## Chat lifecycle
 
-manager/admin/owner may add the bot to these chats. New groups and supergroups are passive; channels always stay passive. `/agent start` enables a non-forum group/supergroup. Basic-group migration preserves agent, history, notes, tasks, triggers, and enabled state under the new supergroup ID.
+manager/admin/owner may add the bot to these chats. New groups and supergroups are passive; channels always stay passive. `/agent start` enables a group/supergroup. Basic-group migration preserves agent, history, notes, tasks, triggers, and enabled state under the new supergroup ID.
 
-Leaving/removal deletes the affected chat's saved data. Tasks in a separate management chat remain even when their target channel disappears; their next action can fail and should be handled by the agent. Lost posting permission produces a tool error rather than a separate owner notification. Forum groups are rejected, including conversion of an existing group into a forum.
+Leaving/removal deletes the affected chat's saved data. Tasks in a separate management chat remain even when their target channel disappears; their next action can fail and should be handled by the agent. Lost posting permission produces a tool error rather than a separate owner notification. [Forum groups](forum-groups.md) are supported with one agent across all topics; conversion preserves agent state and history.

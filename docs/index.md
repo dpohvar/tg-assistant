@@ -17,6 +17,7 @@ This wiki describes the current implementation. Start with [installation and ope
 | [Storage](storage.md) | Database, history, notes, shared files, temporary files, and Git |
 | [Security](security.md) | Access boundaries, sandbox, network access, and vault |
 | [Channels and discussions](channels-and-discussions.md) | Passive destinations, channel publishing, and comment searches |
+| [Forum groups](forum-groups.md) | One agent across topics, delivery, observed names, history filters and listening |
 | [WebSocket](websocket.md) | Persistent connections, notifications, buffering, and binary files |
 | [HTTP MCP](mcp.md) | Per-bot remote tool configuration and runtime refresh |
 | [Operations](operations.md) | Requirements, SSH installation, configuration, service lifecycle, and updates |

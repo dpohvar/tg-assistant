@@ -13,7 +13,7 @@ The service separates controller state from each bot's shared workspace. Paths a
 | `botsDir/BOT_ID/.temp/AGENT_ID/` | One agent's temporary files |
 | `codexHome/` | CLI authorization, runtime sessions, and generated-image sources |
 
-SQLite uses WAL and foreign keys. Current schema version is 10. Pending scheduler firings are durable; ordinary event queues and WebSocket records are not. Migrations occur before polling and reject a database from a newer application version.
+SQLite uses WAL and foreign keys. Current schema version is 11. The additive upgrade backfills forum affiliation and observed topic metadata transactionally, without changing native message JSON or removing agent data. Topic registry entries survive message retention and mode changes; chat deletion cascades them. Pending scheduler firings are durable; ordinary event queues and WebSocket records are not. Migrations occur before polling and reject a database from a newer application version.
 
 ## Message history
 
@@ -34,7 +34,7 @@ These are cleanup thresholds, not exact maximum lifetimes. A daily sweep can lea
 
 ## History access and searches
 
-Agents can read their own private history and all connected non-private chat history of the same bot. `history` uses a half-open positional slice relative to a message; a null anchor selects the position after the newest message. `search` supports literal text substrings, sender, type, date bounds, and channel-discussion filters.
+Agents can read their own private history and all connected non-private chat history of the same bot. `history` uses a half-open positional slice relative to a message; a null anchor selects the position after the newest message. `search` supports literal text substrings, sender, type, date bounds, channel-discussion filters, and optional forum `topicId` filters (also available after forum mode is disabled).
 
 Search cursors are signed, scoped to bot and agent, and expire one hour after starting the search. No stored result set or separate cursor table is needed. The receipt-sequence boundary excludes subsequently inserted records, and date/message-ID positions paginate newest first. Edits and retention can still change results between pages; cursors are not immutable database snapshots. Continue using the cursor alone, and stop when `nextCursor` is absent.
 

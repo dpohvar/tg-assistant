@@ -208,3 +208,7 @@ Action tools `delete`, `pin`, `unpin`, `react` return `{status:"done"}` on succe
 ## Implementation references
 
 Current behavior is in [`src/messages/actions.mjs`](../src/messages/actions.mjs), [`src/messages/callbacks.mjs`](../src/messages/callbacks.mjs), [`src/messages/rich-help.mjs`](../src/messages/rich-help.mjs), [`src/files/download.mjs`](../src/files/download.mjs) and [`src/controller.mjs`](../src/controller.mjs). Focused tests cover `message-actions`, `upload-reply`, `buttons`, `button-disabled`, `rich-help`, `profile-download` and `reactions` under [`test/integration`](../test/integration). Administrative bot management is separate in [master-bot.md](master-bot.md).
+
+## Forum destinations
+
+`send`, `copy` and `forward` accept positive integer `topicId` for the destination, including albums and rich messages. General is 1 and uses native parameter omission. A reply without an explicit topic can inherit its source topic; explicit General rejects a different or unknown reply topic. No automatic fallback or retry occurs. See [forum groups](forum-groups.md) for examples, cross-topic replies and history behavior.

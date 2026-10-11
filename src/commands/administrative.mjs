@@ -1,3 +1,4 @@
+import {topicIdOf} from '../telegram/topics.mjs';
 import { normalizeTriggers } from "../telegram/triggers.mjs";
 import { parseArguments, validateArguments } from "./arguments.mjs";
 import fs from "node:fs";
@@ -46,7 +47,7 @@ export function createAdministrativeCommands({
       text:
         [...text].slice(0, 4000).join("") +
         ([...text].length > 4000 ? "\n[truncated]" : ""),
-      reply_parameters: { message_id: m.message_id },
+      ...(topicIdOf(m)>1?{message_thread_id:topicIdOf(m)}:{}), reply_parameters: { message_id: m.message_id },
     });
   const list = (values, arg) => {
     const [a, b] = range(arg);
@@ -180,7 +181,7 @@ export function createAdministrativeCommands({
                 await telegram.call(botId, "sendMessage", {
                   chat_id: m.chat.id,
                   ...chunk,
-                  reply_parameters: { message_id: m.message_id },
+                  ...(topicIdOf(m)>1?{message_thread_id:topicIdOf(m)}:{}), reply_parameters: { message_id: m.message_id },
                 });
               return true;
             }
@@ -226,7 +227,7 @@ export function createAdministrativeCommands({
               {
                 chat_id: m.chat.id,
                 document: "attach://rules",
-                reply_parameters: { message_id: m.message_id },
+                ...(topicIdOf(m)>1?{message_thread_id:topicIdOf(m)}:{}), reply_parameters: { message_id: m.message_id },
               },
               {
                 uploads: [
@@ -276,7 +277,7 @@ export function createAdministrativeCommands({
           await telegram.call(botId, "sendMessage", {
             chat_id: m.chat.id,
             ...result,
-            reply_parameters: { message_id: m.message_id },
+            ...(topicIdOf(m)>1?{message_thread_id:topicIdOf(m)}:{}), reply_parameters: { message_id: m.message_id },
           });
         else
           await reply(

@@ -8,7 +8,7 @@ The [master bot](master-bot.md) has no agent. It accepts service-administration 
 
 A registered bot is the primary access boundary. It has one owner, per-bot roles, a shared file directory, one set of rules, a default model, vault entries, and HTTP MCP settings. Agents of different bots cannot send controller-mediated messages to each other.
 
-An enabled private chat, group, or non-forum supergroup has one agent record and a persistent Codex thread. New groups and supergroups are passive until explicitly enabled. Authorized private chats start enabled when first recorded. Channels always remain passive. Forum groups are rejected; conversion to a forum causes departure and deletion of chat data.
+An enabled private chat, group, or supergroup has one agent record and a persistent Codex thread. New groups and supergroups are passive until explicitly enabled. Authorized private chats start enabled when first recorded. Channels always remain passive. [Forum groups](forum-groups.md) use one agent across all topics; changing forum mode preserves chat data.
 
 ## Controller responsibilities
 

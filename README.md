@@ -24,7 +24,7 @@ npm run service:alpine_status -- /absolute/path/config.json
 npm run service:alpine_stop -- /absolute/path/config.json
 ```
 
-Register and manage bots using the [master bot](docs/master-bot.md). Manage each bot's agents, access, rules, tasks, and files using [child-bot commands](docs/commands.md). New groups and non-forum supergroups are passive until `/agent start`; channels remain passive destinations. Forum groups are unsupported.
+Register and manage bots using the [master bot](docs/master-bot.md). Manage each bot's agents, access, rules, tasks, and files using [child-bot commands](docs/commands.md). New groups and supergroups are passive until `/agent start`; channels remain passive destinations. [Forum groups](docs/forum-groups.md) use one agent across all topics, with topic-aware messages, history and listening.
 
 ## Documentation
 

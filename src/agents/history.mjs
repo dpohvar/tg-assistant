@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { shortMessage } from '../telegram/short-message.mjs';
+import {validateTopicId} from '../telegram/topics.mjs';
 export function readableDates(value) {
   if (Array.isArray(value)) return value.map(readableDates);
   if (!value || typeof value !== 'object') return value;
@@ -11,7 +12,8 @@ export function createHistory({ db, access, key, now = Date.now }) {
   const encode = state => { const payload = Buffer.from(JSON.stringify(state)).toString('base64url'); return payload + '.' + signature(payload).toString('base64url'); };
   const decode = token => { const parts = token.split('.'); if (parts.length !== 2) throw error('invalid_cursor', 'Invalid search cursor.'); const sig = Buffer.from(parts[1], 'base64url'), expected = signature(parts[0]); if (sig.length !== expected.length || !timingSafeEqual(sig, expected)) throw error('invalid_cursor', 'Invalid search cursor.'); const state = JSON.parse(Buffer.from(parts[0], 'base64url')); if (state.expires <= now()) throw error('cursor_expired', 'Search cursor expired; start a new search.'); return state; };
   const rows = (s, id) => { access.assertRead(s, id); return db.sql.prepare('SELECT * FROM messages WHERE botId=? AND chatId=? ORDER BY date,messageId').all(s.botId, id); };
-  const short = row => shortMessage(JSON.parse(row.json));
+  const short = row => ({...shortMessage(JSON.parse(row.json)),...(row.topicId===null?{}:{topicId:row.topicId})});
+  const matchesTopic = (row,id) => id===undefined || (!JSON.parse(row.json).topicUnknown && (row.topicId??1)===id);
   const discussionIds = (scope, chatId, discussion) => {
     if (!discussion) return null;
     access.assertRead(scope, discussion.chatId);
@@ -26,9 +28,10 @@ export function createHistory({ db, access, key, now = Date.now }) {
       access.assertRead(s, chatId);
       return { messages: messageIds.map(messageId => { const message = db.getMessage(s.botId, chatId, messageId); const state = message ? db.sql.prepare('SELECT permits FROM button_state WHERE botId=? AND chatId=? AND messageId=?').get(s.botId, chatId, messageId) : null; if (message && state?.permits != null) message.permits = JSON.parse(state.permits); return message ? readableDates(message) : { messageId, error: 'message_not_found', description: 'Message is unavailable as a separate saved record. If it was referenced by a reply, read the outer current messageId and inspect reply_to_message; Telegram may include the old content there.' }; }) };
     },
-    history(s, { chatId = s.chatId, messageId = null, from, to, discussion }) {
+    history(s, { chatId = s.chatId, messageId = null, from, to, discussion, topicId }) {
+      validateTopicId(topicId);
       if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from > to) throw error('invalid_argument', 'from/to must define a valid integer interval.');
-      const ids = discussionIds(s, chatId, discussion), list = rows(s, chatId).filter(r => !ids || ids.has(r.messageId)); const anchor = messageId === null ? list.length : list.findIndex(r => r.messageId === messageId);
+      const ids = discussionIds(s, chatId, discussion), list = rows(s, chatId).filter(r => matchesTopic(r,topicId)&&(!ids || ids.has(r.messageId))); const anchor = messageId === null ? list.length : list.findIndex(r => r.messageId === messageId);
       if (anchor < 0) throw error('message_not_found', 'History anchor is unavailable.');
       return { messages: list.slice(Math.max(0, anchor + from), Math.max(0, anchor + to)).map(short) };
     },
@@ -39,12 +42,14 @@ export function createHistory({ db, access, key, now = Date.now }) {
         state = decode(args.cursor); if (state.botId !== s.botId || state.agentId !== s.agentId) throw error('invalid_cursor', 'Search cursor belongs to another agent.');
       } else {
         const { limit = 20, chatId = s.chatId, ...filters } = args;
+        validateTopicId(filters.topicId);
         if (!Number.isSafeInteger(limit) || limit < 1 || filters.text?.some(t => typeof t !== 'string' || !t.length)) throw error('invalid_argument', 'Invalid limit or text filter.');
         for (const date of [filters.since, filters.until].filter(Boolean)) if (!/(Z|[+-]\d\d:\d\d)$/.test(date) || !Number.isFinite(Date.parse(date))) throw error('invalid_argument', 'Date must be ISO 8601 with an explicit offset.');
         state = { botId: s.botId, agentId: s.agentId, chatId, limit, filters, expires: now() + 3600000, boundary: db.sql.prepare('SELECT value FROM message_sequence').get().value, position: null };
       }
       access.assertRead(s, state.chatId); const f = state.filters, ids = discussionIds(s, state.chatId, f.discussion);
       const list = db.sql.prepare('SELECT * FROM messages WHERE botId=? AND chatId=? AND receiptSeq<=? ORDER BY date DESC,messageId DESC').all(s.botId, state.chatId, state.boundary).filter(r => {
+        if (!matchesTopic(r,f.topicId)) return false;
         if (ids && !ids.has(r.messageId)) return false;
         if (state.position && (r.date > state.position[0] || r.date === state.position[0] && r.messageId >= state.position[1])) return false;
         if (f.senderId !== undefined && r.senderId !== f.senderId || f.since && r.date * 1000 < Date.parse(f.since) || f.until && r.date * 1000 >= Date.parse(f.until)) return false;
