@@ -64,7 +64,35 @@ Native content and keyboard edits use one request where supported. If Telegram e
 
 `ctx.render()` before first publication returns `message_not_created`: use `render(state)` to describe the initial message, then `onCreate` for effects that need its ID. If Telegram confirmed an initial send but subsequent persistence or media mapping fails, the error includes known `widgetId`, `chatId` and `messageId` where available. Inspect that publication instead of resending. A private recovery receipt helps restore its identity after a controller restart.
 
-Callback data is the exact named action, validated against current buttons. System exports and reserved names cannot be buttons. Widget buttons have no controller permits: handlers should query current `user_roles` where authorization matters. Repeated presses are separate events. Return undefined/null/empty object/string/`{text,showAlert}` or call `await event.respond(answer)` early. The first callback answer wins; no automatic short acknowledgement deadline is imposed.
+Widget callback data supports these forms in both inline keyboards and rich buttons:
+
+| `callback_data` | Behavior |
+| --- | --- |
+| `void` | The controller immediately acknowledges without text; no handler, widget event, state change or render |
+| `next` | Calls the existing `next(ctx,event)` export |
+| `cell:0:1` | Calls `cell(ctx,event)`; the full string remains in `event.data.data` |
+
+Only the first colon separates the action from its payload. The payload is an arbitrary string, may be empty and may contain more colons. `event.name` is the action name; `event.data` retains the original Telegram `CallbackQuery`, including its `id`, `from`, `message` and full `data`. The complete callback string must contain 1–64 UTF-8 bytes, not characters. Do not put secrets in callback data.
+
+```js
+export function render(state) {
+  return {text:`Selected: ${state.selected ?? "none"}`,reply_markup:{inline_keyboard:[[
+    {text:"⬜",callback_data:"void"},
+    {text:"A1",callback_data:"cell:0:0"},
+    {text:"A2",callback_data:"cell:0:1"},
+  ]]}};
+}
+export function cell(ctx,event) {
+  const [,row,column] = event.data.data.split(":");
+  ctx.state.selected = `${row},${column}`;
+}
+```
+
+For rich JSX, use the same strings, for example `<tg-button type="callback_data" data="cell:0:1">A2</tg-button>` or `<tg-button type="callback_data" data="void">⬜</tg-button>`. Many decorative buttons can share `void`; many actionable buttons can share one export with different payloads.
+
+The registry stores **complete strings from the current published buttons**, never prefixes or wildcard permissions. Publishing new buttons replaces the registry: a registered `cell:0:1` does not allow `cell:999:999`, and removed buttons no longer dispatch. Checks are scoped to the exact bot, chat and message. System exports and reserved names are forbidden in the action part, including `render:x`, `onInit:x`, `__render:x` and `constructor:x`. Exact `void` is reserved for the controller; `void:anything` is invalid. These forms apply only to widget buttons; named agent/widget/local events keep their existing action semantics.
+
+Widget buttons have no controller permits: handlers should query current `user_roles` where authorization matters. Repeated presses are separate events. Return undefined/null/empty object/string/`{text,showAlert}` or call `await event.respond(answer)` early. The first callback answer wins; no automatic short acknowledgement deadline is imposed.
 
 Reaction and poll projections are updated on intake and refreshed before handlers, including delayed events. `ctx.message.pollAnswers` contains bounded `known` answers, `complete:false` and eviction count; it does not change native poll totals. Preserve Telegram's user/voter-chat identities and persistent option IDs. This is observation data, not a full voter history.
 

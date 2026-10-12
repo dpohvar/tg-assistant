@@ -1,6 +1,6 @@
 import { projectReaction } from "../messages/reactions.mjs";
 import { observePoll, observePollAnswer } from "./polls.mjs";
-import { validateWidgetEvent } from "./contract.mjs";
+import { validateWidgetEvent, widgetCallbackAction } from "./contract.mjs";
 export function createWidgetEvents({ db, manager, telegram }) {
   const store = manager.store;
   return async (botId, update) => {
@@ -21,7 +21,17 @@ export function createWidgetEvents({ db, manager, telegram }) {
         await ack();
         return true;
       }
-      name = callback.data;
+      try {
+        name = widgetCallbackAction(callback.data);
+      } catch {
+        // A stale/corrupt registry must never turn a callback into a system hook.
+        await ack();
+        return true;
+      }
+      if (name === null) {
+        await ack();
+        return true;
+      }
       source = "button";
       data = callback;
       user = callback.from;

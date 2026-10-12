@@ -80,6 +80,18 @@ export function assertActionName(name) {
     throw widgetError("invalid_argument", "Invalid or reserved action name.");
   return name;
 }
+// Preserve full callback strings in the registry; only dispatch uses the prefix.
+// null is a controller-only acknowledgement, never a sandbox action.
+export function widgetCallbackAction(data) {
+  if (typeof data !== "string" || !data || Buffer.byteLength(data) > 64)
+    throw widgetError("invalid_argument", "Callback data must contain 1-64 UTF-8 bytes.");
+  if (data === "void") return null;
+  const separator = data.indexOf(":");
+  const name = separator < 0 ? data : data.slice(0, separator);
+  if (name === "void")
+    throw widgetError("invalid_argument", "void cannot have a callback payload.");
+  return assertActionName(name);
+}
 export function validateWidgetEvent(event, { control = false } = {}) {
   const hook = {
     reply: "onReply",

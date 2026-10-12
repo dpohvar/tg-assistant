@@ -1,4 +1,4 @@
-import { assertActionName, widgetError, plainJSON } from "./contract.mjs";
+import { widgetCallbackAction, widgetError, plainJSON } from "./contract.mjs";
 export const Fragment = "widget-fragment";
 export function jsx(type, props = {}) {
   return typeof type === "function"
@@ -540,7 +540,7 @@ export function normalizeRender(value) {
       );
   const visit = (v) => {
     if (!v || typeof v !== "object") return;
-    if (typeof v.callback_data === "string") assertActionName(v.callback_data);
+    if (v.callback_data !== undefined) widgetCallbackAction(v.callback_data);
     for (const x of Object.values(v)) visit(x);
   };
   const references = new Set();

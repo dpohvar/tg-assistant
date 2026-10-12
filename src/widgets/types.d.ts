@@ -7,6 +7,7 @@ export type JSONValue =
   | { [key: string]: JSONValue };
 export type State = Record<string, JSONValue>;
 export interface WidgetEvent {
+  /** For button events: the action before the first colon in callback_data. */
   name: string;
   source:
     | "button"
@@ -19,6 +20,7 @@ export interface WidgetEvent {
     | "local";
   receivedAt: string;
   delayed: boolean;
+  /** For button events: the original Telegram CallbackQuery; data.data is the full callback_data. */
   data: unknown;
   user?: Record<string, unknown>;
   fromWidgetId?: string;

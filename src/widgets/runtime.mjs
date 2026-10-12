@@ -6,6 +6,7 @@ import { createLocalQueue } from "./queue.mjs";
 import { normalizeRender } from "./jsx-runtime.mjs";
 import {
   assertActionName,
+  widgetCallbackAction,
   validateWidgetState,
   widgetError,
   WIDGET_LIMITS as L,
@@ -33,14 +34,11 @@ export function createRuntime({ bridge }) {
       );
       const visit = (v) => {
         if (!v || typeof v !== "object") return;
-        if (
-          typeof v.callback_data === "string" &&
-          typeof w.module[v.callback_data] !== "function"
-        )
-          throw widgetError(
-            "invalid_argument",
-            `No exported action ${v.callback_data}.`,
-          );
+        if (typeof v.callback_data === "string") {
+          const name = widgetCallbackAction(v.callback_data);
+          if (name !== null && typeof w.module[name] !== "function")
+            throw widgetError("invalid_argument", `No exported action ${name}.`);
+        }
         for (const x of Object.values(v)) visit(x);
       };
       visit(value);

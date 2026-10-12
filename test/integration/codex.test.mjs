@@ -135,6 +135,9 @@ test('rules version belongs to instructions read before awaited thread creation'
   assert.match(instructions,/One agent serves the whole forum chat/);
   assert.match(instructions,/Explicit General with a cross-topic or unknown reply is refused/);
   assert.match(instructions,/history\/search can filter topicId even after forum mode is disabled/);
+  assert.match(instructions,/void acknowledges decorative buttons immediately without a handler or queue event/);
+  assert.match(instructions,/event\.data\.data retains full callback_data/);
+  assert.match(instructions,/system\/reserved action prefixes and void:payload are forbidden/);
  assert.ok(fs.existsSync(marker)); db.sql.prepare('UPDATE bots SET rulesVersion=rulesVersion+1 WHERE botId=?').run('b');
  await work; assert.equal(db.agent('b',1).threadRulesVersion,version); assert.notEqual(version,db.getBot('b').rulesVersion);
 });
