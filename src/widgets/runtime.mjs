@@ -7,7 +7,7 @@ import { normalizeRender } from "./jsx-runtime.mjs";
 import {
   assertActionName,
   widgetCallbackAction,
-  validateWidgetState,
+  normalizeWidgetState,
   widgetError,
   WIDGET_LIMITS as L,
 } from "./contract.mjs";
@@ -30,7 +30,7 @@ export function createRuntime({ bridge }) {
   async function rendered(w, state) {
     try {
       const value = normalizeRender(
-        await w.module.render(structuredClone(state)),
+        await w.module.render(normalizeWidgetState(state)),
       );
       const visit = (v) => {
         if (!v || typeof v !== "object") return;
@@ -49,9 +49,9 @@ export function createRuntime({ bridge }) {
   }
   async function commit(w, state, { saved, published } = {}) {
     w.context.assert();
+    state = normalizeWidgetState(state);
     const value = await rendered(w, state);
     w.context.assert();
-    validateWidgetState(state);
     await bridge("save", { ref: w.ref, state });
     saved?.(state);
     w.context.assert();
@@ -152,7 +152,7 @@ export function createRuntime({ bridge }) {
         }
         if (event.name === "__render") {
           if (event.data?.state !== undefined)
-            w.context.ctx.state = structuredClone(event.data.state);
+            w.context.ctx.state = normalizeWidgetState(event.data.state);
           await w.context.ctx.render();
         } else await action(w, event);
         if (next.token && !w.context.stopped)
@@ -233,8 +233,9 @@ export function createRuntime({ bridge }) {
           await w.module[name](w.context.ctx);
         if (w.context.stopped) return;
         if (w.context.changed()) {
-          await bridge("save", { ref, state: w.context.ctx.state });
-          w.context.saved();
+          const snapshot = w.context.normalize();
+          await bridge("save", { ref, state: snapshot });
+          w.context.saved(snapshot);
         }
       } finally {
         w.initializing = false;
@@ -242,9 +243,9 @@ export function createRuntime({ bridge }) {
     },
     async render(ref, { state, message, debug = false } = {}) {
       const w = current(ref);
-      if (state !== undefined) w.context.ctx.state = structuredClone(state);
+      if (state !== undefined) w.context.ctx.state = normalizeWidgetState(state);
       if (message !== undefined) w.context.updateMessage(message);
-      return rendered(w, w.context.ctx.state);
+      return rendered(w, w.context.normalize());
     },
     async dispatch(ref, event) {
       const w = current(ref);

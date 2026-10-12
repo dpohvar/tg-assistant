@@ -26,47 +26,64 @@ export const HOOKS = new Set([
 export function widgetError(code, detail = code) {
   return Object.assign(new Error(`${code}: ${detail}`), { code });
 }
-export function plainJSON(value) {
+export function plainJSON(value, { allowUndefined = false } = {}) {
   const seen = new Set();
   function visit(v) {
     if (
       v === null ||
+      (allowUndefined && v === undefined) ||
       typeof v === "string" ||
       typeof v === "boolean" ||
       (typeof v === "number" && Number.isFinite(v))
     )
-      return;
+      return v;
     if (
       typeof v !== "object" ||
       seen.has(v) ||
       (!Array.isArray(v) &&
         Object.getPrototypeOf(v) !== Object.prototype &&
+        Object.getPrototypeOf(v) !== null) ||
+      (allowUndefined && Array.isArray(v) &&
+        Object.getPrototypeOf(v) !== Array.prototype &&
         Object.getPrototypeOf(v) !== null)
     )
       throw widgetError("invalid_argument", "Use lossless plain JSON values.");
     seen.add(v);
     if (Object.getOwnPropertySymbols(v).length)
       throw widgetError("invalid_argument");
+    // Serialize only validated own data. Sparse arrays must not read inherited
+    // numeric getters, and inherited toJSON hooks must not run for state.
+    const normalized = allowUndefined
+      ? (Array.isArray(v) ? Object.setPrototypeOf(new Array(v.length), null) : Object.create(null))
+      : null;
     for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(v))) {
       if (Array.isArray(v) && k === "length") continue;
       if (!d.enumerable || !Object.hasOwn(d, "value"))
         throw widgetError("invalid_argument");
-      visit(d.value);
+      const data = visit(d.value);
+      if (normalized) normalized[k] = data;
     }
-    if (Array.isArray(v) && Object.keys(v).length !== v.length)
-      throw widgetError("invalid_argument");
+    if (Array.isArray(v)) {
+      const keys = Object.keys(v);
+      if ((!allowUndefined && keys.length !== v.length) ||
+          keys.some(k => !/^(0|[1-9]\d*)$/.test(k) || Number(k) >= v.length))
+        throw widgetError("invalid_argument");
+    }
     seen.delete(v);
+    return normalized ?? v;
   }
-  visit(value);
-  return JSON.stringify(value);
+  return JSON.stringify(visit(value));
 }
 export function validateWidgetState(v) {
   if (!v || Array.isArray(v) || typeof v !== "object")
     throw widgetError("invalid_argument", "State must be a JSON object.");
-  const json = plainJSON(v);
+  const json = plainJSON(v, { allowUndefined: true });
   if (Buffer.byteLength(json) > WIDGET_LIMITS.stateBytes)
     throw widgetError("state_too_large");
   return json;
+}
+export function normalizeWidgetState(value) {
+  return JSON.parse(validateWidgetState(value));
 }
 export function assertActionName(name) {
   if (

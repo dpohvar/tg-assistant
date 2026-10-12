@@ -1,4 +1,25 @@
-import { widgetError, validateWidgetState } from "./contract.mjs";
+import { widgetError, validateWidgetState, normalizeWidgetState } from "./contract.mjs";
+// Keep handler-held references across intermediate renders whenever mutable.
+function reconcileState(current, normalized) {
+  if (!current || typeof current !== "object" || !normalized ||
+      typeof normalized !== "object" || Array.isArray(current) !== Array.isArray(normalized))
+    return normalized;
+  for (const key of Object.keys(current)) {
+    if (!Object.hasOwn(normalized, key) && !Reflect.deleteProperty(current, key))
+      return normalized;
+  }
+  for (const key of Object.keys(normalized)) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key);
+    const value = reconcileState(descriptor?.value, normalized[key]);
+    if (!descriptor) {
+      if (!Reflect.defineProperty(current, key, {
+        value, enumerable: true, configurable: true, writable: true,
+      })) return normalized;
+    } else if (!Object.is(descriptor.value, value) &&
+        !Reflect.set(current, key, value)) return normalized;
+  }
+  return current;
+}
 export function createContext({
   ref,
   state,
@@ -10,7 +31,7 @@ export function createContext({
 }) {
   let stopped = false,
     currentMessage = message,
-    committed = structuredClone(state);
+    committed = normalizeWidgetState(state);
   const abort = new AbortController(),
     resources = [],
     timers = new Set();
@@ -19,7 +40,7 @@ export function createContext({
   };
   const ctx = {
     widgetId: ref.widgetId,
-    state: structuredClone(state),
+    state: structuredClone(committed),
     get message() {
       return currentMessage ? structuredClone(currentMessage) : null;
     },
@@ -49,8 +70,8 @@ export function createContext({
           "message_not_created",
           "Render is unavailable before first publication.",
         );
-      validateWidgetState(ctx.state);
-      await commit(ctx.state, {
+      const snapshot = normalize();
+      await commit(snapshot, {
         saved: (s) => {
           committed = structuredClone(s);
         },
@@ -116,6 +137,11 @@ export function createContext({
       return value;
     },
   };
+  function normalize() {
+    const snapshot = normalizeWidgetState(ctx.state);
+    ctx.state = reconcileState(ctx.state, snapshot);
+    return snapshot;
+  }
   return {
     ctx,
     assert,
@@ -126,10 +152,11 @@ export function createContext({
       return committed;
     },
     changed() {
-      return validateWidgetState(ctx.state) !== validateWidgetState(committed);
+      return validateWidgetState(normalize()) !== validateWidgetState(committed);
     },
-    saved() {
-      committed = structuredClone(ctx.state);
+    normalize,
+    saved(snapshot = normalize()) {
+      committed = normalizeWidgetState(snapshot);
     },
     updateMessage(m) {
       currentMessage = m;

@@ -6,9 +6,8 @@ import {
   validateSetWidget,
   assertActionName,
 } from "../../src/widgets/contract.mjs";
-test("state is lossless JSON and capped in UTF-8 bytes", () => {
+test("state rejects unsupported values and is capped in UTF-8 bytes", () => {
   for (const state of [
-    { a: undefined },
     { a: NaN },
     { a: () => 0 },
     { a: new Date() },

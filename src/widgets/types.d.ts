@@ -5,7 +5,10 @@ export type JSONValue =
   | string
   | JSONValue[]
   | { [key: string]: JSONValue };
-export type State = Record<string, JSONValue>;
+/** State normalizes like JSON: undefined object fields disappear; array slots become null. */
+export type StateValue = null | boolean | number | string | undefined
+  | StateValue[] | { [key: string]: StateValue };
+export type State = Record<string, StateValue>;
 export interface WidgetEvent {
   /** For button events: the action before the first colon in callback_data. */
   name: string;
