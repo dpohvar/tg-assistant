@@ -17,6 +17,7 @@ function availableCommands({ master = false, role, group = false }) {
   if (group && manager)
     result.triggers = "/triggers\n/triggers set [TRIGGER …]";
   if (admin) {
+    result.widget='/widget list [RANGE]\n/widget list [RANGE] agent AGENT_ID\n/widget list [RANGE] in CHAT_ID\n/widget list [RANGE] all\n/widget show WIDGET_ID\n/widget delete WIDGET_ID\n/widget delete *\n/widget delete * agent AGENT_ID\n/widget delete * in CHAT_ID';
     result.ws = "/ws list [AGENT_ID|in CHAT_ID]\n/ws close CONNECTION_ID\n/ws delete CONNECTION_ID";
     result.agent +=
       "\n/agent status|stop|clear [AGENT_ID|in CHAT_ID]\n/agent stop|clear *\n/agent start in CHAT_ID\n/agent list [RANGE]\n/agent messages [RANGE] [(from|to) agent AGENT_ID|chat CHAT_ID]\n/agent model [AGENT_ID|in CHAT_ID|default]\n/agent model set [AGENT_ID|in CHAT_ID|*|default] MODEL_NAME\n/agent models";
@@ -42,6 +43,7 @@ function availableCommands({ master = false, role, group = false }) {
 }
 
 const descriptions = {
+  widget:'Inspect and delete programmable Telegram widgets without invoking the model. Admin or owner only. Widgets belong to their creating agent, even when published in another permitted chat. Active and disabled registrations retain saved state and count toward the ten-widget limit.',
   usage: 'Inspect reported token usage and native image generation across child bots. Master bot only, for the service owner in private messages. UTC calendar buckets; removed bots retain their statistics. Reply /usage to an intact master usage report to compare lifetime counters.',
   agent: 'Control conversational agents: inspect their state, start or stop them, reset context, inspect inter-agent messages and choose models. A local command needs user or higher in private chats, manager or higher in groups. Explicit targets and model commands need admin or owner.',
   task: 'Inspect scheduled actions, retry missed or failed actions, or delete schedules. Local operations need user or higher in private chats, manager or higher in groups. Operations on another chat need admin or owner. Ask the agent to create a task; these commands manage existing tasks.',
@@ -60,6 +62,15 @@ const descriptions = {
 };
 
 const details = {
+  '/widget list [RANGE]':'List the current chat agent\'s widgets, oldest first, with IDs, status, description, publication address and pending events. The selector refers to the owner, not the publication chat.',
+  '/widget list [RANGE] agent AGENT_ID':'List widgets owned by the selected agent in this bot. Apply the owner filter before positional RANGE.',
+  '/widget list [RANGE] in CHAT_ID':'List widgets owned by this chat\'s agent; their messages may be published elsewhere.',
+  '/widget list [RANGE] all':'List all widgets of this bot, oldest first, with pagination. Does not expose other bots.',
+  '/widget show WIDGET_ID':'Show metadata, handler, topic, status, disable reason and queue counters. Saved state and secrets are not included.',
+  '/widget delete WIDGET_ID':'Remove one registration, state and queue. The Telegram message remains; callback buttons are disabled best effort. Notify the owner.',
+  '/widget delete *':'Delete every widget owned by the current chat agent. Preserve their Telegram messages and report partial failures.',
+  '/widget delete * agent AGENT_ID':'Delete all widgets owned by a selected agent of this bot. This is irreversible for saved state and queues.',
+  '/widget delete * in CHAT_ID':'Delete widgets owned by the selected chat agent, including publications in other chats. There is no bot-wide delete-all form.',
   '/usage': 'Show lifetime totals for each child bot, sorted by input tokens. Includes removed bots. Reply with this command to an intact usage report from the master to compare counters since its Telegram send time; comparisons sort by input-token increase. Exact image bytes in reports enable comparison without saved snapshots.',
   '/usage all': 'Show lifetime usage summed across all child bots, including removed ones. No period option is accepted. Total from is the service collection start. Reply /usage to this report for the combined increase.',
   '/usage @BOT': 'Show lifetime input/output tokens, native image generation starts and generated file bytes for one bot. Total from is its collection start, not registration history before this feature. This bot is resolved by username; reports include the stable Telegram ID.',

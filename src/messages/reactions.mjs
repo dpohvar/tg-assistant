@@ -1,5 +1,9 @@
 export function recordReaction(db, botId, event, own) {
   const message = db.getMessage(botId, event.chat.id, event.message_id);
+  if(!projectReaction(message,event,own))return;
+  db.sql.prepare('UPDATE messages SET json=? WHERE botId=? AND chatId=? AND messageId=?').run(JSON.stringify(message), botId, event.chat.id, event.message_id);
+}
+export function projectReaction(message,event,own){
   if (!message) return;
   const state = message.reactions ?? {};
   const date = new Date(event.date * 1000).toISOString();
@@ -22,5 +26,5 @@ export function recordReaction(db, botId, event, own) {
   }
   state.updatedAt = date;
   message.reactions = state;
-  db.sql.prepare('UPDATE messages SET json=? WHERE botId=? AND chatId=? AND messageId=?').run(JSON.stringify(message), botId, event.chat.id, event.message_id);
+  return message;
 }

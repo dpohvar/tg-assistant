@@ -13,6 +13,7 @@ This wiki describes the current implementation. Start with [installation and ope
 | [Agent contract](agent-contract.md) | Controller tools, arguments, results, and errors |
 | [Message events](message-events.md) | Event batches, short messages, detailed reads, and examples |
 | [Messaging](messaging.md) | Text, rich messages, media, buttons, callbacks, and permits |
+| [Widgets](widgets.md) | Sandboxed programmable messages, TSX handlers, timers, events and administration |
 | [Scheduler](scheduler.md) | One-time tasks, cron, time zones, failures, and retries |
 | [Storage](storage.md) | Database, history, notes, shared files, temporary files, and Git |
 | [Security](security.md) | Access boundaries, sandbox, network access, and vault |

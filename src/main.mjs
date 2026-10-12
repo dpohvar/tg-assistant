@@ -33,6 +33,7 @@ const agent = new CodexAgent({ db, config });
 const keyPath = path.join(config.dataDir, 'secrets', 'cursor-key'); fs.mkdirSync(path.dirname(keyPath), { recursive: true, mode: 0o700 });
 if (!fs.existsSync(keyPath)) fs.writeFileSync(keyPath, randomBytes(32), { flag: 'wx', mode: 0o600 });
 const controller = createController({ db, telegram, agent, config, cursorKey: fs.readFileSync(keyPath), onError: () => console.error('agent_failed') });
+await controller.ready;
 const stop = new AbortController();
 let cleanupJob;
 const cleanupTimer = setInterval(() => { if (!cleanupJob) cleanupJob = retention({ db, config, telegram }).catch(() => console.error('cleanup_failed')).finally(() => { cleanupJob = null; }); }, 86400000);

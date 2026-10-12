@@ -150,3 +150,7 @@ Close reasons emitted by the manager include `server`, `transport_error`, `stora
 Current behavior is defined by [`src/telegram/short-message.mjs`](../src/telegram/short-message.mjs), [`src/telegram/triggers.mjs`](../src/telegram/triggers.mjs), [`src/telegram/albums.mjs`](../src/telegram/albums.mjs), [`src/controller.mjs`](../src/controller.mjs), [`src/agents/history.mjs`](../src/agents/history.mjs) and [`src/agents/queue.mjs`](../src/agents/queue.mjs). Focused tests include `short-message`, `message-triggers`, `history-gap`, `history-access`, `albums`, `buttons`, `agent-messages`, `scheduler` and `websocket-controller` under [`test/integration`](../test/integration).
 
 Forum events include `topicId` (General = 1) on short messages, edits and callbacks. Detailed `read` retains native fields; it does not add a thread ID to General. See [forum groups](forum-groups.md) for routing and mode transitions.
+
+## Widget events
+
+[Widget handlers](widgets.md) receive registered callbacks independently of model turns. Controller commands have priority over replies. An active widget with `onReply` intercepts non-command replies; without the hook, normal agent behavior applies. Disabled widgets collect replies/reactions/poll updates while callbacks are ignored. Reaction and poll projections are refreshed before handler dispatch. Failures/deletion and explicit `ctx.api.notify_agent` generate owner events; routine widget interactions do not invoke the model.

@@ -7,6 +7,18 @@ import { openDatabase } from '../../src/storage/database.mjs';
 import { CodexAgent, dynamicTools } from '../../src/codex/threads.mjs';
 import {isolatedMcpArgs} from '../../src/mcp/runtime.mjs';
 
+test('retained widget IDs reach the model in a failed dynamic tool result',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-widget-tool-error-')),db=openDatabase(':memory:'),marker=path.join(root,'result.json');
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const a=db.ensureAgent('b',1);
+ const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath,defaultTimezone:'UTC'},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs'),'tool-error',marker]});
+ t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ await agent.run(a,[{textPlain:'fixture'}],async()=>{throw Object.assign(new Error('Storage failed'),{code:'storage_failed',widgetId:'w',confirmedMessageId:71});});
+ const result=JSON.parse(fs.readFileSync(marker,'utf8'));
+ assert.equal(result.success,false);
+ const error=JSON.parse(result.contentItems[0].text);
+ assert.equal(error.widgetId,'w');assert.equal(error.confirmedMessageId,71);
+});
+
 test('shutdown cancels and reaps the actual MCP configuration preflight process',async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-preflight-rpc-')),db=openDatabase(path.join(root,'db.sqlite')),marker=path.join(root,'waiting');
  db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);

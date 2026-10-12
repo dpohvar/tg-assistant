@@ -16,9 +16,9 @@ Common scope errors are `invalid_argument`, `chat_not_accessible`, `chat_not_wri
 
 | Tool | Arguments | Result and constraints |
 | --- | --- | --- |
-| `send` | Exactly one of `text:string`, `rich_message:string\|object`, `media:array`, `photo`, `video`, `document`, `audio`, `voice`, `animation`, `sticker`, `video_note` (all strings), `location`, `venue`, `contact`, `poll`, `dice` (objects). Optional `chatId:integer`, `topicId:integer`, `caption:string`, `parse_mode:string`, `entities:array`, `caption_entities:array`, `show_caption_above_media:boolean`, `disable_notification:boolean`, `protect_content:boolean`, `reply_parameters:object`, `reply_markup:object`, `permits:object`, `uploads:object`, `file_sources:array`. | `{messageIds:[integer]}`. Albums reject buttons and permits. See [messaging.md](messaging.md) for content objects and recovery errors. |
+| `send` | Exactly one of `text:string`, `rich_message:string\|object`, `media:array`, `photo`, `video`, `document`, `audio`, `voice`, `animation`, `sticker`, `video_note` (all strings), `location`, `venue`, `contact`, `poll`, `dice` (objects). Optional `chatId:integer`, `topicId:integer`, `caption:string`, `parse_mode:string`, `entities:array`, `caption_entities:array`, `show_caption_above_media:boolean`, `disable_notification:boolean`, `protect_content:boolean`, `message_effect_id:string`, `reply_parameters:object`, `reply_markup:object`, `permits:object`, `uploads:object`, `file_sources:array`. | `{messageIds:[integer]}`. Albums reject buttons and permits. See [messaging.md](messaging.md) for content objects and recovery errors. |
 | `rich_help` | None | A fresh guide object with `source`, `checked`, `rules`, `blocks`, `orderedList`, `detailsWithList`, `markdownExample`, `htmlExample`, `htmlMedia`, `richText`, `unsupported`. Consult it before unfamiliar rich layouts. |
-| `edit` | `messageId:integer!`; optional `chatId:integer`, `text:string`, `rich_message:string\|object`, `photo`, `video`, `document`, `audio`, `animation` (strings), `media:object`, `caption:string`, `entities:array`, `caption_entities:array`, `parse_mode:string`, `reply_markup:object`, `permits:object`, `uploads:object`, `file_sources:array`. | `{messageId,updated:[component],failed?:[component],unknown?:[component],error?,description?}`. Preserves original type and requires a saved original. A permits-only edit is local. Omitted permits are retained. |
+| `edit` | `messageId:integer!`; optional `chatId:integer`, `text:string`, `rich_message:string\|object`, `photo`, `video`, `document`, `audio`, `animation` (strings), `media:object`, `caption:string`, `entities:array`, `caption_entities:array`, `parse_mode:string`, `reply_markup:object`, `permits:object`, `uploads:object`, `file_sources:array`. | `{messageId,updated:[component],failed?:[component],unknown?:[component],error?,description?}`. Attempts native conversions in place and requires a saved original; Telegram determines admissibility. A permits-only edit is local. Omitted permits are retained. |
 | `copy` | `messageIds:array<integer>!`; optional `chatId:integer`, `topicId:integer`, `fromChatId:integer`, `reply_parameters:object`, `reply_markup:object`, `permits:object`, `disable_notification:boolean`, `protect_content:boolean`, `remove_caption:boolean`, `caption:string`, `caption_entities:array`, `parse_mode:string`, `show_caption_above_media:boolean`. | `{messageIds}`. IDs must increase strictly. Single-copy and batch-copy support different options; see [messaging.md](messaging.md). |
 | `forward` | `messageIds:array<integer>!`; optional `chatId:integer`, `topicId:integer`, `fromChatId:integer`, `reply_parameters:object`, `reply_markup:object`, `permits:object`, `disable_notification:boolean`, `protect_content:boolean`. | `{messageIds}`. Although declared in the schema, reply parameters, markup and permits are rejected for forwards. |
 | `delete` | `messageId:integer!`; optional `chatId:integer`, `reaction:array` | `{status:"done"}`. Only the current chat may be deleted from; also deletes its saved history record. |
@@ -103,3 +103,18 @@ WebSocket errors: `invalid_argument`, `websocket_not_found`, `websocket_closed`,
 ## Implementation references
 
 The schemas are in [`src/codex/threads.mjs`](../src/codex/threads.mjs); dispatch and lifecycle checks in [`src/controller.mjs`](../src/controller.mjs). Focused automated coverage includes `codex`, `history-access`, `history-gap`, `message-actions`, `upload-reply`, `profile-download`, `rich-help`, `agent-messages`, `chat-info`, `readers`, `scheduler`, `vault`, `git` and `websocket*` under [`test/integration`](../test/integration). Administrator setup is documented separately in [commands.md](commands.md) and [master-bot.md](master-bot.md).
+
+## Widget tools
+
+See [widgets](widgets.md) for the SDK, selectors, lifecycle and examples. All tools are scoped to the owning agent.
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `set_widget` | Optional `widgetId`, or `messageId` with optional `chatId`; `handler` and `description` required for new/active replacement; optional `state`, creation-only `topicId`, `reply_parameters`, `disable_notification`, `protect_content`, `message_effect_id` | `{widgetId,chatId,messageId}`; omitted state retains committed state |
+| `delete_widget` | `widgetId:string!` | Removes registration, state and queue; keeps Telegram message |
+| `widgets` | None | `{canCreate,items}`; own registrations and pending/dropped counts |
+| `widget_state` | `widgetId:string!` | Last committed JSON object |
+| `widget_event` | `widgetId:string!`, `name:string!`, optional `data` | Returns after admission; external event dispatched asynchronously |
+| `render_widget` | `widgetId:string!`, optional `state:object` | Returns after admission; explicit debugging render, including disabled widgets |
+
+Widget `read` projections remain available after ordinary history expires. Source fields, hooks and publication ownership are controller-assigned; callback names must refer to exported non-system actions. Model-context resets preserve widget execution.

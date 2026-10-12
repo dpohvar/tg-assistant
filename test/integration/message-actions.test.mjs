@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMessages } from '../../src/messages/actions.mjs';
 import { permitsAllow, parseCallback, closeButtons, richInput } from '../../src/messages/callbacks.mjs';
+test('text converts to photo on the same native message',async()=>{
+ const calls=[];const messages=createMessages({db:{getMessage:()=>({message_id:7,text:'Old'}),saveMessage(){}},access:{assertRead(){},assertWrite(){}},assertCurrent(){},telegram:{call:async(_b,method,args)=>{calls.push({method,args});return {message_id:7,photo:[{file_id:'sent'}]};}}});
+ const result=await messages.edit({botId:'b',chatId:1},{messageId:7,photo:'attach://pic',uploads:{pic:'fixture.jpg'}});assert.equal(result.error,undefined);assert.equal(calls[0].method,'editMessageMedia');assert.equal(calls[0].args.message_id,7);assert.equal(calls.filter(c=>c.method.startsWith('send')).length,0);
+});
 test('controller rich button edits preserve gallery file IDs in Telegram input format', () => {
   const saved = { rich_message: { blocks: [{ type: 'slideshow', blocks: [{ type: 'photo', photo: [{ file_id: 'small', width: 100, height: 100 }, { file_id: 'large', width: 800, height: 600 }] }] }, { type: 'buttons', buttons: [{ text: '⬜️ Choose', callback_data: '[g]yes' }] }] } };
   const changed = closeButtons(saved, 'g', '[g]yes');

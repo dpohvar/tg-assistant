@@ -34,3 +34,7 @@ SQLite migrations run transactionally before event processing; unsupported newer
 The controller uses generation checks and per-bot gates to reject stale tool connections and hold new work during maintenance. Context resets wait for active root work, subagents, and controller operations. A technical agent failure clears its ordinary queue, reports in its current chat, and informs agents with outstanding delegated requests. Scheduler failures remain durable and retryable.
 
 For details, see [agent lifecycle](agents.md), [storage](storage.md), [scheduler](scheduler.md), and [security](security.md). Startup, process locking, and SSH service management are described in [operations](operations.md).
+
+## Widget execution
+
+[Widgets](widgets.md) use one sandboxed foreground Node process per owning agent, independent of the Codex model queue. SQLite owns registrations, committed state, message projections and durable admission; the runtime owns the serial per-widget queue and managed resources. A controller watchdog monitors the launcher tree, including children, outside the sandbox. Generation fencing prevents retired handlers from issuing effects after replacement. Restart initializes active widgets without replaying in-flight effects; disabled widgets retain backlog for explicit repair.

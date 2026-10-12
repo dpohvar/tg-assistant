@@ -1,5 +1,6 @@
 const kinds = { text: 'sendMessage', rich_message: 'sendRichMessage', photo: 'sendPhoto', document: 'sendDocument', video: 'sendVideo', animation: 'sendAnimation', audio: 'sendAudio', voice: 'sendVoice', sticker: 'sendSticker', location: 'sendLocation', venue: 'sendVenue', contact: 'sendContact', poll: 'sendPoll', dice: 'sendDice', video_note: 'sendVideoNote', media: 'sendMediaGroup' };
 import { findFile } from '../files/download.mjs';
+import {planNativeEdit} from './edit-plan.mjs';
 import {destinationFields,topicIdOf} from '../telegram/topics.mjs';
 const fail = (error, description, extra = {}) => ({ ...extra, error, description });
 const mediaFields = new Set(['photo', 'document', 'video', 'animation', 'audio', 'voice', 'sticker', 'video_note', 'media', 'cover']);
@@ -66,11 +67,13 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
       }
       const original = type(old), updated = [], failed = [], unknown = [];
       const suppliedType = body.media?.type ?? Object.keys(kinds).find(k => body[k] !== undefined);
-      if (suppliedType && suppliedType !== original) return fail('invalid_argument', 'Edit must preserve the original message type.');
       if (body.media && ['caption', 'caption_entities', 'parse_mode'].some(key => body[key] !== undefined)) return fail('invalid_argument', 'When media is supplied, put caption and its formatting inside media.');
       const fileError = validateFiles(scope, body, file_sources, local); if (fileError) return fileError;
       const files = await uploads(scope, local, file_sources);
       const components = [];
+      if (suppliedType && suppliedType !== original) {
+        for(const step of planNativeEdit(old,body))components.push([suppliedType,step.method,step.fields]);
+      } else {
       if (body.text !== undefined || body.rich_message !== undefined) components.push([original, 'editMessageText', { [original]: body[original], ...(body.entities ? { entities: body.entities } : {}), ...(body.parse_mode ? { parse_mode: body.parse_mode } : {}) }]);
       const changingMedia = suppliedType && !['text', 'rich_message'].includes(suppliedType);
       const captionFormat = { ...(body.caption_entities !== undefined ? { caption_entities: body.caption_entities } : {}), ...(body.parse_mode ? { parse_mode: body.parse_mode } : {}) };
@@ -84,6 +87,7 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
         components.push([suppliedType, 'editMessageMedia', { media }]);
       }
       if (body.reply_markup !== undefined) components.push(['reply_markup', 'editMessageReplyMarkup', { reply_markup: body.reply_markup }]);
+      }
       if (!components.length) return fail('invalid_argument', 'Specify at least one editable component.');
       for (const [part, method, fields] of components) {
         let result;

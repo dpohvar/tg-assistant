@@ -35,7 +35,7 @@ export function richInput(rich) {
   const copy = structuredClone(rich);
   const visit = value => {
     if (!value || typeof value !== 'object') return;
-    for (const kind of ['photo', 'video', 'animation', 'audio', 'document']) {
+    for (const kind of ['photo', 'video', 'animation', 'audio', 'document', 'voice_note']) {
       const media = value[kind];
       const source = Array.isArray(media) ? [...media].sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))[0] : media;
       if (value.type === kind && source?.file_id) value[kind] = { type: kind, media: source.file_id };

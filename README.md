@@ -31,6 +31,7 @@ Register and manage bots using the [master bot](docs/master-bot.md). Manage each
 - [Wiki index](docs/index.md)
 - [Architecture](docs/architecture.md)
 - [Agent tools](docs/agent-contract.md) and [message events](docs/message-events.md)
+- [Programmable Telegram widgets](docs/widgets.md)
 - [Security and privacy](docs/security.md)
 - [Development archive](docs/dev/index.md)
 

@@ -14,7 +14,7 @@ Agents publish through controller tools; their final Codex text is internal. The
 | `media` | `sendMediaGroup` | Array of native InputMedia objects |
 | `location`, `venue`, `contact`, `poll`, `dice` | Matching native send method | Object whose fields are flattened into Telegram request |
 
-Other declared fields include caption formatting, reply parameters, inline keyboard, local callback permits, notification/content-protection flags and file declarations. The schema intentionally does not expose every native send option. `send` returns `{messageIds:[...]}` for a single message or album; saved returned messages can then be inspected with `read`.
+Other declared fields include caption formatting, reply parameters, inline keyboard, local callback permits, notification/content-protection flags, `message_effect_id` and file declarations. The schema intentionally does not expose every native send option. `send` returns `{messageIds:[...]}` for a single message or album; saved returned messages can then be inspected with `read`.
 
 ```javascript
 await send({text: "Hello", reply_parameters: {message_id: 81}});
@@ -130,7 +130,7 @@ Thinking blocks, `sendRichMessageDraft`, streaming drafts and inline-query handl
 
 ## Editing
 
-`edit` requires a saved original and preserves its detected content type. Supplied components replace their complete component; it is not a patch to a nested rich document. Omit a component to leave it unchanged. For a rich replacement, read first, preserve needed media as InputMedia file IDs with `file_sources`, and supply the full replacement rich content.
+`edit` requires a saved original. Native type conversions are attempted in place and accepted or rejected by Telegram; the controller never replaces the message automatically. Supplied components replace their complete component; it is not a patch to a nested rich document. Omit a component to leave it unchanged. For a rich replacement, read first, preserve needed media as InputMedia file IDs with `file_sources`, and supply the full replacement rich content.
 
 ```javascript
 await edit({messageId: 110, text: "Updated text", entities: [{type: "bold", offset: 0, length: 7}]});
@@ -142,7 +142,7 @@ await edit({messageId: 110, reply_markup: {inline_keyboard: []}});
 await edit({messageId: 110, permits: {"*": []}});
 ```
 
-Text/rich replacements call `editMessageText`; caption-only updates call `editMessageCaption`; media replacements call `editMessageMedia`; keyboard updates call `editMessageReplyMarkup`. If replacing media, place caption and formatting **inside `media`**, not alongside it. An omitted replacement caption preserves the old caption and, when appropriate, its entities; explicit `caption:""` clears it. Declared direct media fields are photo/video/document/audio/animation. Original type must match the replacement.
+Text/rich replacements call `editMessageText`; caption-only updates call `editMessageCaption`; media replacements call `editMessageMedia`; keyboard updates call `editMessageReplyMarkup`. If replacing media, place caption and formatting **inside `media`**, not alongside it. An omitted replacement caption preserves the old caption and, when appropriate, its entities; explicit `caption:""` clears it. Declared direct media fields are photo/video/document/audio/animation. The replacement may change type when Telegram permits it.
 
 Omitted permits are retained. A permits-only edit updates local state without Telegram and returns `{messageId,updated:["permits"]}`. Removing all allowed participants with `{"*":[]}` does not visibly disable the keyboard; use a disabled button/keyboard replacement when needed. Permits supplied alongside a caption/media-only edit are not persisted by those components; use a permits-only edit or include a rich/keyboard update.
 
@@ -212,3 +212,7 @@ Current behavior is in [`src/messages/actions.mjs`](../src/messages/actions.mjs)
 ## Forum destinations
 
 `send`, `copy` and `forward` accept positive integer `topicId` for the destination, including albums and rich messages. General is 1 and uses native parameter omission. A reply without an explicit topic can inherit its source topic; explicit General rejects a different or unknown reply topic. No automatic fallback or retry occurs. See [forum groups](forum-groups.md) for examples, cross-topic replies and history behavior.
+
+## Programmable widgets
+
+Use [widget tools](widgets.md) when buttons or events should run code independently of model activity. Widget `render(state)` declares the full target representation; callback names are exported actions, without ordinary one-use groups/permits. Ordinary `edit` is blocked on an active widget. Native dice/poll/other creation-only content may retain its keyboard as the editable component. Widget live locations support location edits and explicit stop; albums are not a single widget.

@@ -13,7 +13,7 @@ The service separates controller state from each bot's shared workspace. Paths a
 | `botsDir/BOT_ID/.temp/AGENT_ID/` | One agent's temporary files |
 | `codexHome/` | CLI authorization, runtime sessions, and generated-image sources |
 
-SQLite uses WAL and foreign keys. Current schema version is 12. The additive upgrade creates numerical usage accounting and collection-start metadata without importing past expenses or removing agent data. Earlier upgrades backfilled forum affiliation and observed topic metadata without changing native message JSON. Topic registry entries survive message retention and mode changes; chat deletion cascades them. Pending scheduler firings are durable; ordinary event queues and WebSocket records are not. Migrations occur transactionally before polling and reject a database from a newer application version.
+SQLite uses WAL and foreign keys. Current schema version is 13. The additive upgrade adds widget registrations, durable queues and saved state/message projections without removing agent, usage or secret data. Earlier upgrades backfilled forum affiliation and observed topic metadata without changing native message JSON. Topic registry entries survive message retention and mode changes; chat deletion cascades them. Pending scheduler firings are durable; ordinary agent event queues and controller WebSocket records are not. Widgets retain waiting durable reply/reaction/poll/external events independently of ordinary message history; in-flight work, button events and local runtime data are not replayed. Migrations occur transactionally before polling and reject a database from a newer application version.
 
 ## Message history
 

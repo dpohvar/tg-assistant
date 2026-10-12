@@ -52,3 +52,7 @@ Removing a bot from a chat or using `/chat leave` is destructive for that chat: 
 ## Coordination
 
 `agent_message` asynchronously queues a message to another enabled agent of the same bot. There is no automatic delivery receipt or guaranteed reply. The recipient may explicitly reply to `from.agentId`. Private senders expose agent identity without their private chat ID; public-chat senders also include chat ID. Delegation does not grant access to unrelated private history or notes. See [security](security.md) and the [agent contract](agent-contract.md).
+
+## Owned widgets
+
+Agents may author [programmable messages](widgets.md). Clearing rules/model context preserves these widgets. Stopping the owner disables them and terminates its widget runtime; starting the agent does not resume disabled widgets automatically. Delete/leave removes registrations for the owner or publication chat, preserving other owned messages when possible. `set_widget` repairs/resumes a disabled widget explicitly.

@@ -3,6 +3,7 @@ import {usageReport} from './usage.mjs';
 import {handleMcpCommand} from './mcp.mjs';
 import {isMcpAuthReply,handleMcpAuthReply} from './mcp-auth-reply.mjs';
 import {handleWebSocketCommand} from './websocket.mjs';
+import {handleWidgetCommand} from './widget.mjs';
 import {createVault} from '../storage/vault.mjs';
 import { handleChat } from "./chat.mjs";
 import { handleTask } from "./task.mjs";
@@ -190,6 +191,7 @@ export function createCommands(deps) {
           throw syntaxError("Pre blocks are not accepted here.");
         if (section === "mcp") { requireAdmin(); if(botId === "master" || m.chat.type !== "private") throw syntaxError("MCP settings are available only in private chats with a child bot."); await handleMcpCommand({botId,parsed,send,db,requestMcpRefresh:deps.requestMcpRefresh,testMcp:deps.testMcp,mcpOAuth:deps.mcpOAuth,message:m}); return true; }
         if (section === "ws") { requireAdmin(); if(botId === "master") throw syntaxError("WebSockets are available only for child bots."); await handleWebSocketCommand({botId,message:m,parts,manager:deps.websockets,target,send}); return true; }
+        if(section==='widget'){requireAdmin();if(botId==='master')throw syntaxError('Widgets are available only for child bots.');await handleWidgetCommand({botId,message:m,parts,db,manager:deps.widgets,send});return true;}
         if (section === "vault") {
           if (botId === "master" || group || m.chat.type !== "private") throw syntaxError("Vault commands are available only in private chats with a child bot.");
           requireAdmin();

@@ -163,3 +163,19 @@ Vault values are shared with agents of this bot through `vault_get`, never retur
 OAuth callback replies are service input, excluded from agent history and best-effort deleted. Their quoted `/mcp auth NAME` command must belong to the same user/chat and must not be edited. Both login completion and logout refresh agents after active work while retaining context. MCP replacement/deletion removes local OAuth credentials; logout does not remove static headers or necessarily revoke the external account grant.
 
 In [forum groups](forum-groups.md), command replies and downloads stay in the invoking topic. `/agent start` enables one agent for the entire forum; topic changes do not create separate agents.
+
+## Programmable widgets
+
+Administrator/owner only. Filters select the owning agent, not the publication chat. `/help widget` gives expanded descriptions. See [widgets](widgets.md).
+
+| Command | Behavior |
+| --- | --- |
+| `/widget` or `/widget list [RANGE]` | Current agent registrations |
+| `/widget list [RANGE] agent AGENT_ID` | Selected owner agent |
+| `/widget list [RANGE] in CHAT_ID` | Owner agent belonging to that chat |
+| `/widget list [RANGE] all` | All registrations of this bot |
+| `/widget show WIDGET_ID` | Metadata/counters/reason, without saved state |
+| `/widget delete WIDGET_ID` | Delete registration, preserve message and notify owner |
+| `/widget delete * [agent AGENT_ID |in CHAT_ID]` | Delete registrations of current/selected owner |
+
+Disabled registrations consume quota. There are no administrator state-edit, manual disable, resume or bot-wide delete-all forms. Repair uses agent `set_widget`.

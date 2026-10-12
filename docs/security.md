@@ -6,7 +6,7 @@ The application is designed for an operator-managed service with trusted bot adm
 
 Roles are assigned per bot and inherit as `user` → `manager` → `admin` → `owner`. A Telegram administrator does not automatically gain an application role. Private messages from unauthorized users are ignored, including commands. The configured service owner is the only current user of the master bot.
 
-Managers and higher roles may add a bot to groups, supergroups, or channels. Group agents are disabled initially. Forums are unsupported and cause departure/data deletion. In an enabled group, ordinary participant messages can trigger the agent; participants do not need the private-chat `user` role merely to speak to it there.
+Managers and higher roles may add a bot to groups, supergroups, or channels. Group agents are disabled initially. Forum supergroups use one optional agent across topics. In an enabled group, ordinary participant messages can trigger the agent; participants do not need the private-chat `user` role merely to speak to it there.
 
 | Operation by an agent | Allowed scope |
 |---|---|
@@ -34,7 +34,7 @@ The public-page `browser_read` tool has a narrower policy: HTTP(S), public addre
 
 `user_photos` returns Telegram profile-photo metadata; availability is subject to Telegram privacy settings and API behavior. `download` accepts any file ID accessible using this bot's token, without a message/source registry. This is an intentional simplification. Agents must not disclose private file IDs or downloaded contents. File IDs are bot-specific; knowing an ID does not grant access to a different bot's token.
 
-Reusing file IDs in outgoing messages is a different operation: `file_sources` proves provenance in readable stored messages, including one-level embedded replies. See [messaging](messaging.md).
+Widget media IDs must likewise come from readable saved messages or owned widget projections; otherwise download to owner files and use `file:path`. Reusing file IDs in outgoing messages is a different operation: `file_sources` proves provenance in readable stored messages, including one-level embedded replies. See [messaging](messaging.md).
 
 ## Vault and other credentials
 
@@ -55,3 +55,7 @@ Only administrator-configured HTTP servers for the current bot are injected into
 ## Limits of verification
 
 The deployment kernel and Codex version affect sandbox enforcement. A successful Windows unit test is not proof of Linux isolation. Run the deployment checks in [operations](operations.md) and consult [historical test reports](dev/index.md) for precisely which versions/environments were exercised. The service intentionally accepts memory-queue loss after crashes and possible repeated side effects on scheduler retry.
+
+## Widget isolation
+
+Widget handlers compile and execute only in a foreground owner sandbox; the controller never imports their code. The trusted runtime/SDK/snapshots are read-only grants for that owner, with a sanitized environment and no Telegram token. Privileged effects use an authenticated bounded loopback RPC and a whitelist, with fresh owner access and generation checks. Clearing model context does not revoke widget ownership. See [widgets](widgets.md) for the whitelist, resource limits and failure behavior. A shared event loop is a resource tradeoff: one synchronous hang disables all widgets of that owner. Handlers are trusted authoring code within the agent sandbox; import diagnostics are not a separate hostile-code security boundary.
