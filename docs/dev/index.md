@@ -6,6 +6,7 @@ The original documentation was preserved under `archive/` during the wiki reorga
 
 | Material | Location |
 |---|---|
+| Sticker and custom emoji investigation | [Original proposal and final scope](sticker-custom-emoji-plan.md): custom emoji downloading and on-demand inspection using system renderers; [current contract](../agent-contract.md#inspecting-stickers-and-custom-emoji) |
 | Original discussion and agent contract | [discussion](archive/discussion.md), [agent contract](archive/agent-contract.md) |
 | Command redesign | [commands](archive/commands.md) |
 | Plans | [initial implementation](archive/superpowers/plans/2026-10-07-v1.md), [agent commands](archive/superpowers/plans/2026-10-09-agent-state-and-commands.md), [browser/PDF](archive/superpowers/plans/2026-10-09-browser-pdf-read.md), [vault](archive/superpowers/plans/2026-10-10-vault-network-spoiler.md), [WebSocket](archive/superpowers/plans/2026-10-10-active-websocket.md), [HTTP MCP](archive/superpowers/plans/2026-10-10-http-mcp.md) |

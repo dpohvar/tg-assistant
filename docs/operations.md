@@ -9,7 +9,7 @@ Run the controller as a dedicated ordinary Linux user. The supported deployment 
 An administrator installs system dependencies. Ensure the Alpine repositories supply the required Node version; do not assume the distribution default satisfies the engine requirement.
 
 ```sh
-apk add --no-cache git nodejs npm ripgrep tzdata ca-certificates curl chromium poppler-utils font-dejavu
+apk add --no-cache git nodejs npm ripgrep tzdata ca-certificates curl chromium poppler-utils font-dejavu ffmpeg
 ```
 
 `nohup` must also be available (BusyBox or coreutils). Install Codex separately, for example under `/opt/codex/bin`, and verify:
@@ -21,6 +21,8 @@ npm --version
 command -v nohup
 chromium --version
 pdftotext -v
+ffmpeg -version
+ffprobe -version
 ```
 
 Then, as the service user:
@@ -36,6 +38,33 @@ cp config.example.json config.json
 ```
 
 Use the current reviewed application revision. The npm dependencies include `playwright-core`; it uses system Chromium rather than downloading a browser. PDF reading requires Poppler. Set `TG_CHROMIUM_PATH` if Chromium is installed at a nonstandard path. Chromium runs headless as the ordinary user with its own sandbox enabled; GPU/X11 is not required. The host must allow the namespaces needed by the browser and Codex sandboxes. See [Agent contract](agent-contract.md) and [Security](security.md).
+
+### Sticker and custom emoji dependencies
+
+Static sticker/emoji files can be viewed natively after download. Animated inspection uses system tools available to the agent shell: FFmpeg/ffprobe for WebM, and `lottie_to_png` for TGS after gzip decompression to Lottie JSON. Alpine's BusyBox supplies `gzip`. These dependencies are needed for inspecting motion, not for receiving messages or downloading files. Startup does not install or probe these tools; a missing renderer should be reported when inspection is requested.
+
+Install the pinned [lottie-converter v1.2.0 release](https://github.com/ed-asriyan/lottie-converter/releases/tag/v1.2.0) as root. The Linux executable is statically linked and does not need Python, Chromium or a separate rlottie package for PNG output:
+
+```sh
+apk add --no-cache ca-certificates curl unzip ffmpeg
+
+case "$(uname -m)" in
+  x86_64) lottie_arch=amd64 ;;
+  aarch64) lottie_arch=arm64 ;;
+  *) echo "Unsupported architecture"; exit 1 ;;
+esac
+
+lottie_tmp="$(mktemp -d)"
+curl -fL \
+  "https://github.com/ed-asriyan/lottie-converter/releases/download/v1.2.0/lottie-converter.linux.${lottie_arch}.zip" \
+  -o "$lottie_tmp/converter.zip"
+unzip -q "$lottie_tmp/converter.zip" -d "$lottie_tmp"
+install -m 0755 "$lottie_tmp/bin/lottie_to_png" /usr/local/bin/lottie_to_png
+```
+
+Bake these steps into the container image for persistent installations; interactive changes disappear when the container is replaced. Confirm `ffmpeg`, `ffprobe`, `gzip` and `lottie_to_png` are on the service user's `PATH` and usable from an agent's shell, not only from a root session. The binary expects uncompressed JSON; downloads may be extensionless, so decompress TGS based on its format rather than its filename. Store intermediate JSON and PNG frames in the calling agent's own `.temp/AGENT_ID/` directory. See the [inspection workflow](agent-contract.md#inspecting-stickers-and-custom-emoji).
+
+The release includes x86-64 and ARM64 Linux binaries. PNG frame output does not require a GIF encoder. Deployment verification evidence is recorded in the [development investigation](dev/sticker-custom-emoji-plan.md#implementation-verification), separately from these installation instructions.
 
 ## Configuration and authentication
 

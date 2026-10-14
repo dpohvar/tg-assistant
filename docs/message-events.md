@@ -8,6 +8,8 @@ Each short message starts with `eventType` (`message` or `message_edited`), `mes
 
 Text and caption are `textPlain` and `captionPlain`, capped independently at 1,000 Unicode code points. `truncated:true` marks overflow; `hasEntities:true` marks formatting entities without transferring those entities. `inlineButtons:true` indicates a nonempty inline keyboard. Short objects intentionally omit native file IDs, full button layouts and most native metadata. Use `read` for details.
 
+If custom emoji artwork is relevant, `read` exposes `type:"custom_emoji"` entities and their `custom_emoji_id` in text/caption entities, or custom emoji nodes in native rich text. The ID identifies the custom emoji but does not describe its appearance. Use [download_custom_emoji](agent-contract.md#files-readers-time-and-secrets) to obtain its original file and Sticker metadata. Inspect stickers/emoji only when needed for the request.
+
 ```json
 [
   {

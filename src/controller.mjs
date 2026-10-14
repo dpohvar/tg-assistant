@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { BotFiles } from './files/paths.mjs';
 import { createDownload } from './files/download.mjs';
+import { createCustomEmojiDownload } from './files/custom-emoji.mjs';
 import { Scheduler } from './scheduler/tasks.mjs';
 import { createCommands } from './commands/router.mjs';
 import { createMaster } from './commands/master.mjs';
@@ -70,6 +71,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   } return stores.get(scope.agentId); };
   const messages = createMessages({ db, telegram, access, assertCurrent, assertTarget: (s, id) => { if (isStopping(s.botId, id)) throw new Error("Target chat is stopping."); }, uploads: async (scope, local) => Object.entries(local ?? {}).map(([name, filename]) => ({ name, filename: path.basename(filename), bytes: filesFor(scope).read(filename) })) });
   const download = createDownload({ db, telegram, access, filesFor, getToken: telegram.getToken });
+  const downloadCustomEmoji = createCustomEmojiDownload({ telegram, download, assertCurrent });
   agent.botProfile = async scope => {
     const [me, description, shortDescription] = await Promise.all([
       telegram.call(scope.botId, 'getMe'),
@@ -125,6 +127,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (name === 'git_changes' || name === 'git_sync') { const settings = db.sql.prepare('SELECT * FROM git_settings WHERE botId=?').get(scope.botId); const options = { configured: Boolean(settings), root: path.join(config.botsDir, scope.botId), branch: settings?.branch, env: gitAuth(settings?.secretRef) }; return name === 'git_changes' ? gitChanges(options) : gitSync(options, args.message); }
     if (name.startsWith('ws_')) { if(!config?.botsDir) throw new Error('File storage is not configured'); const method=name.slice(3); if(!['open','list','pull','send','close','delete'].includes(method)) throw new Error('Unknown WebSocket tool'); const result=await websockets[method](scope, ['close','delete'].includes(method)?args.connectionId:args); assertCurrent(scope); return result; }
     if (name === 'download') return download(scope, args);
+    if (name === 'download_custom_emoji') return downloadCustomEmoji(scope, args);
     if (name === 'save_image') return filesFor(scope).saveImage(scope.threadId, args.savedPath, args.dir);
     if (['read', 'history', 'search'].includes(name)) {const result=history[name](scope,args);if(name==='read'&&widgets)result.messages=result.messages.map((m,i)=>m.error==='message_not_found'?readableDates(widgets.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageIds[i])?.message??m):m);return result;}
     if(name==='topics'){const chatId=args.chatId??scope.chatId;access.assertRead(scope,chatId);return createTopicStore(db).list(scope.botId,chatId);}

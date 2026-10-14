@@ -58,6 +58,8 @@ Agents may create arbitrary temporary subdirectories under their own `.temp/AGEN
 
 `download` caches Telegram file IDs per agent and coalesces concurrent requests for the same ID. Reusing an existing file does not refresh its `mtime`. `save_image` copies a registered native generation into shared files or the caller's temp directory; only a controller-registered source is accepted. Agents should handle paths rather than printing image base64 into context.
 
+`download_custom_emoji` resolves custom emoji IDs to native Sticker metadata on each call and reuses `download` for the original files. Its byte cache is shared with ordinary downloads by file ID, remains private to the calling agent, and uses the same retention. Derived animation frames belong in the agent's own temp directory; the controller does not render or prefetch sticker/emoji artwork automatically.
+
 WebSocket binary files have additional [connection lifecycle limits](websocket.md), including deletion one hour after closing the connection.
 
 ## Git
