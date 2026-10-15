@@ -5,6 +5,7 @@ import {createUsageStore} from '../storage/usage.mjs';
 import {createMcpStore} from '../mcp/store.mjs';
 import {isolatedMcpArgs,testMcpRuntime} from '../mcp/runtime.mjs';
 import {WIDGET_TOOL_SCHEMAS} from '../widgets/contract.mjs';
+import {stickerSetTools} from '../stickers/schema.mjs';
 const widgetDescriptions={set_widget:'Create/attach/replace/resume an owned sandboxed TS/TSX widget. handler is a FILE PATH, not source code: first write widgets/counter.tsx with exec_command/apply_patch, then call set_widget({handler:"widgets/counter.tsx",description:"Counter",state:{count:0}}). New handlers require description. Export render(state) returning a send-shaped object and named button actions; callback_data void needs no export, action:payload calls action(ctx,event) with full data in event.data.data. SDK: @tg-assistant/widget. Existing target selectors are exclusive. Omitted state keeps saved state. Disabled resume preserves backlog; active replacement clears it.',delete_widget:'Delete an owned widget registration and saved state/queue; keep its Telegram message and disable buttons best effort.',widgets:'List own active/disabled widgets and canCreate. Inspect description, publication, reason and queue counters; delete unused registrations to free slots.',widget_state:'Read a copy of last committed JSON widget state, never uncommitted mutations.',widget_event:'Admit a named JSON event to an active owned widget without waiting for processing. Source is controller supplied. No model turn for routine processing.',render_widget:'Admit a debug render without waiting. Optional state replaces saved state (up to 1 MiB). Disabled widgets remain disabled and do not replay backlog.'};
 const tool = (name, description, properties, required = []) => ({ type: 'function', name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } });
 export const dynamicTools = [
@@ -47,6 +48,7 @@ export const dynamicTools = [
   ...['copy', 'forward'].map(name => tool(name, 'Transfer messages from readable source to current or passive destination.', { messageIds: { type: 'array', items: { type: 'integer' } }, chatId: { type: 'integer' }, fromChatId: { type: 'integer' }, reply_parameters: { type: 'object' }, reply_markup: { type: 'object' }, permits: { type: 'object' } }, ['messageIds'])),
   ...['delete', 'pin', 'unpin', 'react'].map(name => tool(name, 'Change message only in own or passive chat.', { messageId: { type: 'integer' }, chatId: { type: 'integer' }, reaction: { type: 'array' } }, name === 'unpin' ? [] : ['messageId'])),
 ];
+dynamicTools.push(...stickerSetTools);
 for(const name of ['send','copy','forward','history','search'])dynamicTools.find(t=>t.name===name).inputSchema.properties.topicId={type:'integer',minimum:1};
 const propertiesFor = name => dynamicTools.find(entry => entry.name === name).inputSchema.properties;
 const discussionSchema = { type: 'object', properties: { chatId: { type: 'integer' }, messageId: { type: 'integer' } }, required: ['chatId', 'messageId'], additionalProperties: false };
