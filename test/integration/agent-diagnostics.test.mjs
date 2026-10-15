@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import { RpcProcess } from "../../src/codex/rpc.mjs";
 import { agentFailureDiagnostic } from "../../src/codex/diagnostics.mjs";
 
+test('unknown configuration fields classify without exposing private paths or values',()=>{
+ const e=Object.assign(new Error('Codex MCP configuration could not be isolated.'),{code:'mcp_config_failed',diagnostic:{stage:'mcp_preflight'},cause:Object.assign(new Error('Codex process exited.'),{diagnostic:{exitCode:1,stderr:'Error: /PRIVATE_PATH/config.toml:3:1: unknown configuration field `tui.daemon_auto_start`\nPRIVATE_TOKEN'}})});
+ assert.deepEqual(agentFailureDiagnostic(e),{code:'mcp_config_failed',stage:'mcp_preflight',exitCode:1,reason:'invalid_configuration'});
+});
+
 test('malformed RPC and event timeouts have safe machine failure codes',async t=>{
  const rpc=new RpcProcess({executable:process.execPath,args:['test/fixtures/rpc-server.mjs'],cwd:process.cwd(),env:process.env});t.after(()=>rpc.close());
  await assert.rejects(rpc.waitFor(()=>false,10),e=>{assert.deepEqual(agentFailureDiagnostic(e),{code:'codex_event_timeout'});return true;});

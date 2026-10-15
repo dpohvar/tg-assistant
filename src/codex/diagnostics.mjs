@@ -113,7 +113,7 @@ const reasons = [
   ],
   [
     "invalid_configuration",
-    /error loading config|failed to (?:load|parse).*config|invalid.*(?:config|permission)|unknown permission|permission.*not found/i,
+    /error loading config|failed to (?:load|parse).*config|invalid.*(?:config|permission)|unknown configuration field|unknown permission|permission.*not found/i,
   ],
   [
     "unsupported_parameter",
