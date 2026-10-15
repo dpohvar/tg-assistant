@@ -7,6 +7,16 @@ import { openDatabase } from '../../src/storage/database.mjs';
 import { CodexAgent, dynamicTools } from '../../src/codex/threads.mjs';
 import {isolatedMcpArgs} from '../../src/mcp/runtime.mjs';
 
+for (const resume of [false,true]) test(`all controller tools register together on thread ${resume?'resume':'start'}`, async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-tool-formats-')),db=openDatabase(':memory:');
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);
+ if(resume)db.sql.prepare('UPDATE agents SET threadId=? WHERE agentId=?').run('thread1',scope.agentId);
+ const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath,defaultTimezone:'UTC'},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs')]});
+ t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ const session=await agent.session(scope,async()=>({}));
+ assert.equal(session.threadId,'thread1');assert.equal(db.agent('b',1).threadId,'thread1');
+});
+
 test('retained widget IDs reach the model in a failed dynamic tool result',async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-widget-tool-error-')),db=openDatabase(':memory:'),marker=path.join(root,'result.json');
  db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const a=db.ensureAgent('b',1);

@@ -1,5 +1,7 @@
 # Agents
 
+Controller tools use Codex's canonical dynamic-tool envelope (`type:"function"`) consistently for thread start and resume. Mixing canonical and legacy envelopes makes App Server reject session initialization before a model can answer. The opt-in [native registration check](../test/manual/codex-tool-registration.mjs) validates the complete tool list without credentials or inference; [full agent acceptance](../test/manual/codex-agent-telegram-acceptance.mjs) additionally requires the designated test configuration and performs real model turns and Telegram sends.
+
 An agent belongs to one chat of one bot. Its record persists independently of whether a Codex process is currently running. Controller [commands](commands.md) manage the enabled state, context, model, and rules.
 
 ## Instructions and context

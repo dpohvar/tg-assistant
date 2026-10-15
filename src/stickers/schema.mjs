@@ -11,6 +11,7 @@ const sticker = {
   additionalProperties: false,
 };
 const tool = (name, description, properties, required = []) => ({
+  type: "function",
   name,
   description,
   inputSchema: {

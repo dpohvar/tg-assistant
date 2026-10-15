@@ -4,6 +4,11 @@ const send = m => process.stdout.write(JSON.stringify(m) + '\n');
 let input;
 readline.createInterface({ input: process.stdin }).on('line', line => {
   const m = JSON.parse(line);
+  // Native App Server rejects mixing canonical and legacy dynamic tool envelopes.
+  if (['thread/start','thread/resume'].includes(m.method)) {
+    const formats = new Set((m.params.dynamicTools ?? []).map(t => t.type === undefined ? 'legacy' : 'canonical'));
+    if (formats.size > 1) { send({id:m.id,error:{code:-32600,message:'Invalid request: dynamic tools must use either canonical or legacy format consistently'}}); return; }
+  }
   if (m.method === 'config/read' && process.argv[2] === 'blocked-config') fs.writeFileSync(process.argv[3], 'waiting');
   if (m.method === 'initialize') { if (process.argv[2] === 'delayed-init') setTimeout(() => send({ id: m.id, result: {} }), 300); else send({ id: m.id, result: {} }); }
   if (m.method === 'thread/start') { if (process.argv[2] === 'delayed-start') { fs.writeFileSync(process.argv[3], m.params.developerInstructions); setTimeout(() => send({ id:m.id,result:{thread:{id:'thread1'}} }), 200); } else send({ id: m.id, result: { thread: { id: 'thread1' } } }); }
