@@ -6,7 +6,7 @@ The original documentation was preserved under `archive/` during the wiki reorga
 
 | Material | Location |
 |---|---|
-| Sticker-set management | [Accepted specification](sticker-sets-spec.md), [implementation plan](sticker-sets-plan.md); [current tool contract](../agent-contract.md#sticker-sets-and-custom-emoji-sets) |
+| Sticker-set management | [Accepted specification](sticker-sets-spec.md), [implementation plan](sticker-sets-plan.md), [live verification](sticker-sets-verification.md); [current tool contract](../agent-contract.md#sticker-sets-and-custom-emoji-sets) |
 | Sticker and custom emoji investigation | [Original proposal and final scope](sticker-custom-emoji-plan.md): custom emoji downloading and on-demand inspection using system renderers; [current contract](../agent-contract.md#inspecting-stickers-and-custom-emoji) |
 | Original discussion and agent contract | [discussion](archive/discussion.md), [agent contract](archive/agent-contract.md) |
 | Command redesign | [commands](archive/commands.md) |
