@@ -155,9 +155,19 @@ Restore only while stopped, with the same directory layout and permissions. If a
 4. After instruction or tool-contract changes, use Admin `/agent clear *` in each child bot, or clear selected agents. Clear waits for current work and retains queued input, history, notes, files and tasks. A resumed native session alone is not a replacement for resetting stale instructions.
 5. Complete bounded live runtime/tool probes appropriate to the upgrade.
 
-The current schema is **13**. Migration records prevent reapplying completed migrations; a database newer than the controller supports is rejected. Do not delete/recreate the database to resolve migration failure: diagnose the cause and retry. Rolling back code after a schema change may require restoring the pre-upgrade backup. For details see [Storage](storage.md). `/rules set` clears contexts itself; MCP set/delete waits for current work and refreshes the App Server while preserving context, so those changes do not require a manual clear.
+The current schema is **14**. Migration records prevent reapplying completed migrations; a database newer than the controller supports is rejected. Do not delete/recreate the database to resolve migration failure: diagnose the cause and retry. Rolling back code after a schema change may require restoring the pre-upgrade backup. For details see [Storage](storage.md). `/rules set` clears contexts itself; MCP set/delete waits for current work and refreshes the App Server while preserving context, so those changes do not require a manual clear.
 
 Keep logs private. Do not publish raw RPC payloads, base64 image results, token-bearing Telegram URLs or unsanitized shell/Codex logs; those can contain vault credentials. For the permissions and secret boundaries, see [Security](security.md). Runtime version warnings indicate unvalidated compatibility, not successful production acceptance.
+
+### Diagnosing agent failures
+
+`agent_failed` is followed by a JSON diagnostic object containing only allowed machine fields. `stage` distinguishes MCP preflight, initialization, bot profile lookup, thread start/resume and turn start/wait. Depending on the failure, `rpcMethod`, numeric `rpcCode`, `codexErrorInfo`, HTTP status, OS error code, process exit code/signal and a fixed `reason` category identify the failing boundary. Unknown free-text errors remain unclassified; messages, prompts, request arguments, provider details, raw stderr and credentials are never included in this diagnostic line. For example:
+
+```text
+agent_failed {"code":"agent_failed","stage":"turn_wait","codexErrorInfo":"httpConnectionFailed","httpStatusCode":401}
+```
+
+A version warning alone does not establish the cause. Check the deployed Git revision and obtain a new diagnostic line after a test message. `service:alpine_start` is idempotent: it does not reload an already running process after `git pull`. Use explicit `service:alpine_stop` followed by `service:alpine_start` with the same config, confirm the new PID, and retry. Repeated context clearing does not fix provider, process or protocol errors.
 
 ## Widget runtime operations
 

@@ -5,7 +5,7 @@ export async function initializeRpc(rpc){await rpc.request('initialize',{clientI
 export async function isolatedMcpArgs({executable,args,cwd,env,botId,entries,readConfig,signal,onRpc}){
  let rpc;let config;
  try{signal?.throwIfAborted();if(readConfig)config=await readConfig();else{rpc=trackedRpc({executable,args,cwd,env,signal,onRpc});await initializeRpc(rpc);config=(await rpc.request('config/read',{includeLayers:false,cwd})).config;}signal?.throwIfAborted();}
- catch{throw Object.assign(new Error('Codex MCP configuration could not be isolated.'),{code:'mcp_config_failed'});}finally{await rpc?.close();}
+ catch(cause){throw Object.assign(new Error('Codex MCP configuration could not be isolated.'),{code:'mcp_config_failed',cause});}finally{await rpc?.close();}
  if(entries.some(e=>Object.hasOwn(config?.mcp_servers??{},nativeServerName(botId,e.name))))throw Object.assign(new Error('A local MCP setting conflicts with the controller namespace. Remove it before using this connection.'),{code:'mcp_config_failed'});
  const disabled=Object.keys(config?.mcp_servers??{}).flatMap(name=>['-c',`mcp_servers.${JSON.stringify(name)}.enabled=false`]);
  const plugins=Object.keys(config?.plugins??{}).flatMap(name=>['-c',`plugins.${JSON.stringify(name)}.enabled=false`]);

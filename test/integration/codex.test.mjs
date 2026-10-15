@@ -7,6 +7,25 @@ import { openDatabase } from '../../src/storage/database.mjs';
 import { CodexAgent, dynamicTools } from '../../src/codex/threads.mjs';
 import {isolatedMcpArgs} from '../../src/mcp/runtime.mjs';
 
+test('background child failure keeps its stage and provider category',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-child-error-')),db=openDatabase(':memory:');
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);
+ const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs'),'background-failure']});
+ t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ const result=await agent.run(scope,[{textPlain:'fixture'}],async()=>({}));
+ await assert.rejects(result.settled,e=>{assert.equal(e.diagnostic.stage,'subagent');assert.equal(e.cause.codexErrorInfo,'badRequest');return true;});
+});
+
+test('a failed native turn preserves diagnostic phase and machine provider status',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-turn-error-')),db=openDatabase(':memory:');
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);
+ const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs'),'turn-failure']});
+ t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ await assert.rejects(agent.run(scope,[{textPlain:'fixture'}],async()=>({})),e=>{
+  assert.equal(e.code,'agent_failed');assert.equal(e.diagnostic.stage,'turn_wait');assert.deepEqual(e.cause.codexErrorInfo,{httpConnectionFailed:{httpStatusCode:401}});return true;
+ });
+});
+
 for (const resume of [false,true]) test(`all controller tools register together on thread ${resume?'resume':'start'}`, async t => {
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-tool-formats-')),db=openDatabase(':memory:');
  db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);

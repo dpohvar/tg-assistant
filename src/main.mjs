@@ -8,6 +8,7 @@ import { openDatabase } from './storage/database.mjs';
 import { createTelegram } from './telegram/api.mjs';
 import { poll } from './telegram/polling.mjs';
 import { CodexAgent } from './codex/threads.mjs';
+import { agentFailureDiagnostic } from './codex/diagnostics.mjs';
 import { createController } from './controller.mjs';
 import { retention } from './storage/retention.mjs';
 import { acquireLock } from './service/lock.mjs';
@@ -32,7 +33,7 @@ for (const bot of config.initialBots ?? []) {
 const agent = new CodexAgent({ db, config });
 const keyPath = path.join(config.dataDir, 'secrets', 'cursor-key'); fs.mkdirSync(path.dirname(keyPath), { recursive: true, mode: 0o700 });
 if (!fs.existsSync(keyPath)) fs.writeFileSync(keyPath, randomBytes(32), { flag: 'wx', mode: 0o600 });
-const controller = createController({ db, telegram, agent, config, cursorKey: fs.readFileSync(keyPath), onError: () => console.error('agent_failed') });
+const controller = createController({ db, telegram, agent, config, cursorKey: fs.readFileSync(keyPath), onError: error => console.error('agent_failed',JSON.stringify(agentFailureDiagnostic(error))) });
 await controller.ready;
 const stop = new AbortController();
 let cleanupJob;
