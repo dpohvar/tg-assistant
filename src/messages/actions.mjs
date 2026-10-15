@@ -1,5 +1,4 @@
 const kinds = { text: 'sendMessage', rich_message: 'sendRichMessage', photo: 'sendPhoto', document: 'sendDocument', video: 'sendVideo', animation: 'sendAnimation', audio: 'sendAudio', voice: 'sendVoice', sticker: 'sendSticker', location: 'sendLocation', venue: 'sendVenue', contact: 'sendContact', poll: 'sendPoll', dice: 'sendDice', video_note: 'sendVideoNote', media: 'sendMediaGroup' };
-import { findFile } from '../files/download.mjs';
 import {planNativeEdit} from './edit-plan.mjs';
 import {destinationFields,topicIdOf} from '../telegram/topics.mjs';
 const fail = (error, description, extra = {}) => ({ ...extra, error, description });
@@ -17,15 +16,13 @@ function mediaReferences(body) {
 }
 const type = m => Object.keys(kinds).filter(k => k !== 'media').find(k => m[k] !== undefined);
 export function createMessages({ db, access, assertCurrent, assertTarget = () => {}, telegram, uploads = async () => [] }) {
-  const validateFiles = (scope, body, sources, local) => {
+  const validateFiles = (body, local) => {
     try {
       for (const id of mediaReferences(body)) {
         if (/^https?:\/\//i.test(id)) { if (/^https?:\/\/api\.telegram\.org\/(?:file\/)?bot/i.test(id)) throw new Error('Secret URL'); continue; }
         if (id.startsWith('attach://')) { if (!Object.hasOwn(local ?? {}, id.slice(9))) throw new Error('Missing upload'); continue; }
-        const candidates = (sources ?? []).filter(s => s.fileId === id);
-        if (!candidates.some(s => { try { const chatId = s.chatId ?? scope.chatId; access.assertRead(scope, chatId); return Boolean(findFile(db.getMessage(scope.botId, chatId, s.messageId), id)); } catch { return false; } })) throw new Error('Inaccessible file');
       }
-    } catch { return fail('file_not_accessible', 'Every Telegram file ID requires an accessible saved outer message in file_sources; uploads require a declared local attachment.'); }
+    } catch { return fail('file_not_accessible', 'Uploads require a declared local attachment; secret-bearing Telegram URLs are forbidden.'); }
   };
   const savePermits = (scope, chatId, messageId, permits) => { if (permits !== undefined) db.sql.prepare('INSERT INTO button_state(botId,chatId,messageId,permits) VALUES(?,?,?,?) ON CONFLICT(botId,chatId,messageId) DO UPDATE SET permits=excluded.permits').run(scope.botId, chatId, messageId, JSON.stringify(permits)); };
   const call = async (scope, method, args, files) => { assertCurrent(scope); access.assertWrite(scope, args.chat_id); assertTarget(scope, args.chat_id); return telegram.call(scope.botId, method, args, { uploads: files }); };
@@ -44,10 +41,10 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
       const present = Object.keys(kinds).filter(k => body[k] !== undefined);
       if (present.length !== 1) return fail('invalid_argument', 'Specify exactly one supported message content field.');
       const kind = present[0]; if (kind === 'media' && (body.reply_markup || permits)) return fail('invalid_argument', 'Albums cannot contain inline buttons or permits. Send buttons in a separate message.');
-      const fileError = validateFiles(scope, body, file_sources, local); if (fileError) return fileError;
+      const fileError = validateFiles(body, local); if (fileError) return fileError;
       if (body.reply_parameters?.chat_id) access.assertRead(scope, body.reply_parameters.chat_id);
       if (kind === 'location' || kind === 'venue' || kind === 'contact' || kind === 'poll' || kind === 'dice') { Object.assign(body, body[kind]); delete body[kind]; }
-      const files = await uploads(scope, local, file_sources);
+      const files = await uploads(scope, local);
       let sent; try { sent = await call(scope, kinds[kind], { ...body, ...topic, chat_id: chatId }, files); } catch (e) { return apiError(e); }
       const results = Array.isArray(sent) ? sent : [sent], messageIds = results.map(m => m.message_id);
       try { for (const m of results) { db.saveMessage(scope.botId, m); savePermits(scope, chatId, m.message_id, permits); } }
@@ -68,8 +65,8 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
       const original = type(old), updated = [], failed = [], unknown = [];
       const suppliedType = body.media?.type ?? Object.keys(kinds).find(k => body[k] !== undefined);
       if (body.media && ['caption', 'caption_entities', 'parse_mode'].some(key => body[key] !== undefined)) return fail('invalid_argument', 'When media is supplied, put caption and its formatting inside media.');
-      const fileError = validateFiles(scope, body, file_sources, local); if (fileError) return fileError;
-      const files = await uploads(scope, local, file_sources);
+      const fileError = validateFiles(body, local); if (fileError) return fileError;
+      const files = await uploads(scope, local);
       const components = [];
       if (suppliedType && suppliedType !== original) {
         for(const step of planNativeEdit(old,body))components.push([suppliedType,step.method,step.fields]);

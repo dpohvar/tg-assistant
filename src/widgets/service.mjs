@@ -14,7 +14,6 @@ import { launchSandbox } from "./sandbox.mjs";
 import { buildWidget } from "./build.mjs";
 import { validateWidgetState, widgetError } from "./contract.mjs";
 import { createAccess } from "../access/scope.mjs";
-import { findFile } from "../files/download.mjs";
 const require = createRequire(import.meta.url);
 export function createWidgetService({
   db,
@@ -268,37 +267,12 @@ export function createWidgetService({
     terminateTree: (id) => monitor.terminateTree(id),
     onFailure: (o, e) => manager.failure(o, e),
   });
-  function approveFile(scope, id, w) {
-    if (findFile(w.message, id)) return;
-    const rows = db.sql
-      .prepare(
-        "SELECT chatId,json FROM messages WHERE botId=? AND instr(json,?)>0",
-      )
-      .all(scope.botId, id);
-    for (const row of rows) {
-      try {
-        access.assertRead(scope, row.chatId);
-        if (findFile(JSON.parse(row.json), id)) return;
-      } catch {}
-    }
-    for (const other of store.list(scope)) {
-      try {
-        access.assertRead(scope, other.chatId);
-        if (findFile(other.message, id)) return;
-      } catch {}
-    }
-    throw widgetError(
-      "file_not_accessible",
-      "File ID is absent from accessible saved messages; download to owner files before using it.",
-    );
-  }
   const renderer = createWidgetRenderer({
     store,
     db,
     telegram,
     filesFor,
     authorize,
-    approveFile,
     journal: (ref, message, projection) => {
       const dir = path.join(assets(ref), "receipts");
       fs.mkdirSync(dir, { recursive: true });

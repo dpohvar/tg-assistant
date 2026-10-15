@@ -21,17 +21,34 @@ test('native transfer fields cannot override the checked source or destination',
   await messages.transfer({ botId: 'b', chatId: 1 }, 'copy', { fromChatId: 2, messageIds: [3], chat_id: 99, from_chat_id: 98, message_id: 97 });
   assert.equal(sent.chat_id, 1); assert.equal(sent.from_chat_id, 2); assert.equal(sent.message_id, 3);
 });
-test('sending a file requires provenance in an accessible outer message', async () => {
+test('send and edit reuse opaque file IDs without provenance, including rich and album media', async () => {
   let calls = 0;
   const messages = createMessages({ db: { getMessage: () => ({ document: { file_id: 'allowed' } }), saveMessage() {} }, access: { assertWrite() {}, assertRead(_scope, id) { if (id === 9) throw new Error('denied'); } }, assertCurrent() {}, telegram: { call: async () => { calls++; return { message_id: 8 }; } } });
   const scope = { botId: 'b', chatId: 1 };
-  assert.equal((await messages.send(scope, { document: 'stolen' })).error, 'file_not_accessible');
-  assert.equal((await messages.send(scope, { document: 'stolen', file_sources: [{ messageId: 2, fileId: 'stolen' }] })).error, 'file_not_accessible');
-  assert.equal((await messages.send(scope, { document: 'allowed', file_sources: [{ chatId: 9, messageId: 2, fileId: 'allowed' }] })).error, 'file_not_accessible');
-  assert.equal(calls, 0);
+  assert.deepEqual(await messages.send(scope, { sticker: 'external-sticker' }), {messageIds:[8]});
+  assert.deepEqual(await messages.send(scope, { document: 'external-file', file_sources: [{ chatId: 9, messageId: 2, fileId: 'ignored' }] }), {messageIds:[8]});
   assert.deepEqual(await messages.send(scope, { document: 'allowed', file_sources: [{ messageId: 2, fileId: 'allowed' }] }), { messageIds: [8] });
   assert.deepEqual(await messages.send(scope, { media: [{ type: 'photo', media: 'allowed', caption: 'This is a caption, not a file ID' }], file_sources: [{ messageId: 2, fileId: 'allowed' }] }), { messageIds: [8] });
   assert.deepEqual(await messages.send(scope, { rich_message: { html: '<img src="tg://photo?id=one"/>', media: [{ id: 'one', media: { type: 'photo', media: 'allowed' } }] }, file_sources: [{ messageId: 2, fileId: 'allowed' }] }), { messageIds: [8] });
+  assert.deepEqual(await messages.edit(scope, {messageId:2,media:{type:'document',media:'other-file'}}), {messageId:2,updated:['document']});
+  assert.equal(calls,6);
+});
+
+test('media reuse still rejects undeclared uploads, secret URLs and unauthorized destinations', async () => {
+  const messages=createMessages({db:{},access:{assertWrite(_scope,id){if(id===9)throw new Error('denied');}},assertCurrent(){},telegram:{call:()=>assert.fail('Must not send')}});
+  const scope={botId:'b',chatId:1};
+  for(const photo of ['attach://missing','https://api.telegram.org/file/botSECRET/file'])assert.equal((await messages.send(scope,{photo})).error,'file_not_accessible');
+  await assert.rejects(messages.send(scope,{chatId:9,sticker:'external-file'}),/denied/);
+});
+
+test('grouped RichText button labels retain custom emoji and nested formatting after selection', () => {
+  const emoji={type:'custom_emoji',custom_emoji_id:'123',alternative_text:'🙂'};
+  const label={type:'bold',text:['⬜️ ',emoji,' Choose']};
+  const message={rich_message:{blocks:[{type:'buttons',buttons:[{text:label,callback_data:'[g]a'},{text:['⬜️ ',emoji,' Other'],callback_data:'[g]b'}]}]}};
+  const result=closeButtons(message,'g','[g]a');
+  assert.deepEqual(result.rich_message.blocks[0].buttons[0].text,{type:'bold',text:['✅ ',emoji,' Choose']});
+  assert.deepEqual(result.rich_message.blocks[0].buttons[1].text,['⬛️ ',emoji,' Other']);
+  assert.equal(message.rich_message.blocks[0].buttons[0].text.text[0],'⬜️ ');
 });
 test('confirmed Telegram result survives storage failure without a retry', async () => {
   const calls = [];

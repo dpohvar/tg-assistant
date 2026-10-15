@@ -6,6 +6,19 @@ import path from 'node:path';
 import { openDatabase } from '../../src/storage/database.mjs';
 import { createController } from '../../src/controller.mjs';
 
+test('ordinary rich callbacks deliver readable labels and close a group without corrupting emoji',async t=>{
+  const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});const chat={id:1,type:'private'};
+  db.saveChat('b',chat);db.ensureAgent('b',1);
+  const emoji={type:'custom_emoji',custom_emoji_id:'9007199254740993123',alternative_text:'🙂'},batches=[],edits=[];
+  const stored={message_id:100,date:1000,chat,rich_message:{blocks:[{type:'buttons',buttons:[{text:['⬜️ ',emoji,{type:'bold',text:' Choose'}],callback_data:'[g]a'}]}]}};
+  db.saveMessage('b',stored);
+  const c=createController({db,telegram:{call:async(_b,method,args)=>{if(method==='editMessageText'){edits.push(args);return {...stored,rich_message:args.rich_message};}return true;}},agent:{run:async(_s,events)=>batches.push(events)}});
+  t.after(async()=>{c.close();await c.idle();db.close();});
+  await c.receive('b',{callback_query:{id:'click',from:{id:1,first_name:'Owner'},message:stored,data:'[g]a'}});await c.idle();
+  assert.equal(batches[0][0].text,'🙂 Choose');assert.equal(batches[0][0].key,'a');
+  const rendered=edits[0].rich_message.blocks[0].buttons[0];assert.deepEqual(rendered.text,['✅ ',emoji,{type:'bold',text:' Choose'}]);assert.deepEqual(rendered.disabled,{});
+});
+
 test('full queue rejects a grouped click without consuming the choice; accepted choice is one-shot', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-buttons-')), db = openDatabase(path.join(root, 'db.sqlite'));
   db.registerBot({ botId: 'b', telegramId: 42, username: 'bot', ownerId: 1 });

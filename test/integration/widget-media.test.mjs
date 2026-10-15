@@ -8,6 +8,11 @@ import {
   cacheWidgetMedia,
 } from "../../src/widgets/media.mjs";
 import { BotFiles } from "../../src/files/paths.mjs";
+test('widget raw file IDs pass through without consulting a provenance registry',()=>{
+  const value={sticker:'external-file-id'};
+  const result=prepareWidgetMedia(value,{files:{},cache:new Map(),approveFile:()=>assert.fail('Provenance checks have been removed')});
+  assert.deepEqual(result.value,value);assert.equal(result.uploads.length,0);
+});
 test("nested request path maps exact file ID, cache reorders safely and changed files upload again", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "widget-media-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -17,7 +17,7 @@ import { Lifecycle } from './agents/lifecycle.mjs';
 import { createAccess, roles } from './access/scope.mjs';
 import { createHistory, readableDates } from './agents/history.mjs';
 import { createMessages } from './messages/actions.mjs';
-import { buttons, closeButtons, parseCallback, permitsAllow, richInput } from './messages/callbacks.mjs';
+import { buttons, buttonText, closeButtons, parseCallback, permitsAllow, richInput } from './messages/callbacks.mjs';
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -447,7 +447,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
             db.saveMessage(botId, typeof result === 'object' ? result : changed,undefined,{observeChat:false});
           } catch (error) { onError(error); }
         }
-        queue.enqueue(a.agentId, { eventType: 'button', messageId: m.message_id, ...(buttonTopic===null?{}:{topicId:buttonTopic}), from: { userId: cb.from.id, name: [cb.from.first_name, cb.from.last_name].filter(Boolean).join(' '), ...(cb.from.username ? { username: cb.from.username } : {}) }, key: parsed.key, ...(parsed.group ? { btnGroup: parsed.group } : {}), text: (button.text ?? '').replace(/^(⬜️?|⬛️?|✅)\s*/u, '') }, 'chat');
+        queue.enqueue(a.agentId, { eventType: 'button', messageId: m.message_id, ...(buttonTopic===null?{}:{topicId:buttonTopic}), from: { userId: cb.from.id, name: [cb.from.first_name, cb.from.last_name].filter(Boolean).join(' '), ...(cb.from.username ? { username: cb.from.username } : {}) }, key: parsed.key, ...(parsed.group ? { btnGroup: parsed.group } : {}), text: buttonText(button.text).replace(/^(⬜️?|⬛️?|✅)\s*/u, '') }, 'chat');
         return;
       }
       if (update.my_chat_member) {

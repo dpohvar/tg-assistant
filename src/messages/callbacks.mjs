@@ -18,6 +18,32 @@ export function buttons(value, out = []) {
   for (const v of Object.values(value)) if (v && typeof v === 'object') buttons(v, out);
   return out;
 }
+// RichText may be a string, an array, or a nested formatted text node.
+export function buttonText(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(buttonText).join('');
+  if (!value || typeof value !== 'object') return '';
+  if (value.type === 'custom_emoji') return value.alternative_text ?? '';
+  return buttonText(value.text);
+}
+function selectionMarker(value, selected) {
+  let first = true;
+  const visit = item => {
+    if (!first) return item;
+    if (typeof item === 'string') {
+      if (!item.length) return item;
+      first = false;
+      return item.replace(/^(⬜️?|⬛️?|✅)/u, selected ? '✅' : '⬛️');
+    }
+    if (Array.isArray(item)) return item.map(visit);
+    if (item && typeof item === 'object') {
+      if (item.type === 'custom_emoji' || item.text === undefined) { first = false; return item; }
+      return { ...item, text: visit(item.text) };
+    }
+    return item;
+  };
+  return visit(value);
+}
 export function closeButtons(message, group, selected) {
   const copy = structuredClone(message);
   for (const button of buttons({ rich: copy.rich_message, keyboard: copy.reply_markup })) {
@@ -25,7 +51,7 @@ export function closeButtons(message, group, selected) {
     const wasSelected = button.callback_data === selected;
     delete button.callback_data;
     button.disabled = {};
-    if (/^(⬜️?|⬛️?|✅)/u.test(button.text ?? '')) button.text = (wasSelected ? '✅' : '⬛️') + button.text.replace(/^(⬜️?|⬛️?|✅)/u, '');
+    button.text = selectionMarker(button.text, wasSelected);
   }
   return copy;
 }

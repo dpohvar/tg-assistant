@@ -26,7 +26,6 @@ export function createWidgetRenderer({
   telegram,
   filesFor,
   authorize,
-  approveFile = () => {},
   journal = () => {},
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
@@ -93,7 +92,6 @@ export function createWidgetRenderer({
       const prepared = prepareWidgetMedia(authored, {
         files: filesFor(scope),
         cache,
-        approveFile: (id) => approveFile(scope, id, w),
       });
       const renderHash = hash([authored, prepared.signatures]);
       if (w.message && w.renderHash === renderHash) return w.message;

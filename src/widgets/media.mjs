@@ -17,7 +17,7 @@ const mediaRoles = new Set([
 const at = (v, p) => p.reduce((o, k) => o?.[k], v);
 export function prepareWidgetMedia(
   input,
-  { files, cache, approveFile = () => {} },
+  { files, cache },
 ) {
   const value = structuredClone(input),
     uploads = [],
@@ -38,7 +38,6 @@ export function prepareWidgetMedia(
           "invalid_argument",
           "Use file:path for managed uploads.",
         );
-      approveFile(src);
       return src;
     }
     let key = `${role}:${src}`,
