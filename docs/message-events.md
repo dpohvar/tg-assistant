@@ -106,7 +106,7 @@ An edit first updates saved history. If its message is queued, its pending short
 }
 ```
 
-For `replyTo:75`, first read **outer message 81** and inspect its one-level `reply_to_message`. Telegram can include the quoted original even when message 75 no longer exists as a separate record. `read({messageIds:[75]})` may return `{messageId:75,error:"message_not_found",description:...}` while the outer read still contains the content. Do not claim the reply is unavailable until checking both. File provenance can also reference the outer message containing the embedded file.
+For `replyTo:75`, first read **outer message 81** and inspect its one-level `reply_to_message`. Telegram can include the quoted original even when message 75 no longer exists as a separate record. `read({messageIds:[75]})` may return `{messageId:75,error:"message_not_found",description:...}` while the outer read still contains the content. Do not claim the reply is unavailable until checking both. File IDs discovered in an embedded original can be downloaded or reused directly without source declarations.
 
 `history({messageId:null,from:-20,to:0})` returns the latest twenty saved messages in ascending order, as short objects. A concrete anchor counts offsets relative to that saved message; `to` is exclusive. `search` returns short objects newest first and a signed continuation cursor when needed. Neither requests historical messages from Telegram. See [agent-contract.md](agent-contract.md) for discussion filters and cursor rules.
 

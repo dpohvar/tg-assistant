@@ -114,7 +114,7 @@ export function render() {
     <tg-emoji emoji-id="CUSTOM_EMOJI_ID">🙂</tg-emoji> Choose
   </button></buttons>;
 }
-export function choose(ctx) { ctx.api.notify_agent({text: "Emoji chosen"}); }
+export async function choose(ctx) { await ctx.api.notify_agent({text: "Emoji chosen"}); }
 ```
 
 The native rich button retains its RichText/custom emoji structure. Ordinary model-agent callback events present a readable label with emoji alternative text; grouped closure preserves the rendered emoji. Model agents can discover/create/edit sticker sets through the [sticker-set tools](agent-contract.md#sticker-sets-and-custom-emoji-sets), then put member IDs in widget state or handler files. These management tools are not part of `ctx.api`. Telegram custom emoji permissions still apply; see [messaging](messaging.md#sticker-sets-and-custom-emoji).

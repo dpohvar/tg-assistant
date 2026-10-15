@@ -41,12 +41,12 @@ test('media reuse still rejects undeclared uploads, secret URLs and unauthorized
   await assert.rejects(messages.send(scope,{chatId:9,sticker:'external-file'}),/denied/);
 });
 
-test('grouped RichText button labels retain custom emoji and nested formatting after selection', () => {
+test('grouped RichText button labels retain custom emoji and nested date/time text after selection', () => {
   const emoji={type:'custom_emoji',custom_emoji_id:'123',alternative_text:'🙂'};
-  const label={type:'bold',text:['⬜️ ',emoji,' Choose']};
+  const label={type:'date_time',unix_time:1792051200,date_time_format:'DT',text:['⬜️ ',emoji,' Choose']};
   const message={rich_message:{blocks:[{type:'buttons',buttons:[{text:label,callback_data:'[g]a'},{text:['⬜️ ',emoji,' Other'],callback_data:'[g]b'}]}]}};
   const result=closeButtons(message,'g','[g]a');
-  assert.deepEqual(result.rich_message.blocks[0].buttons[0].text,{type:'bold',text:['✅ ',emoji,' Choose']});
+  assert.deepEqual(result.rich_message.blocks[0].buttons[0].text,{type:'date_time',unix_time:1792051200,date_time_format:'DT',text:['✅ ',emoji,' Choose']});
   assert.deepEqual(result.rich_message.blocks[0].buttons[1].text,['⬛️ ',emoji,' Other']);
   assert.equal(message.rich_message.blocks[0].buttons[0].text.text[0],'⬜️ ');
 });
