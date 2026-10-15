@@ -28,7 +28,39 @@ Common scope errors are `invalid_argument`, `chat_not_accessible`, `chat_not_wri
 
 `reaction` entries have required `type:string` and optional `emoji:string`, `custom_emoji_id:string`, with no extra keys. Only `react` uses this field even though the shared schemas declare it for all four action tools. Telegram rejections for these action tools are caught by the outer RPC wrapper, unlike the detailed `send`/`edit` recovery results.
 
-`file_sources` entries are `{messageId:integer!,fileId:string!,chatId?:integer}`, with no extra keys. `uploads` maps attachment names to permitted local paths. Album entries and edit `media` are InputMedia objects with required `type:string` and `media:string`; optional `caption:string`, `caption_entities:array`, `parse_mode:string`, plus native extra fields. Entity entries require `type:string`, `offset:integer`, `length:integer` and allow native extra fields.
+`file_sources` is accepted and ignored for compatibility; it is not required for Telegram file IDs. Its entries retain the schema `{messageId:integer!,fileId:string!,chatId?:integer}`. `uploads` maps attachment names to permitted local paths. Album entries and edit `media` are InputMedia objects with required `type:string` and `media:string`; optional `caption:string`, `caption_entities:array`, `parse_mode:string`, plus native extra fields. Entity entries require `type:string`, `offset:integer`, `length:integer` and allow native extra fields.
+
+## Sticker sets and custom emoji sets
+
+All model agents receive these tools. Telegram determines whether this bot can manage a set; no extra controller role check or local-catalog prerequisite applies. Sets belong to a Telegram user, while the creating bot can manage them. The default owner is the application's registered bot owner. Developer instructions can impose additional policy.
+
+| Tool | Arguments | Result and constraints |
+| --- | --- | --- |
+| `sticker_set_get` | `name:string!` | `{set:nativeStickerSet,link}`. Accepts a short name or HTTPS `t.me/addstickers/NAME` / `t.me/addemoji/NAME` link. Live full metadata, including each member's `file_id` and optional `custom_emoji_id`; no automatic downloads or registration of external sets. |
+| `sticker_sets` | None | `{sets:[{name,title,type,ownerUserId,link}],uncertain?:[sameFields]}`. Bot-wide durable local catalog of sets created through these tools. Confirmed creations are in `sets`; unconfirmed creation intents are separate. No Telegram enumeration/backfill. |
+| `sticker_set_create` | `name:string!`, `title:string!`, `type:"regular"\|"custom_emoji"!`, `stickers:array<InputSticker>!`; optional `ownerUserId:integer`, `uploads:object`, `needsRepainting:boolean` | `{status:"created",name,ownerUserId,link}`. Full short name must end `_by_<bot_username>` (case insensitive); title/name at most 64 characters. 1–50 initial stickers. `needsRepainting` only for emoji sets. Call get afterwards for native member IDs. |
+| `sticker_set_edit` | `name:string!`, `action:string!`, action fields below | `{status:"done",name}`. One operation; known recorded owner defaults before the bot owner. Explicit `ownerUserId` overrides this for applicable actions. Named-set membership is checked for file-ID-only edits. |
+| `sticker_set_delete` | `name:string!` | `{status:"deleted",name}`. Deletes the actual Telegram set and removes its local catalog record after confirmation. |
+
+Edit actions (other action fields are rejected):
+
+| `action` | Fields |
+| --- | --- |
+| `add` | `sticker:InputSticker!`, optional `ownerUserId`, `uploads` |
+| `replace` | `oldFileId:string!`, `sticker:InputSticker!`, optional `ownerUserId`, `uploads` |
+| `remove` | `fileId:string!` |
+| `move` | `fileId:string!`, `position:integer!` (zero based) |
+| `set_emojis` | `fileId:string!`, `emojiList:array<string>!` (1–20) |
+| `set_keywords` | `fileId:string!`, `keywords:array<string>!` (0–20, total 64 characters; empty clears) |
+| `set_title` | `title:string!` (1–64 characters) |
+| `set_thumbnail` (regular) | `thumbnail:string\|null!`, `format:"static"\|"animated"\|"video"!`, optional `ownerUserId`, `uploads`; null resets to first sticker |
+| `set_thumbnail` (custom emoji) | `customEmojiId:string\|null!`; ID must belong to the set; null resets to first emoji |
+
+InputSticker is `{sticker:string,format:"static"|"animated"|"video",emoji_list:[string],keywords?:[string]}`. `sticker` accepts a reusable file ID, a Telegram-supported HTTP(S) URL, or `attach://name` with a matching `uploads` entry. Static uploads can be PNG or WebP; animation is TGS and video is WebM. Telegram validates dimensions, encoding, sizes and capacities; animated/video uploads generally require multipart rather than HTTP URLs. Local uploads retain the existing path restrictions. There is no controller renderer or separate upload-sticker tool. See [creation and usage examples](messaging.md#sticker-sets-and-custom-emoji).
+
+Validation failures return `invalid_argument`; unavailable/disallowed local paths return `file_unavailable`. Telegram rejections return `telegram_api_error` with a sanitized description. `delivery_unknown` includes `name`: inspect that set before repeating a mutation. Create intent is persisted before the network call; unknown outcomes remain in `uncertain` across restart. A read does not prove who created a set and does not silently promote uncertainty. Repeated create calls for a recorded name are refused. A confirmed mutation followed by catalog failure returns `storage_failed`, `applied:true`, `name`: do not repeat it. Failure to store an intent returns `storage_failed`, `applied:false` without attempting creation. A rejected creation whose intent cannot be removed also returns `storage_failed`, `applied:false` and retains the uncertain record.
+
+Catalog titles/types are cached; get refreshes confirmed entries and title edits update them. External changes/deletions are not polled. Agent reset/deletion does not remove catalog entries; bot removal removes local entries without deleting Telegram sets. Store descriptions/semantic notes in agent files if useful. Inspect selected members using `download` or `download_custom_emoji` only when needed.
 
 ## Saved history and notes
 

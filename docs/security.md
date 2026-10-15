@@ -34,7 +34,9 @@ The public-page `browser_read` tool has a narrower policy: HTTP(S), public addre
 
 `user_photos` returns Telegram profile-photo metadata; availability is subject to Telegram privacy settings and API behavior. `download` accepts any file ID accessible using this bot's token, without a message/source registry. This is an intentional simplification. Agents must not disclose private file IDs or downloaded contents. File IDs are bot-specific; knowing an ID does not grant access to a different bot's token.
 
-Widget media IDs must likewise come from readable saved messages or owned widget projections; otherwise download to owner files and use `file:path`. Reusing file IDs in outgoing messages is a different operation: `file_sources` proves provenance in readable stored messages, including one-level embedded replies. See [messaging](messaging.md).
+Outgoing message, edit and widget media file IDs are passed directly to Telegram without checking their history/provenance. `file_sources` is accepted and ignored for compatibility. Telegram checks whether the bot can use the file. Chat publication permissions, local-file restrictions and rejection of secret-bearing Telegram URLs still apply. See [messaging](messaging.md).
+
+All model agents can inspect/create/edit/delete regular sticker sets and custom emoji sets, including sets managed for a specified user. There is no extra controller role gate; bot developer instructions may impose policy, and Telegram enforces management rights. The bot-wide local catalog exposes set names, titles, types, owner user IDs and links, without any agent attribution or private chat history. Reading an external set grants no chat access and does not register it.
 
 ## Vault and other credentials
 

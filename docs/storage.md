@@ -6,14 +6,20 @@ The service separates controller state from each bot's shared workspace. Paths a
 
 | Location | Contents |
 |---|---|
-| `dataDir/controller.sqlite` | Bots, roles, chats, agent records, history, task firings, vault, and MCP configuration |
+| `dataDir/controller.sqlite` | Bots, roles, chats, agent records, history, task firings, vault, MCP configuration, widgets and sticker-set catalog |
 | `dataDir/secrets/` | Bot tokens, Git tokens, and the search-cursor signing key |
 | `dataDir/rules/BOT_ID/AGENTS.md` | Administrator-managed rules supplied to every agent of that bot |
 | `botsDir/BOT_ID/` | Shared permanent files and optional Git repository |
 | `botsDir/BOT_ID/.temp/AGENT_ID/` | One agent's temporary files |
 | `codexHome/` | CLI authorization, runtime sessions, and generated-image sources |
 
-SQLite uses WAL and foreign keys. Current schema version is 13. The additive upgrade adds widget registrations, durable queues and saved state/message projections without removing agent, usage or secret data. Earlier upgrades backfilled forum affiliation and observed topic metadata without changing native message JSON. Topic registry entries survive message retention and mode changes; chat deletion cascades them. Pending scheduler firings are durable; ordinary agent event queues and controller WebSocket records are not. Widgets retain waiting durable reply/reaction/poll/external events independently of ordinary message history; in-flight work, button events and local runtime data are not replayed. Migrations occur transactionally before polling and reject a database from a newer application version.
+SQLite uses WAL and foreign keys. Current schema version is 14. The additive upgrade adds the per-bot sticker-set catalog without changing existing widgets, agents, usage or secrets. Earlier upgrades added widgets and backfilled forum affiliation and observed topic metadata without changing native message JSON. Topic registry entries survive message retention and mode changes; chat deletion cascades them. Pending scheduler firings are durable; ordinary agent event queues and controller WebSocket records are not. Widgets retain waiting durable reply/reaction/poll/external events independently of ordinary message history; in-flight work, button events and local runtime data are not replayed. Migrations occur transactionally before polling and reject a database from a newer application version.
+
+## Sticker-set catalog
+
+`sticker_sets` stores bot ID, case-insensitive set name, cached title/type, Telegram owner user ID and confirmed/uncertain creation status. It has no agent ID, semantic labels, downloaded bytes or expiry. All model agents of the same bot share it; deleting/resetting an agent does not remove it. Bot deletion cascades local records without deleting remote Telegram sets.
+
+Creation saves an uncertain intent before calling Telegram and confirms it after success. A lost confirmation remains visible separately in `sticker_sets().uncertain`; it is not automatically retried or promoted by a read. Confirmed Telegram rejection removes the intent. Confirmed set deletion removes the catalog entry; failed or unknown deletion retains it. Confirmed title edits and live reads refresh cached metadata. Telegram has no Bot API method to enumerate all sets a bot created, so old/external sets remain accessible through `sticker_set_get` by name/link but are not imported into this catalog. See the [tool contract](agent-contract.md#sticker-sets-and-custom-emoji-sets).
 
 ## Message history
 

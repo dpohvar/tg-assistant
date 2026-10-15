@@ -104,7 +104,20 @@ Rich JSX supports native HTML-style formatting, `details`/`summary`, lists, figu
 
 Native creation-only content cannot be changed by rerendering (for example poll/dice/venue/contact). Their keyboards remain editable. Poll closing and live-location stopping use explicit methods. Media/text/rich conversions are passed to Telegram on the same message ID; unsupported edits return errors without delete/resend. Omitted editable caption/keyboard clears it. The [native field inventory](dev/react-message-render-fields.md) and [conversion evidence](dev/widget-type-conversions.md) describe relevant Telegram limits.
 
-Media sources are file IDs, `file:relative/path`, or supported HTTP(S) URLs. Owner file paths reject traversal/symlink escapes. Widget-local RAM cache keys include role, path, mtime and size; changed files upload again. URLs use exact source equality. Returned native IDs are associated by exact media paths; ambiguous rich responses fail instead of guessing. Thumbnails upload fresh. Restart may upload again, so retain durable source files outside `.temp`. Never put secrets in state, media URLs displayed to users, messages or notifications.
+Media sources are file IDs, `file:relative/path`, or supported HTTP(S) URLs. File IDs need no history/provenance registration; Telegram checks their usability. Owner file paths reject traversal/symlink escapes, and secret-bearing Telegram URLs are forbidden. Widget-local RAM cache keys include role, path, mtime and size; changed files upload again. URLs use exact source equality. Returned native IDs are associated by exact media paths; ambiguous rich responses fail instead of guessing. Thumbnails upload fresh. Restart may upload again, so retain durable source files outside `.temp`. Never put secrets in state, media URLs displayed to users, messages or notifications.
+
+Custom emoji work in ordinary text JSX and rich button labels using `<tg-emoji emoji-id="CUSTOM_EMOJI_ID">🙂</tg-emoji>`:
+
+```tsx
+export function render() {
+  return <buttons><button callback_data="choose">
+    <tg-emoji emoji-id="CUSTOM_EMOJI_ID">🙂</tg-emoji> Choose
+  </button></buttons>;
+}
+export function choose(ctx) { ctx.api.notify_agent({text: "Emoji chosen"}); }
+```
+
+The native rich button retains its RichText/custom emoji structure. Ordinary model-agent callback events present a readable label with emoji alternative text; grouped closure preserves the rendered emoji. Model agents can discover/create/edit sticker sets through the [sticker-set tools](agent-contract.md#sticker-sets-and-custom-emoji-sets), then put member IDs in widget state or handler files. These management tools are not part of `ctx.api`. Telegram custom emoji permissions still apply; see [messaging](messaging.md#sticker-sets-and-custom-emoji).
 
 ## Disabled, deleted and recovery
 

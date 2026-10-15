@@ -10,7 +10,7 @@ Agents publish through controller tools; their final Codex text is internal. The
 | --- | --- | --- |
 | `text` | `sendMessage` | String; optional `entities` or `parse_mode` |
 | `rich_message` | `sendRichMessage` | Native rich input, normally an object with `blocks`, `html` or `markdown` |
-| `photo`, `video`, `document`, `animation`, `audio`, `voice`, `sticker`, `video_note` | Matching `sendPhoto`, `sendVideo`, `sendDocument`, `sendAnimation`, `sendAudio`, `sendVoice`, `sendSticker`, `sendVideoNote` | URL, proved Telegram file ID or `attach://name` string |
+| `photo`, `video`, `document`, `animation`, `audio`, `voice`, `sticker`, `video_note` | Matching `sendPhoto`, `sendVideo`, `sendDocument`, `sendAnimation`, `sendAudio`, `sendVoice`, `sendSticker`, `sendVideoNote` | URL, reusable Telegram file ID or `attach://name` string |
 | `media` | `sendMediaGroup` | Array of native InputMedia objects |
 | `location`, `venue`, `contact`, `poll`, `dice` | Matching native send method | Object whose fields are flattened into Telegram request |
 
@@ -50,27 +50,61 @@ await send({
 
 The controller reads these local paths and creates multipart uploads. It rejects paths outside the permitted area, hidden components, symlinks and other agents' temp. Albums cannot include `reply_markup` or `permits`; send a separate button message. Media entries use native InputMedia `{type,media,...}`, not bare strings or invented `image`, `source` or `url` blocks.
 
-Prefer reusing recently sent files rather than uploading the same bytes. Read a saved **outer message**, extract its native `file_id`, use the ID as the media reference and declare its provenance:
+Reuse known native `file_id` values directly instead of uploading the same bytes. IDs may come from messages, sticker sets or another bot-token-accessible source:
 
 ```javascript
 await send({
   document: "KNOWN_FILE_ID",
-  caption: "The same report",
-  file_sources: [{messageId: 105, fileId: "KNOWN_FILE_ID"}]
+  caption: "The same report"
 });
 await send({
   rich_message: {blocks: [
     {type: "photo", photo: {type: "photo", media: "KNOWN_PHOTO_ID"}, caption: {text: "Reused image"}}
-  ]},
-  file_sources: [{chatId: -100123, messageId: 106, fileId: "KNOWN_PHOTO_ID"}]
+  ]}
 });
 ```
 
-No upload is needed for reuse. Every checked Telegram file ID must be found recursively inside an accessible saved source message; the outer record can contain the file in `reply_to_message`. A naked ID, a mismatching ID, an expired/deleted outer record or an inaccessible source produces `file_not_accessible`. Supply `chatId` only when the source is another readable chat. `file_unique_id` is not a reusable send ID.
+No upload or saved source proof is required. `file_sources` is accepted and ignored for compatibility. Telegram decides whether the current bot can use the file. `file_unique_id` is not a reusable send ID. Publication still requires write access to the destination chat.
 
-HTTP(S) media URLs are allowed as references, but token-bearing Telegram API/file URLs are rejected. `attach://name` requires a matching declaration. The current provenance walker recognizes ordinary media fields, album InputMedia and rich photo/video/audio/document/animation fields; do not rely on it as complete semantic validation of every nested native rich field. Telegram still validates media availability and shape.
+HTTP(S) media URLs are allowed as references, but token-bearing Telegram API/file URLs are rejected. `attach://name` requires a matching declaration. Telegram validates media availability and shape.
 
-`download({fileIds:[...]})` has a different contract: it downloads IDs accessible with this bot's token without requiring `file_sources` or message proof. Results contain a permitted local `path` or per-file `file_unavailable`. Downloads are cached in own temp by ID hash. Keep private files and IDs confidential. A downloaded file can be uploaded through `attach://`, subject to the authorization for the publication itself.
+`download({fileIds:[...]})` downloads IDs accessible with this bot's token without requiring message proof. Results contain a permitted local `path` or per-file `file_unavailable`. Downloads are cached in own temp by ID hash. Keep private files and IDs confidential. A downloaded file can be uploaded through `attach://`, subject to the authorization for the publication itself.
+
+## Sticker sets and custom emoji
+
+Use `sticker_set_get({name:"https://t.me/addemoji/EXAMPLE"})` to inspect a set's live metadata. Each returned Sticker has `file_id`; emoji members also have `custom_emoji_id`. Use `download` or `download_custom_emoji` for selected members when their artwork or motion matters. Reading a set does not automatically download it or add it to the local catalog. Descriptions can be kept in agent files.
+
+Create a regular sticker set from a permitted PNG file (replace the suffix with the current bot username):
+
+```javascript
+await sticker_set_create({
+  name: "Faces_by_example_bot",
+  title: "Faces",
+  type: "regular",
+  stickers: [{sticker: "attach://face", format: "static", emoji_list: ["🙂"]}],
+  uploads: {face: "wiki/stickers/face.png"}
+});
+const result = await sticker_set_get({name: "Faces_by_example_bot"});
+await send({sticker: result.set.stickers[0].file_id});
+```
+
+Static means a single image; both PNG and WebP can be uploaded to a set. Regular static stickers need one side exactly 512px and the other at most 512px; static custom emoji need exactly 100×100px. For custom emoji choose `type:"custom_emoji"`; `ownerUserId` can create the set for a particular user, otherwise the registered bot owner is used. TGS animations use `format:"animated"`; VP9 WebM uses `format:"video"`. Telegram enforces the full [sticker requirements](https://core.telegram.org/stickers). Direct `send({sticker:...})` local file uploads follow sendSticker's WebP/TGS/WebM contract, so use the returned file ID to send a PNG-backed set member.
+
+Send a custom emoji in ordinary text with a native entity, or in a rich button using RichText:
+
+```javascript
+await send({text: "🙂", entities: [
+  {type: "custom_emoji", offset: 0, length: 2, custom_emoji_id: "CUSTOM_EMOJI_ID"}
+]});
+await send({rich_message: {blocks: [{type: "buttons", buttons: [{
+  text: [{type: "custom_emoji", custom_emoji_id: "CUSTOM_EMOJI_ID", alternative_text: "🙂"}, " Choose"],
+  callback_data: "choose"
+}]}]}});
+```
+
+Entity offsets/lengths use UTF-16 code units; keep IDs as strings. Telegram's [custom emoji permission rules](https://core.telegram.org/bots/api#formatting-options) apply: the bot needs an additional Fragment username, or its BotFather owner must have Premium for messages directly sent to private/group/supergroup chats. The application's registered bot owner may be a different user. The controller passes custom emoji through and Telegram determines availability.
+
+Use `sticker_sets({})` for the controller's durable per-bot catalog, and `sticker_set_edit` / `sticker_set_delete` for changes. The [full contract](agent-contract.md#sticker-sets-and-custom-emoji-sets) lists each operation, owner defaults, thumbnail reset and recovery behavior. External sets are usable by name/link without local registration; Telegram checks which sets this bot may edit.
 
 Native generated images must first be registered by the Codex image-generation event, then copied with `save_image({savedPath,dir?})`. Generate and save sequentially in one JavaScript block; print only the saved path. Default destination is `.temp/<agentId>/upload`; use a `wiki/...` directory for durable assets. Temp expires after 24 hours. See [storage.md](storage.md).
 
@@ -130,7 +164,7 @@ Thinking blocks, `sendRichMessageDraft`, streaming drafts and inline-query handl
 
 ## Editing
 
-`edit` requires a saved original. Native type conversions are attempted in place and accepted or rejected by Telegram; the controller never replaces the message automatically. Supplied components replace their complete component; it is not a patch to a nested rich document. Omit a component to leave it unchanged. For a rich replacement, read first, preserve needed media as InputMedia file IDs with `file_sources`, and supply the full replacement rich content.
+`edit` requires a saved original. Native type conversions are attempted in place and accepted or rejected by Telegram; the controller never replaces the message automatically. Supplied components replace their complete component; it is not a patch to a nested rich document. Omit a component to leave it unchanged. For a rich replacement, read first, preserve needed media as InputMedia file IDs, and supply the full replacement rich content.
 
 ```javascript
 await edit({messageId: 110, text: "Updated text", entities: [{type: "bold", offset: 0, length: 7}]});
@@ -195,7 +229,7 @@ Permits are local controller state, not native Telegram access control. They are
 | --- | --- |
 | `{messageIds}` / successful edit components | Telegram confirmed the action and normal local persistence completed. |
 | `invalid_argument` | Invalid content combination/type or unsupported transfer option; correct the request. |
-| `file_not_accessible` | Media reference lacks accessible saved provenance or declared upload; correct source declarations. |
+| `file_not_accessible` | Media reference uses a secret-bearing Telegram URL or lacks a declared upload; correct the reference. |
 | `message_not_found` | Edit lacks saved original; do not guess its type. |
 | `telegram_api_error` | Telegram rejected the request; sanitized API description (up to 1,000 characters) identifies the issue. |
 | `telegram_failed` / other Telegram error code | Request rejected/failed; inspect fields and permissions before retrying. |
