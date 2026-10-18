@@ -58,6 +58,7 @@ test("chat migration preserves widget publication, projection and backlog", (t) 
       description: "Fixture",
       message: { message_id: 7, chat: { id: -1, type: "group" }, text: "Keep" },
     });
+  const view=store.createView(w,{target:{chatId:-1,messageId:7},message:{message_id:7,chat:{id:-1,type:'group'},text:'Keep'}});
   store.admit(w, {
     name: "onReply",
     source: "reply",
@@ -67,8 +68,8 @@ test("chat migration preserves widget publication, projection and backlog", (t) 
   });
   db.migrateChat("b", -1, { id: -1001, type: "supergroup", title: "New" });
   const next = store.get(w.widgetId);
-  assert.equal(next.chatId, -1001);
-  assert.equal(next.message.chat.id, -1001);
+  assert.equal(store.getView(view.id).target.chatId, -1001);
+  assert.equal(store.getView(view.id).message.chat.id, -1001);
   assert.equal(next.pending, 1);
   assert.equal(store.head(next).event.data.chat.id, -1001);
 });
@@ -78,7 +79,7 @@ test("read falls back to durable widget projection without restoring ordinary hi
   db.saveChat("b", { id: 1, type: "private", first_name: "Owner" });
   const a = db.ensureAgent("b", 1),
     store = createWidgetStore(db);
-  store.create({
+  const w=store.create({
     botId: "b",
     agentId: a.agentId,
     chatId: 1,
@@ -93,6 +94,7 @@ test("read falls back to durable widget projection without restoring ordinary hi
       text: "Long lived",
     },
   });
+  store.createView(w,{target:{chatId:1,messageId:7},message:{message_id:7,date:1,chat:{id:1,type:'private'},text:'Long lived'}});
   const c = createController({
     db,
     widgetService: {

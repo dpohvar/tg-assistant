@@ -26,6 +26,10 @@ The master bot manages child registrations. It has no conversational agent. Only
 
 `RANGE` is a positive one-based position `N` or inclusive `FROM-TO`; omitted means the first 10. Bots sort by numeric Telegram bot ID. Lists show `FROM-TO / TOTAL`, then username, bot ID and owner ID; IDs use code formatting. Bot lookup is case-insensitive and accepts a name with or without `@`. Replies, argument formatting and errors follow the [command syntax](commands.md#syntax-formatting-and-help); no pre blocks are accepted here.
 
+## Inline preview fallback
+
+The master's Telegram profile photo is the fallback for a child bot without an available avatar in the first [inline drum](inline.md#pagination-and-lifetime) item. Set it using Telegram's normal bot profile controls; no controller command or photo message is required. Each child obtains the master's profile photo through its own token, without downloading or reuploading it. An available child avatar takes priority. If neither profile photo is available, the ordinary drum remains usable with the known Desktop preview limitation. Profile changes can take up to five minutes to appear because lookups are cached. Sending a photo to the master does not configure this fallback.
+
 ## Registration and ownership
 
 Create a Telegram bot and obtain its token through BotFather, then send `/bot add TOKEN [OWNER_ID]` to the master. The controller validates token syntax and probes `getMe`. The master itself and already registered bots cannot be registered as children. Without `OWNER_ID`, the command sender becomes owner. Owner IDs must be positive safe integers; prior child-bot authorization is not required.

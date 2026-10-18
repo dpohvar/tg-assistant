@@ -22,7 +22,10 @@ The original documentation was preserved under `archive/` during the wiki reorga
 | Historical standalone probes | [Probe scripts](tools/index.md) |
 | Example bot rules | [Minion](examples/Agents_Minion.md): an English AGENTS.md template for a personal and group assistant |
 | Wiki validation | [check-wiki.mjs](check-wiki.mjs): run `node docs/dev/check-wiki.mjs` from the repository |
+| Inline agent / shared widget views | [Accepted design](inline-agent-concept.md), [execution plan](plans/2026-10-18-inline-agent-widget-views.md), [verification](inline-widget-verification.md), [completion review](inline-agent-widget-views-completion.md), [calibration](inline-calibration-results.md), [native media matrix](inline-media-matrix-verification.md), [unchanged Wordle migration](wordle-migration-verification.md) |
 
 New development documents may be written in any language. Preserve historical evidence rather than rewriting it to claim newer behavior. Keep executable tests in `test/`; untracked local runtime files and credentials do not belong in this archive.
 
 The legacy standalone probes were copied from the original development checkout so they are preserved in the repository. Its local originals were left intact. Personal bot-rule files remain excluded; the Minion template is a separately adapted, reusable example. Active application tests remain in `test/`; legacy probe copies are archival artifacts, not required service dependencies.
+
+- [Unknown-destination inline reply/reaction control](inline-unknown-events-verification.md)

@@ -20,52 +20,40 @@ export interface WidgetEvent {
     | "poll_answer"
     | "agent"
     | "widget"
-    | "local";
+    | "local"
+    | "view_delete";
   receivedAt: string;
   delayed: boolean;
   /** For button events: the original Telegram CallbackQuery; data.data is the full callback_data. */
   data: unknown;
   user?: Record<string, unknown>;
   fromWidgetId?: string;
+  view?: WidgetView;
+  reason?: "message_deleted"|"message_not_found"|"access_lost";
   respond?: (
     answer?: string | { text?: string; showAlert?: boolean } | null,
   ) => Promise<void>;
 }
-export interface SetWidget {
-  widgetId?: string;
-  messageId?: number;
-  chatId?: number;
-  handler?: string;
-  description?: string;
-  state?: State;
-  topicId?: number;
-  reply_parameters?: Record<string, unknown>;
-  disable_notification?: boolean;
-  protect_content?: boolean;
-  message_effect_id?: string;
-}
+export type WidgetTarget = {chatId:number;messageId:number} | {inlineMessageId:string};
+export interface WidgetView {readonly id:string;readonly target:Readonly<WidgetTarget|{chatId:number}>;readonly props:Readonly<Record<string,JSONValue>>;}
 export interface WidgetAPI {
-  set_widget(
-    args: SetWidget,
-  ): Promise<{ widgetId: string; chatId: number; messageId: number | null }>;
-  delete_widget(args: { widgetId: string }): Promise<void>;
-  widgets(args?: {}): Promise<{
-    canCreate: number;
-    items: Record<string, unknown>[];
-  }>;
-  widget_state(args: { widgetId: string }): Promise<State>;
-  widget_event(args: {
-    widgetId: string;
-    name: string;
-    data?: JSONValue;
-  }): Promise<void>;
-  render_widget(args: { widgetId: string; state?: State }): Promise<void>;
-  notify_agent(args: { text: string }): Promise<void>;
-  [method: string]: (args: any) => Promise<any>;
+  create_widget(args:{handler:string;description:string;state?:State}):Promise<{widgetId:string}>;
+  update_widget(args:{widgetId:string;handler?:string;description?:string;state?:State}):Promise<{widgetId:string;renderErrors?:{viewId:string;code:string;message:string}[]}>;
+  set_widget_view(args:{widgetId:string;props?:Record<string,JSONValue>;send?:{chatId?:number;topicId?:number;reply_parameters?:Record<string,JSONValue>;disable_notification?:boolean;protect_content?:boolean;message_effect_id?:string};target?:WidgetTarget|{messageId:number}}):Promise<{viewId:string;target:WidgetTarget}>;
+  delete_widget_view(args:{viewId:string}):Promise<void>;
+  delete_widget(args:{widgetId:string}):Promise<void>;
+  list_widgets(args?:{}):Promise<{canCreate:number;items:Record<string,unknown>[]}>;
+  get_widget(args:{widgetId:string}):Promise<Record<string,unknown>>;
+  widget_event(args:{widgetId:string;name:string;data?:JSONValue}):Promise<void>;
+  notify_agent(args:{text:string}):Promise<void>;
+  stop_poll(args:{viewId:string}|{chatId:number;messageId:number}):Promise<Record<string,unknown>>;
+  stop_live_location(args:{viewId:string}|WidgetTarget):Promise<Record<string,unknown>|boolean>;
+  [method:string]:(args:any)=>Promise<any>;
 }
 export interface WidgetContext {
   widgetId: string;
   state: State;
+  /** @deprecated There is no primary message. Use event.view or render(state,view). */
   readonly message: Record<string, any> | null;
   readonly queueInfo: { pending: number; dropped: number };
   readonly signal: AbortSignal;

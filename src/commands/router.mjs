@@ -202,6 +202,16 @@ export function createCommands(deps) {
           else throw syntaxError('Invalid vault arguments.');
           return true;
         }
+        if (section === "start" && botId !== "master" && m.chat.type === "private") {
+          if (parts.length > 1 || (parts.length === 1 && parts[0] !== "inline"))
+            throw syntaxError("Use /start or /start inline.");
+          const enabled = Boolean(db.getChat(botId, m.chat.id)?.agentEnabled && db.agent(botId, m.chat.id));
+          const username = db.getBot(botId).username;
+          await send(enabled
+            ? `Your private agent is enabled. Message it here, or start a new inline query with @${username} in the chat where you want to publish a result.`
+            : `Use /agent start to enable your private agent. Then message it here, or start a new inline query with @${username} in the chat where you want to publish a result.`);
+          return true;
+        }
         if (section === "help") {
           if (parts.length > 1) throw syntaxError("Invalid arguments.");
           const help = helpSections({

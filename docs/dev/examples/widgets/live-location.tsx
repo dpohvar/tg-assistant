@@ -24,7 +24,7 @@ export function move(ctx: WidgetContext, event) {
   ctx.state.latitude = event.data.latitude;
   ctx.state.longitude = event.data.longitude;
 }
-export async function stop(ctx: WidgetContext) {
-  await ctx.api.stop_live_location({});
+export async function stop(ctx: WidgetContext, event) {
+  await ctx.api.stop_live_location({viewId:event.view.id});
   return "Live location stopped. Further edits require a new message.";
 }

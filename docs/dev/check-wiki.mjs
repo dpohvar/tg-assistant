@@ -56,7 +56,7 @@ for (const file of markdown) {
 const contract = fs.readFileSync(path.join(docs, 'agent-contract.md'), 'utf8');
 for (const tool of dynamicTools) if (!contract.includes('`' + tool.name + '`')) fail(path.join(docs, 'agent-contract.md'), `Undocumented controller tool: ${tool.name}`);
 const widgets = fs.readFileSync(path.join(docs, 'widgets.md'), 'utf8');
-for (const tool of ['set_widget','delete_widget','widgets','widget_state','widget_event','render_widget']) if(!widgets.includes(tool)) fail(path.join(docs,'widgets.md'),'Missing widget tool '+tool);
+for (const tool of ['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','list_widgets','get_widget','widget_event']) if(!widgets.includes(tool)) fail(path.join(docs,'widgets.md'),'Missing widget tool '+tool);
 for(const example of ['pagination','consent-voting','timer','websocket-display','dice-onCreate','rich-media-update','live-location','error-repair']) if(!fs.existsSync(path.join(docs,'dev/examples/widgets',example+'.tsx'))) fail(path.join(docs,'widgets.md'),'Missing executable widget example '+example);
 const childCommands = fs.readFileSync(path.join(docs, 'commands.md'), 'utf8');
 if (/\/bot(?:\s|`)/.test(childCommands)) fail(path.join(docs, 'commands.md'), 'Master management command in child command reference');

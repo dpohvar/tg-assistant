@@ -24,9 +24,9 @@ function fixture(t) {
         chat: { id: -1, type: "supergroup" },
         text: "Widget",
       },
-      status: "disabled",
+      status: "active",
     });
-  store.patch(w, { buttonNames: ["vote"], pollId: "poll" });
+  const view=store.createView(w,{target:{chatId:-1,messageId:7},message:{message_id:7,chat:{id:-1,type:'supergroup'},text:'Widget'},buttonNames:['vote'],pollId:'poll'});
   const acks = [],
     events = [],
     manager = {
@@ -42,10 +42,11 @@ function fixture(t) {
     manager,
     telegram: { call: async (_b, _m, args) => acks.push(args) },
   });
-  return { db, store, w, route, events, acks };
+  return { db, store, w, view, route, events, acks };
 }
-test("disabled callbacks acknowledge without queueing; disabled reply is captured", async (t) => {
+test("stopped callbacks acknowledge without queueing and stopped replies are discarded", async (t) => {
   const f = fixture(t);
+  f.store.disableOwner(f.w,'test');
   assert.equal(
     await f.route("b", {
       callback_query: {
@@ -71,7 +72,7 @@ test("disabled callbacks acknowledge without queueing; disabled reply is capture
     }),
     true,
   );
-  assert.equal(f.store.get(f.w.widgetId).pending, 1);
+  assert.equal(f.store.get(f.w.widgetId).pending, 0);
 });
 test("reaction projection is latest before delayed dispatch and survives history deletion", async (t) => {
   const f = fixture(t);
@@ -92,7 +93,7 @@ test("reaction projection is latest before delayed dispatch and survives history
     },
   });
   assert.equal(
-    f.store.get(f.w.widgetId).message.reactions.counts[0].total_count,
+    f.store.getView(f.view.id).message.reactions.counts[0].total_count,
     2,
   );
 });
@@ -114,7 +115,7 @@ test("poll answers retain identities without incrementing native totals", async 
       option_persistent_ids: ["p"],
     },
   });
-  const m = f.store.get(f.w.widgetId).message;
+  const m = f.store.getView(f.view.id).message;
   assert.equal(m.poll.total_voter_count, 3);
   assert.equal(m.pollAnswers.known[0].user.id, 2);
   assert.equal(m.pollAnswers.complete, false);

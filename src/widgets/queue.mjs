@@ -10,6 +10,7 @@ export function createLocalQueue({ capacity = 1000 } = {}) {
       return items.shift();
     },
     clear() {
+      for(const item of items)item.resolve?.();
       items.length = 0;
     },
     get pending() {

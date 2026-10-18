@@ -9,6 +9,7 @@ import {
 } from "../messages/edit-plan.mjs";
 import { buttons, richInput } from "../messages/callbacks.mjs";
 import { destinationFields } from "../telegram/topics.mjs";
+import {messageAddress} from '../messages/address.mjs';
 const hash = (v) =>
   createHash("sha256").update(JSON.stringify(v)).digest("hex");
 const creationOnly = new Set([
@@ -27,6 +28,8 @@ export function createWidgetRenderer({
   filesFor,
   authorize,
   journal = () => {},
+  completeJournal = () => {},
+  saveInline = () => {},
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
   const caches = new Map();
@@ -68,12 +71,12 @@ export function createWidgetRenderer({
     }
   };
   return {
-    async publish(ref, value, envelope = {}) {
-      const w = store.current(ref),
-        scope = authorize(ref, w.chatId),
+    async publish(ref, value, envelope = {}, view) {
+      const widget = store.current(ref), w = view ? {...widget,...view} : widget,
+        scope = authorize(ref, view?view.target.chatId:w.chatId),
         normalized = normalizeRender(value);
       let authored = normalized;
-      if (w.status === "disabled") authored = disabledRender(normalized);
+      if (w.status === "stopped" || w.status === "disabled") authored = disabledRender(normalized);
       const kind = messageKind(authored);
       if (w.message && w.renderSpec) {
         const previous = w.renderSpec;
@@ -87,16 +90,17 @@ export function createWidgetRenderer({
             "This native content cannot be edited; change its keyboard or create another message.",
           );
       }
-      const cache = caches.get(w.widgetId) ?? new Map();
-      caches.set(w.widgetId, cache);
+      const cache = caches.get(view?.id ?? w.widgetId) ?? new Map();
+      caches.set(view?.id ?? w.widgetId, cache);
       const prepared = prepareWidgetMedia(authored, {
         files: filesFor(scope),
         cache,
       });
       const renderHash = hash([authored, prepared.signatures]);
-      if (w.message && w.renderHash === renderHash) return w.message;
+      if(view?.target.inlineMessageId && prepared.uploads.length)throw widgetError('invalid_argument','Inline messages require existing file IDs or public URLs; upload to a buffer chat first.');
+      if (w.message && !w.deliveryUnknown && w.renderHash === renderHash) return view?{message:w.message,target:view.target,projection:{...view}}:w.message;
       let sent = w.message;
-      if (!w.messageId) {
+      if (!w.messageId && !view?.target.inlineMessageId) {
         if (w.lifecycleIntent === "delivery_unknown")
           throw widgetError("delivery_unknown");
         const { chatId, messageId, widgetId, ...create } = envelope;
@@ -127,12 +131,13 @@ export function createWidgetRenderer({
           Object.assign(body, body[kind]);
           delete body[kind];
         }
-        sent = await call(
+        journal(ref,null,null,view);
+        try{sent = await call(
           ref,
           NATIVE_SEND[kind],
           { chat_id: w.chatId, ...topic, ...create, ...body },
           prepared.uploads,
-        );
+        );}catch(error){if(error.code==='telegram_api_error')completeJournal(ref,view?.id);throw error;}
       } else {
         const body = prepared.value;
         if (!body.reply_markup) body.reply_markup = { inline_keyboard: [] };
@@ -151,27 +156,37 @@ export function createWidgetRenderer({
         }
         if (!steps.length)
           throw widgetError("invalid_argument", "No editable native fields.");
+        journal(ref,null,null,view);
+        let edited=false;
         for (const step of steps) {
           const fieldsJSON = JSON.stringify(step.fields);
-          const result = await call(
+          let result;
+          try{result = await call(
             ref,
             step.method,
-            { chat_id: w.chatId, message_id: w.messageId, ...step.fields },
+            { ...(view ? messageAddress(view.target) : {chat_id:w.chatId,message_id:w.messageId}), ...step.fields },
             prepared.uploads.filter((u) =>
               fieldsJSON.includes("attach://" + u.name),
             ),
-          );
+          );}catch(error){
+            if(error.code==='telegram_api_error'&&!edited)completeJournal(ref,view?.id);
+            if(edited)throw Object.assign(widgetError('delivery_unknown','Only part of the edit was confirmed; inspect before repairing.'),{cause:error});
+            throw error;
+          }
+          edited=true;
           if (result && typeof result === "object") sent = result;
+          else if (view?.target.inlineMessageId)
+            sent = structuredClone(prepared.value);
           else if (step.method === "editMessageReplyMarkup")
             sent = { ...sent, reply_markup: step.fields.reply_markup };
         }
       }
-      if (!sent?.message_id)
+      if (!sent?.message_id && !view?.target.inlineMessageId)
         throw widgetError(
           "delivery_unknown",
           "Telegram did not return an identifiable Message.",
         );
-      const latest = store.current(ref).message;
+      const latest = view ? store.getView(view.id)?.message : store.current(ref).message;
       for (const k of ["reactions", "pollAnswers"])
         if (latest?.[k] !== undefined) sent = { ...sent, [k]: latest[k] };
       if (
@@ -180,9 +195,7 @@ export function createWidgetRenderer({
         latest.poll !== w.message?.poll
       )
         sent = { ...sent, poll: latest.poll };
-      try {
-        const projection = {
-          messageId: sent.message_id,
+      const projection = {
           message: sent,
           renderHash,
           renderSpec: normalized,
@@ -191,40 +204,49 @@ export function createWidgetRenderer({
             keyboard: normalized.reply_markup,
           }).map((b) => b.callback_data),
           pollId: sent.poll?.id ?? null,
-          lifecycleIntent: null,
+          deliveryUnknown:false,
         };
-        journal(ref, sent, projection);
-        store.patch(ref, projection);
+      try {
+        journal(ref, sent, projection,view);
+        if(view){
+          if(store.getView(view.id))store.patchView(ref,view.id,projection);
+          if(view.target.inlineMessageId)saveInline(ref,view.target.inlineMessageId,sent);
+        } else {
+          const {deliveryUnknown,...legacy}=projection;
+          store.patch(ref,{...legacy,messageId:sent.message_id,lifecycleIntent:null});
+        }
       } catch (e) {
         throw Object.assign(
           widgetError(
             "storage_failed",
             "Telegram confirmed publication but persistence failed; do not resend.",
           ),
-          { nativeMessage: sent, messageId: sent.message_id },
+          { nativeMessage: sent, messageId: sent.message_id,confirmedMessageId:sent.message_id },
         );
       }
       try {
-        db.saveMessage(ref.botId, sent, undefined, { observeChat: false });
+        if(!view?.target.inlineMessageId)db.saveMessage(ref.botId, sent, undefined, { observeChat: false });
       } catch {} // Durable widget projection is authoritative independently of history.
-      cacheWidgetMedia(prepared, sent, cache);
-      return sent;
+      try{if(!view?.target.inlineMessageId)cacheWidgetMedia(prepared, sent, cache);}
+      catch(error){throw Object.assign(error,{nativeMessage:sent,confirmedMessageId:sent.message_id,confirmedTarget:{chatId:w.chatId,messageId:sent.message_id}});}
+      if(view&&store.getView(view.id))completeJournal(ref,view.id);
+      return view ? {message:sent,projection,target:view.target.inlineMessageId?view.target:{chatId:w.chatId,messageId:sent.message_id}} : sent;
     },
-    async disable(ref) {
-      const w = store.get(ref.widgetId);
-      if (!w?.messageId) return;
+    async disable(ref, view) {
+      if(!view&&store.listViews){await Promise.allSettled(store.listViews(ref.widgetId).map(v=>this.disable(ref,v)));return;}
+      const widget=store.get(ref.widgetId),w=view?{...widget,...view}:widget;
+      if (!w?.messageId && !view?.target.inlineMessageId) return;
       try {
         if (w.lifecycleIntent !== "delete")
           try {
-            store.patch(ref, { renderHash: null });
+            if(view)store.patchView(ref,view.id,{renderHash:null});else store.patch(ref, { renderHash: null });
           } catch {}
         if (w.message?.rich_message) {
           const m = await call(
             ref,
             "editMessageText",
             {
-              chat_id: w.chatId,
-              message_id: w.messageId,
+              ...(view?messageAddress(view.target):{chat_id:w.chatId,message_id:w.messageId}),
               rich_message: disabledRender({
                 rich_message: richInput(w.message.rich_message),
               }).rich_message,
@@ -239,7 +261,7 @@ export function createWidgetRenderer({
             [],
             { cleanup: true },
           );
-          if (m && typeof m === "object") store.patch(ref, { message: m });
+          if (m && typeof m === "object") {if(view)store.patchView(ref,view.id,{message:m});else store.patch(ref, { message: m });}
         } else {
           const markup = disabledRender({
             reply_markup: w.message?.reply_markup ?? { inline_keyboard: [] },
@@ -248,27 +270,30 @@ export function createWidgetRenderer({
             ref,
             "editMessageReplyMarkup",
             {
-              chat_id: w.chatId,
-              message_id: w.messageId,
+              ...(view?messageAddress(view.target):{chat_id:w.chatId,message_id:w.messageId}),
               reply_markup: markup,
             },
             [],
             { cleanup: true },
           );
-          if (m && typeof m === "object") store.patch(ref, { message: m });
+          if (m && typeof m === "object") {if(view)store.patchView(ref,view.id,{message:m});else store.patch(ref, { message: m });}
         }
       } catch {}
     },
     forget(id) {
       caches.delete(id);
     },
+    confirm:completeJournal,
   };
 }
 export function disabledRender(value) {
   const copy = structuredClone(value);
-  for (const b of buttons(copy)) {
-    delete b.callback_data;
-    b.disabled = {};
-  }
+  const disable=b=>{for(const key of Object.keys(b))if(!['text','icon_custom_emoji_id','style'].includes(key))delete b[key];b.disabled={};};
+  for(const row of copy.reply_markup?.inline_keyboard??[])for(const button of row)disable(button);
+  const visit=value=>{if(!value||typeof value!=='object')return;
+    if(value.type==='button'&&value.button)disable(value.button);
+    if(value.type==='buttons'&&Array.isArray(value.buttons))for(const button of value.buttons)disable(button);
+    for(const child of Object.values(value))visit(child);
+  };visit(copy.rich_message);
   return copy;
 }

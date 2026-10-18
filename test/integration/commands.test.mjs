@@ -13,6 +13,21 @@ test('admin cannot appoint admin; command error is a reply, range accepts single
   assert.equal(db.role('b1', 3), null); assert.equal(calls[0][2].reply_parameters.message_id, 5);
   assert.deepEqual(range('5'), [4, 5]); assert.throws(() => range('five'));
 });
+
+test('private child start explains inline activation without creating or enabling an agent',async t=>{
+  const db=openDatabase(':memory:');t.after(()=>db.close());db.registerBot({botId:'b',telegramId:42,username:'test',ownerId:1});
+  const calls=[],commands=createCommands({db,config:{},setAgentState:()=>assert.fail('Start is guidance, not activation'),telegram:{call:async(_b,_m,args)=>calls.push(args)}});
+  for(const text of ['/start','/start inline']){
+    await commands.handle('b',{message_id:1,chat:{id:1,type:'private'},from:{id:1},text});
+    assert.match(calls.at(-1).text,/\/agent start/);assert.doesNotMatch(calls.at(-1).text,/Unknown command/);
+    assert.equal(db.agent('b',1),null);
+  }
+  const count=calls.length;
+  await commands.handle('b',{message_id:2,chat:{id:2,type:'private'},from:{id:2},text:'/start inline'});assert.equal(calls.length,count);
+  db.saveChat('b',{id:1,type:'private'});const a=db.ensureAgent('b',1);
+  await commands.handle('b',{message_id:3,chat:{id:1,type:'private'},from:{id:1},text:'/start inline'});
+  assert.match(calls.at(-1).text,/enabled/);assert.equal(db.agent('b',1).agentId,a.agentId);
+});
 test('leave replies in the current group before leaving it', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-leave-')), db = openDatabase(path.join(root, 'db.sqlite'));
   t.after(() => { db.close(); fs.rmSync(root, { recursive: true, force: true }); });

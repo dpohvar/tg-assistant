@@ -13,7 +13,13 @@ The service separates controller state from each bot's shared workspace. Paths a
 | `botsDir/BOT_ID/.temp/AGENT_ID/` | One agent's temporary files |
 | `codexHome/` | CLI authorization, runtime sessions, and generated-image sources |
 
-SQLite uses WAL and foreign keys. Current schema version is 14. The additive upgrade adds the per-bot sticker-set catalog without changing existing widgets, agents, usage or secrets. Earlier upgrades added widgets and backfilled forum affiliation and observed topic metadata without changing native message JSON. Topic registry entries survive message retention and mode changes; chat deletion cascades them. Pending scheduler firings are durable; ordinary agent event queues and controller WebSocket records are not. Widgets retain waiting durable reply/reaction/poll/external events independently of ordinary message history; in-flight work, button events and local runtime data are not replayed. Migrations occur transactionally before polling and reject a database from a newer application version.
+SQLite uses WAL and foreign keys. Current schema version is 16. Migration 15 splits widget state from message views, preserves old widget identities/state/source paths and known projections, converts disabled registrations to stopped and discards their backlog. Unknown first sends become separate publication candidates. Migration 16 adds inline button definitions, closed groups, owners, confirmed snapshots and queue-admission records. Upgrades run transactionally before polling; corrupt payloads roll back. A newer schema is rejected. Back up SQLite, bot files and controller-owned widget snapshots/receipts together. Old code requires the old backup, not an in-place downgrade.
+
+Ordinary model queues and inline query/ready buffers are RAM-only. Inline lifetime is one common hour; restart loses requests. Widget state, views and waiting durable reply/reaction/poll/external events survive independently of history. Stopped widgets retain no queue. In-flight work, buttons and local runtime data are not replayed. Per-view publication receipts preserve uncertainty without overwriting newer observations or retrying sends.
+
+Inline definitions last 30 days from first registration. Group tombstones prevent reopening consumed card/group combinations. Event insertion/group closure are atomic; queue marking commits before model dispatch. Marked events are not replayed. Snapshots last 30 days from the last confirmed edit; ownership is retained for recent callbacks/edits and live views. Unknown edits keep last confirmed content with uncertainty. Query text and unrequested results are not persisted in these tables.
+
+Topic registry entries survive retention/mode changes; chat deletion cascades them. Pending scheduler firings are durable and are not deleted by history retention.
 
 ## Sticker-set catalog
 

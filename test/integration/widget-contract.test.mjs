@@ -63,9 +63,8 @@ test("set selectors, descriptions and creation-only options are unambiguous", ()
   assert.doesNotThrow(() =>
     validateSetWidget({ widgetId: "w" }, { status: "disabled" }),
   );
-  assert.throws(
+  assert.doesNotThrow(
     () => validateSetWidget({ widgetId: "w" }, { status: "active" }),
-    /invalid_argument/,
   );
   assert.throws(
     () =>

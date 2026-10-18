@@ -22,6 +22,7 @@ export const HOOKS = new Set([
   "onPollAnswer",
   "onStop",
   "onError",
+  "onViewDelete",
 ]);
 export function widgetError(code, detail = code) {
   return Object.assign(new Error(`${code}: ${detail}`), { code });
@@ -115,6 +116,7 @@ export function validateWidgetEvent(event, { control = false } = {}) {
     reaction: "onReaction",
     poll: "onPoll",
     poll_answer: "onPollAnswer",
+    view_delete: "onViewDelete",
   }[event.source];
   if (
     event.name !== hook &&
@@ -131,6 +133,7 @@ export function validateWidgetEvent(event, { control = false } = {}) {
       "agent",
       "widget",
       "local",
+      "view_delete",
     ].includes(event.source) ||
     typeof event.receivedAt !== "string" ||
     !Number.isFinite(Date.parse(event.receivedAt)) ||
@@ -154,12 +157,9 @@ export function validateSetWidget(args, record) {
     throw widgetError("invalid_argument");
   const allowed = new Set([
     "widgetId",
-    "messageId",
-    "chatId",
     "handler",
     "description",
     "state",
-    ...createFields,
   ]);
   if (
     Object.keys(args).some((k) => !allowed.has(k)) ||
@@ -198,7 +198,7 @@ export function validateSetWidget(args, record) {
       "invalid_argument",
       "handler must be a path to a .ts/.tsx/.js/.jsx/.mjs/.cjs file. First write the file in the bot workspace, then pass its path; not inline source code.",
     );
-  if (!record || record.status === "active" || args.handler !== undefined) {
+  if (!record) {
     if (
       typeof args.handler !== "string" ||
       !args.handler ||
@@ -240,10 +240,7 @@ const str = { type: "string" },
   integer = { type: "integer" },
   state = { type: "object", additionalProperties: true };
 export const WIDGET_TOOL_SCHEMAS = {
-  set_widget: obj({
-    widgetId: str,
-    messageId: integer,
-    chatId: integer,
+  create_widget: obj({
     handler: {
       type: "string",
       description:
@@ -251,30 +248,26 @@ export const WIDGET_TOOL_SCHEMAS = {
     },
     description: str,
     state,
-    topicId: integer,
-    reply_parameters: state,
-    disable_notification: { type: "boolean" },
-    protect_content: { type: "boolean" },
-    message_effect_id: str,
-  }),
+  },['handler','description']),
+  update_widget:obj({widgetId:str,handler:str,description:str,state},['widgetId']),
+  set_widget_view:obj({widgetId:str,props:state,
+    send:obj({chatId:integer,topicId:integer,reply_parameters:state,disable_notification:{type:'boolean'},protect_content:{type:'boolean'},message_effect_id:str}),
+    target:obj({chatId:integer,messageId:integer,inlineMessageId:str})},['widgetId']),
+  delete_widget_view:obj({viewId:str},['viewId']),
   delete_widget: obj({ widgetId: str }, ["widgetId"]),
-  widgets: obj({}),
-  widget_state: obj({ widgetId: str }, ["widgetId"]),
+  list_widgets: obj({}),
+  get_widget: obj({ widgetId: str }, ["widgetId"]),
   widget_event: obj({ widgetId: str, name: str, data: {} }, [
     "widgetId",
     "name",
   ]),
-  render_widget: obj({ widgetId: str, state }, ["widgetId"]),
 };
 export function publicWidget(w) {
   const keys = [
     "widgetId",
     "description",
     "status",
-    "chatId",
-    "messageId",
-    "topicId",
-    "disabledReason",
+    "stoppedReason",
     "pending",
     "dropped",
   ];

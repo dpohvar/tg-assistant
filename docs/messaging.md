@@ -14,7 +14,7 @@ Agents publish through controller tools; their final Codex text is internal. The
 | `media` | `sendMediaGroup` | Array of native InputMedia objects |
 | `location`, `venue`, `contact`, `poll`, `dice` | Matching native send method | Object whose fields are flattened into Telegram request |
 
-Other declared fields include caption formatting, reply parameters, inline keyboard, local callback permits, notification/content-protection flags, `message_effect_id` and file declarations. The schema intentionally does not expose every native send option. `send` returns `{messageIds:[...]}` for a single message or album; saved returned messages can then be inspected with `read`.
+Other declared fields include caption formatting, reply parameters, inline keyboard, local callback permits, notification/content-protection flags, `message_effect_id` and file declarations. Audio sends accept `title` and `performer`; provide a nonempty title when uploading an audio buffer for cached inline reuse (see [inline mode](inline.md)). The schema intentionally does not expose every native send option. `send` returns `{messageIds:[...]}` for a single message or album; saved returned messages can then be inspected with `read`.
 
 ```javascript
 await send({text: "Hello", reply_parameters: {message_id: 81}});
@@ -160,7 +160,7 @@ await send({rich_message: {
 
 The runtime guide's RichText types include `bold`, `italic`, `underline`, `strikethrough`, `spoiler`, `subscript`, `superscript`, `marked`, `code`; `date_time` with `unix_time`/`date_time_format`; `text_mention` with native `user`; `custom_emoji` with `custom_emoji_id`/`alternative_text`; `mathematical_expression`; URL/email/phone/bank-card/mention/hashtag/cashtag/bot-command link forms; inline `button`; `anchor`, `anchor_link`, `reference` and `reference_link`. Use `rich_help.richText` for exact typed examples rather than inventing fields.
 
-Thinking blocks, `sendRichMessageDraft`, streaming drafts and inline-query handling are not exposed. Do not promise inline-query buttons work. The archived rich-message gallery is historical supplementary material; the current runtime guide and tool schemas define this project's contract.
+Thinking blocks, `sendRichMessageDraft` and streaming drafts are not exposed. [Inline queries](inline.md) use a separate result/action protocol. The archived rich-message gallery is historical supplementary material; the current runtime guide and tool schemas define this project's contract.
 
 ## Editing
 
@@ -249,4 +249,4 @@ Current behavior is in [`src/messages/actions.mjs`](../src/messages/actions.mjs)
 
 ## Programmable widgets
 
-Use [widget tools](widgets.md) when buttons or events should run code independently of model activity. Widget `render(state)` declares the full target representation. Widget callbacks use an exported action name or `action:payload`; exact `void` acknowledges a decorative button without executing a handler. Only complete current button strings are accepted, without ordinary one-use groups/permits. See the [widget callback contract](widgets.md#state-callbacks-and-observations) for payloads, reserved names and examples. Ordinary `edit` is blocked on an active widget. Native dice/poll/other creation-only content may retain its keyboard as the editable component. Widget live locations support location edits and explicit stop; albums are not a single widget.
+Use [widget tools](widgets.md) when buttons or events should run code independently of model activity. Widget `render(state,view)` declares the full representation for each of zero or more views. Widget callbacks use an exported action name or `action:payload`; exact `void` acknowledges a decorative button without executing a handler. Only complete current button strings are accepted, without ordinary one-use groups/permits. See the [widget callback contract](widgets.md#state-callbacks-and-observations) for payloads, reserved names and examples. Ordinary `edit` is blocked on any registered widget view, including stopped widgets. Ordinary addressing also rejects all via_bot edits; use the separately owned inline address where available. Native dice/poll/other creation-only content may retain its keyboard as the editable component. Widget live locations support location edits and explicit stop; albums are not a single widget.

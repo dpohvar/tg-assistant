@@ -4,7 +4,7 @@ The controller sends a JSON **array of event objects** as the text input to a Co
 
 ## Short Telegram messages
 
-Each short message starts with `eventType` (`message` or `message_edited`), `messageId` and ISO `date`. Optional `editDate` is also ISO. `from` is either `{userId,name,username?}` or `{chatId,name,username?}` for `sender_chat`; the latter takes precedence over `from`. Other common fields are `replyTo`, `authorSignature` and `albumId`.
+Each short message starts with `eventType` (`message` or `message_edited`), `messageId` and ISO `date`. Optional `editDate` is also ISO. `from` is either `{userId,name,username?}` or `{chatId,name,username?}` for `sender_chat`; the latter takes precedence over `from`. Other common fields are `replyTo`, `authorSignature` and `albumId`. Inline-bot messages include `viaBot:"username"` without @, or `true` if no username is available; the sender remains the user.
 
 Text and caption are `textPlain` and `captionPlain`, capped independently at 1,000 Unicode code points. `truncated:true` marks overflow; `hasEntities:true` marks formatting entities without transferring those entities. `inlineButtons:true` indicates a nonempty inline keyboard. Short objects intentionally omit native file IDs, full button layouts and most native metadata. Use `read` for details.
 
@@ -155,4 +155,4 @@ Forum events include `topicId` (General = 1) on short messages, edits and callba
 
 ## Widget events
 
-[Widget handlers](widgets.md) receive registered callbacks independently of model turns. Controller commands have priority over replies. An active widget with `onReply` intercepts non-command replies; without the hook, normal agent behavior applies. Disabled widgets collect replies/reactions/poll updates while callbacks are ignored. Reaction and poll projections are refreshed before handler dispatch. Failures/deletion and explicit `ctx.api.notify_agent` generate owner events; routine widget interactions do not invoke the model.
+[Widget handlers](widgets.md) receive callbacks independently of model turns. Commands take priority over replies. Active onReply hooks intercept non-command replies; otherwise normal routing applies. Stopped widgets ignore events and discard queues. Each event records its source view; reaction/poll observations update that view projection. First unhandled errors and explicit notify_agent calls notify the owner; repeated errors are latched silently. View deletion/access loss detaches only that view and optionally calls onViewDelete. [Inline request/button envelopes](inline.md) use opaque inline addresses without destination history.

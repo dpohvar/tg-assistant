@@ -11,6 +11,7 @@ test("retained publication error IDs survive both RPC directions", async (t) => 
       code: "storage_failed",
       widgetId: "w",
       confirmedMessageId: 71,
+      viewId:'v',phase:'onInit',status:'stopped',ownerAgentId:'owner',causeCode:'original',
     });
   };
   const host = await createWidgetTransport({ handle: error });
@@ -27,6 +28,7 @@ test("retained publication error IDs survive both RPC directions", async (t) => 
       (e) =>
         e.widgetId === "w" &&
         e.confirmedMessageId === 71 &&
+        e.viewId==='v'&&e.phase==='onInit'&&e.status==='stopped'&&e.ownerAgentId==='owner'&&e.causeCode==='original'&&
         e.code === "storage_failed",
     );
 });

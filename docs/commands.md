@@ -15,6 +15,7 @@ Optional arguments appear in brackets; uppercase names are placeholders. Command
 | Command | Result |
 |---|---|
 | `/help` | Argument-formatting guide and an index of available sections with descriptions |
+| `/start [inline]` | Private chat with a child bot: explain how to enable the agent and start a new inline query; does not create or enable an agent |
 | `/help SECTION` | One available section: `agent`, `task`, `chat`, `triggers`, `ws`, `mcp`, `vault`, `user`, `owner`, `rules`, `git`, `file`, or `temp` |
 
 Help is in English and follows role and chat restrictions; an unavailable or unknown section is an error. `/help SECTION` explains each available command's effects, targets, defaults, permissions and retained/deleted data. Command syntax uses code entities. Long help is sent as multiple replies, split between entries without truncation. `/help user` also explains all four roles and their inherited permissions, distinct from Telegram administrator rights. Master help is documented on [Master bot](master-bot.md).
@@ -178,4 +179,4 @@ Administrator/owner only. Filters select the owning agent, not the publication c
 | `/widget delete WIDGET_ID` | Delete registration, preserve message and notify owner |
 | `/widget delete * [agent AGENT_ID |in CHAT_ID]` | Delete registrations of current/selected owner |
 
-Disabled registrations consume quota. There are no administrator state-edit, manual disable, resume or bot-wide delete-all forms. Repair uses agent `set_widget`.
+Stopped and zero-view registrations consume quota. Lists show Owner, Pending, Views and each chatId/messageId or inline ID. Only group/channel addresses receive links; private views never do. There are no administrator state-edit, manual stop/resume or bot-wide delete-all forms. Repair uses agent `update_widget`.

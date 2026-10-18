@@ -11,7 +11,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   }
   if (m.method === 'config/read' && process.argv[2] === 'blocked-config') fs.writeFileSync(process.argv[3], 'waiting');
   if (m.method === 'initialize') { if (process.argv[2] === 'delayed-init') setTimeout(() => send({ id: m.id, result: {} }), 300); else send({ id: m.id, result: {} }); }
-  if (m.method === 'thread/start') { if (process.argv[2] === 'delayed-start') { fs.writeFileSync(process.argv[3], m.params.developerInstructions); setTimeout(() => send({ id:m.id,result:{thread:{id:'thread1'}} }), 200); } else send({ id: m.id, result: { thread: { id: 'thread1' } } }); }
+  if (m.method === 'thread/start') { if (process.argv[2] === 'delayed-start') { fs.writeFileSync(process.argv[3]+'.tmp', m.params.developerInstructions); fs.renameSync(process.argv[3]+'.tmp',process.argv[3]); setTimeout(() => send({ id:m.id,result:{thread:{id:'thread1'}} }), 200); } else send({ id: m.id, result: { thread: { id: 'thread1' } } }); }
   if (m.method === 'thread/resume') send({ id: m.id, result: { thread: { id: m.params.threadId } } });
   if (m.method === 'turn/start') { input = JSON.parse(m.params.input[0].text); send({ id: m.id, result: { turn: { id: 'turn1' } } }); send({ id: 'tool1', method: 'item/tool/call', params: { threadId: 'thread1', tool: 'send', arguments: { text: input[0].textPlain } } }); }
   if (m.id === 'tool1') {

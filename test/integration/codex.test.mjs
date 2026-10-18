@@ -33,7 +33,7 @@ for (const resume of [false,true]) test(`all controller tools register together 
  const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath,defaultTimezone:'UTC'},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs')]});
  t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
  const session=await agent.session(scope,async()=>({}));
- assert.equal(session.threadId,'thread1');assert.equal(db.agent('b',1).threadId,'thread1');
+ assert.equal(session.threadId,'thread1');assert.equal(db.agent('b',1).threadId,resume?'thread1':null);
 });
 
 test('retained widget IDs reach the model in a failed dynamic tool result',async t=>{
@@ -99,7 +99,7 @@ test('intentional session deletion classifies rejected root and steer RPC as rul
   for (const kind of ['root', 'steer']) {
     let rejectRequest, rejectDone;
     const agent = new CodexAgent({ db: { agent: () => ({ model: 'test' }) }, config: {} });
-    const s = { threadId: 'saved', turnId: kind === 'steer' ? 'active' : null, pendingChildren: new Set(), rpc: {
+    const s = { threadId: 'saved', persisted:true, turnId: kind === 'steer' ? 'active' : null, pendingChildren: new Set(), rpc: {
       request(method) { return ['turn/start', 'turn/steer'].includes(method) ? new Promise((_resolve, reject) => { rejectRequest = reject; }) : Promise.resolve({}); },
       waitFor() { return new Promise((_resolve, reject) => { rejectDone = reject; }); },
       close() { rejectRequest?.(new Error('Connection closed')); rejectDone?.(new Error('Connection closed')); },

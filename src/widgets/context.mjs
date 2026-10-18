@@ -28,6 +28,7 @@ export function createContext({
   enqueue,
   commit,
   api,
+  allowWithoutMessage = false,
 }) {
   let stopped = false,
     currentMessage = message,
@@ -65,7 +66,7 @@ export function createContext({
     },
     async render() {
       assert();
-      if (!currentMessage)
+      if (!currentMessage && !allowWithoutMessage)
         throw widgetError(
           "message_not_created",
           "Render is unavailable before first publication.",

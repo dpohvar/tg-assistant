@@ -5,13 +5,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+test('parallel builds complete and a later build restarts the released compiler',async t=>{
+  const cwd=fs.mkdtempSync(path.join(os.tmpdir(),'widget-build-idle-'));t.after(()=>fs.rmSync(cwd,{recursive:true,force:true}));
+  fs.writeFileSync(path.join(cwd,'counter.mjs'),'export function render(){return {text:"Counter"}}');
+  const options={cwd,agentId:'a',assets:cwd};
+  const batch=await Promise.all(Array.from({length:3},()=>compileWidget('counter.mjs',options)));
+  for(const item of batch)assert.match(item.code,/Counter/);
+  assert.equal((await compileWidget('counter.mjs',options)).code,batch[0].code);
+});
+
 test("missing handler gives authoring guidance instead of an unresolved dependency", async (t) => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "widget-missing-handler-"));
   t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
   await assert.rejects(
     () =>
       compileWidget("widgets/counter.tsx", { cwd, agentId: "a", assets: cwd }),
-    /Handler file.*not found.*write.*set_widget/i,
+    /Handler file.*not found.*write.*create_widget/i,
   );
 });
 test("build outputs are immutable validated snapshots with no outside assets", async () => {

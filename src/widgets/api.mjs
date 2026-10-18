@@ -19,12 +19,14 @@ export const WIDGET_API_METHODS = new Set([
   "download",
   "chats",
   "vault_get",
-  "set_widget",
+  "create_widget",
+  "update_widget",
+  "set_widget_view",
+  "delete_widget_view",
   "delete_widget",
-  "widgets",
-  "widget_state",
+  "list_widgets",
+  "get_widget",
   "widget_event",
-  "render_widget",
   "notify_agent",
   "stop_poll",
   "stop_live_location",
@@ -37,23 +39,21 @@ export function createWidgetAPI({ authorize, invoke, manager, notify, stop }) {
         "This controller capability is not available to widgets.",
       );
     const scope = authorize(ref);
-    if (name === "set_widget")
-      return manager.set(scope, args, { callerRef: ref });
+    if (name === "create_widget") return manager.create(scope,args,{callerRef:ref});
+    if (name === "update_widget") return manager.update(scope,args,{callerRef:ref});
+    if (name === "set_widget_view") return manager.setView(scope,args,{callerRef:ref});
+    if (name === "delete_widget_view") return manager.deleteView(scope,args,{self:manager.store.getView(args.viewId)?.widgetId===ref.widgetId});
     if (name === "delete_widget")
       return manager.delete(scope, args, {
         self: args.widgetId === ref.widgetId,
       });
-    if (name === "widgets") return manager.list(scope);
-    if (name === "widget_state") return manager.state(scope, args);
+    if (name === "list_widgets") return manager.list(scope);
+    if (name === "get_widget") return manager.get(scope, args);
     if (name === "widget_event") {
       await manager.event(scope, args, {
         source: "widget",
         fromWidgetId: ref.widgetId,
       });
-      return;
-    }
-    if (name === "render_widget") {
-      await manager.render(scope, args);
       return;
     }
     if (name === "notify_agent") {

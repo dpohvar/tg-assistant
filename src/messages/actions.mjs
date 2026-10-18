@@ -56,6 +56,7 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
       access.assertWrite(scope, chatId);
       const old = db.getMessage(scope.botId, chatId, messageId);
       if (!old) return fail('message_not_found', 'Saved message is unavailable. Edit requires a known original type.');
+      if(old.via_bot)return fail('via_bot_edit_forbidden','Messages sent via a bot cannot be edited by chatId/messageId. Use the owned inlineMessageId route.');
       if (!Object.keys(body).length && permits !== undefined) {
         assertCurrent(scope); access.assertWrite(scope, chatId); assertTarget(scope, chatId);
         try { savePermits(scope, chatId, messageId, permits); }

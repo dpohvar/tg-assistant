@@ -7,6 +7,7 @@ export function richText(value) {
 }
 export function shortMessage(m, eventType = 'message') {
   const out = { eventType, messageId: m.message_id, date: new Date(m.date * 1000).toISOString(), ...topicFields(m) };
+  if(m.via_bot)out.viaBot=m.via_bot.username?.replace(/^@/,'')||true;
   const service = serviceFields.find(field => m[field] !== undefined); if (service) out.service = service;
   if (m.edit_date) out.editDate = new Date(m.edit_date * 1000).toISOString();
   const sender = m.sender_chat ?? m.from;

@@ -4,14 +4,14 @@ export function render(state) {
     dice: { emoji: "🎲" },
     reply_markup: {
       inline_keyboard: [
-        [{ text: `Rolled: ${state.value ?? "?"}`, callback_data: "explain" }],
+        [{ text: "Show this roll", callback_data: "explain" }],
       ],
     },
   };
 }
-export function onCreate(ctx: WidgetContext) {
-  ctx.state.value = ctx.message!.dice.value;
+export async function explain(ctx: WidgetContext, event) {
+  const view=await ctx.api.get_widget({widgetId:ctx.widgetId});
+  const message=view.views.find(item=>item.id===event.view.id)?.message;
+  return `This view rolled ${message?.dice?.value ?? 'an unknown value'}.`;
 }
-export function explain(ctx: WidgetContext) {
-  return `The dice rolled ${ctx.state.value}.`;
-}
+export function onCreate(ctx: WidgetContext) {ctx.state.created=true;}

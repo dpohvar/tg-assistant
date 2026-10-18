@@ -16,6 +16,8 @@ Service instructions explain publishing through `send`, private-history confiden
 
 Changing rules or explicitly clearing context creates a fresh thread with current instructions. It waits for active root work, subagents, and controller operations, while new events wait behind the reset. The controller clears the saved thread reference and asks Codex to delete the owned session records. Notes, stored Telegram history, model settings, tasks, and shared files remain. `/agent stop` also discards queued chat events; `/agent clear` preserves the queue.
 
+A newly prepared native thread stays in memory until the first actual turn is submitted. Its resumable ID is saved immediately before that submission, after the final admission check. Preflight alone, or a cancelled first inline event, therefore leaves no empty thread reference for controller recovery. Existing conversation IDs remain persisted.
+
 ## Activation in groups
 
 An enabled group agent is directly triggered by:
@@ -59,4 +61,4 @@ Removing a bot from a chat or using `/chat leave` is destructive for that chat: 
 
 ## Owned widgets
 
-Agents may author [programmable messages](widgets.md). Clearing rules/model context preserves these widgets. Stopping the owner disables them and terminates its widget runtime; starting the agent does not resume disabled widgets automatically. Delete/leave removes registrations for the owner or publication chat, preserving other owned messages when possible. `set_widget` repairs/resumes a disabled widget explicitly.
+Agents may author [widgets](widgets.md) with shared state and zero or more views. Clearing model context preserves them. Stopping the owner marks them stopped, discards queues and terminates the runtime; starting the agent does not resume them. `update_widget` attempts repair/recovery. Owner deletion removes registrations; losing a publication chat detaches its views. [Inline requests](inline.md) use only existing enabled personal agents and remain pending independently of model turn completion.

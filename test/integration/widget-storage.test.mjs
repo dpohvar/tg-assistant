@@ -54,7 +54,7 @@ test("durable FIFO starts only once and pending excludes running", (t) => {
   store.complete(w, a.seq);
   assert.equal(store.head(w).seq, b.seq);
 });
-test("disabled external backlog survives and queue quota is transactional", (t) => {
+test("queue quota is transactional and stopping clears all backlog", (t) => {
   const { store, create } = setup(t),
     w = create(),
     e = {
@@ -64,28 +64,27 @@ test("disabled external backlog survives and queue quota is transactional", (t) 
       delayed: false,
       data: {},
     };
-  store.disableOwner(w, "failure");
   for (let i = 0; i < 1000; i++) assert.equal(store.admit(w, e).accepted, true);
   assert.equal(store.admit(w, e).reason, "queue_full");
   assert.equal(store.get(w.widgetId).pending, 1000);
   assert.equal(store.get(w.widgetId).dropped, 1);
+  store.disableOwner(w, "failure");
+  assert.equal(store.get(w.widgetId).pending, 0);
   assert.throws(
     () => store.admit(w, { ...e, source: "agent" }),
-    /widget_disabled/,
+    /widget_stopped/,
   );
 });
-test("registration quota includes disabled and projections survive history cleanup", (t) => {
+test("registration quota includes stopped widgets and view projections survive history cleanup", (t) => {
   const { db, store, create } = setup(t);
   const first = create();
   store.disableOwner(first, "fixture");
   for (let i = 1; i < 10; i++) create();
   assert.throws(create, /widget_quota/);
-  store.save(first, {
-    state: { keep: true },
-    message: { message_id: 7, chat: { id: 1 }, text: "Keep" },
-  });
+  store.save(first, {state:{keep:true}});
+  const view=store.createView(first,{target:{chatId:1,messageId:7},message:{message_id:7,chat:{id:1},text:'Keep'}});
   db.sql.exec("DELETE FROM messages");
-  assert.equal(store.get(first.widgetId).message.text, "Keep");
+  assert.equal(store.getView(view.id).message.text, "Keep");
   store.remove(first.widgetId);
   assert.doesNotThrow(create);
 });

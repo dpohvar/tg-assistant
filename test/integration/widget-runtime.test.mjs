@@ -28,9 +28,10 @@ test("retirement during an asynchronous render fences save and publish", async (
   });
   const action = runtime.dispatch(ref, { name: "go", source: "agent" });
   await gate;
-  await runtime.retire(ref);
+  let stopped=false;const retirement=runtime.retire(ref).then(()=>stopped=true);
+  await new Promise(r=>setImmediate(r));assert.equal(stopped,false);
   finish({ text: "late" });
-  await action;
+  await action;await retirement;
   assert.deepEqual(effects, []);
 });
 test("onInit cannot render before publication but can render an existing attachment", async () => {

@@ -10,7 +10,7 @@ There is no special channel-to-management binding. All agents of a bot share acc
 
 `chats` lists connected groups, supergroups, channels, and the caller's own private chat. `chat_info` returns allowed metadata such as `linked_chat_id`, photo, reaction policy, member count, and bot status when available. Administrator `/chat list` provides chat IDs for management. See [commands](commands.md) and [agent contract](agent-contract.md).
 
-Callback buttons are not interactive in passive destinations; the controller does not reroute them to the source agent. URL buttons do not create callbacks. Forwarded/copied rich callback buttons become disabled by Telegram; forwarding does not preserve a usable lower inline callback keyboard. See [messaging](messaging.md).
+Ordinary message callback buttons do not reroute to the source agent in passive destinations. Widget view callbacks route to their owning widget, and inline action callbacks route to the agent that prepared them; these routes do not create a destination chat agent. URL buttons do not create callbacks. Forwarded/copied rich callback buttons become disabled by Telegram; forwarding does not preserve a usable lower inline callback keyboard. See [messaging](messaging.md), [widgets](widgets.md) and [inline mode](inline.md).
 
 ## Reading comments in one call
 

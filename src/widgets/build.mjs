@@ -22,9 +22,15 @@ export function buildWidget({ host, persist }) {
     return { snapshotId, manifest: result.manifest };
   };
 }
-// This runs ONLY inside the owner sandbox. No user module is imported by the controller.
-export async function compileWidget(handler, { cwd, agentId, assets }) {
-  const { build } = await import("esbuild");
+let activeCompiles=0;
+// This runs ONLY inside the owner sandbox. Release esbuild's child process when
+// all concurrent compilations finish; runtime-only widgets do not need it.
+export async function compileWidget(handler, options) {
+  activeCompiles++;let compiler;
+  try{compiler=await import('esbuild');return await compile(handler,options,compiler.build);}
+  finally{if(--activeCompiles===0)compiler?.stop();}
+}
+async function compile(handler, { cwd, agentId, assets }, build) {
   const file = path.resolve(cwd, handler),
     rel = path.relative(cwd, file);
   if (
@@ -41,7 +47,7 @@ export async function compileWidget(handler, { cwd, agentId, assets }) {
   } catch {
     throw widgetError(
       "invalid_argument",
-      "Handler file was not found or is unreadable. First write the module in the bot workspace, then call set_widget with its file path.",
+      "Handler file was not found or is unreadable. First write the module in the bot workspace, then call create_widget or update_widget with its file path.",
     );
   }
   function resolvedFile(p) {

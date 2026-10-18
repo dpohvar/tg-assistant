@@ -8,10 +8,13 @@ import { createWidgetHost } from "./host.mjs";
 import { createWidgetManager } from "./manager.mjs";
 import { createWidgetRenderer } from "./render.mjs";
 import { createWidgetAPI } from "./api.mjs";
+import {createPublicationReceipts} from "./receipts.mjs";
+import {createWidgetStop} from "./native-stop.mjs";
 import { createWidgetTransport } from "./transport.mjs";
 import { createProcessMonitor } from "./monitor.mjs";
 import { launchSandbox } from "./sandbox.mjs";
 import { buildWidget } from "./build.mjs";
+import {createWidgetBuilder} from './builder.mjs';
 import { validateWidgetState, widgetError } from "./contract.mjs";
 import { createAccess } from "../access/scope.mjs";
 const require = createRequire(import.meta.url);
@@ -23,6 +26,7 @@ export function createWidgetService({
   filesFor,
   notify,
   isUnavailable = () => false,
+  inlineStore,
 }) {
   const store = createWidgetStore(db),
     access = createAccess(db);
@@ -89,14 +93,14 @@ export function createWidgetService({
     const p = (async () => {
       fs.mkdirSync(path.join(dir, "snapshots"), { recursive: true });
       fs.writeFileSync(path.join(dir, "package.json"), '{"type":"module"}');
-      await esbuild({
-        entryPoints: [fileURLToPath(new URL("./runtime.mjs", import.meta.url))],
+      for(const entry of ['runtime.mjs','compiler-runtime.mjs'])await esbuild({
+        entryPoints: [fileURLToPath(new URL('./'+entry, import.meta.url))],
         bundle: true,
         platform: "node",
         target: "node24",
         format: "esm",
         external: ["esbuild"],
-        outfile: path.join(dir, "runtime.mjs"),
+        outfile: path.join(dir, entry),
         banner: {
           js: "import {createRequire as __runtimeRequire} from 'node:module';const require=__runtimeRequire(import.meta.url);",
         },
@@ -154,8 +158,7 @@ export function createWidgetService({
     }
   }
   const callbackResponses = new Set();
-  const host = createWidgetHost({
-    launch: async (owner, { heartbeat }) => {
+  async function launch(owner, { heartbeat },entry='runtime.mjs') {
       const dir = await materialize(owner);
       monitor ??= createProcessMonitor({ dataDir: config.dataDir });
       let rpc;
@@ -170,6 +173,7 @@ export function createWidgetService({
             heartbeat();
             return;
           }
+          if(entry!=='runtime.mjs')throw widgetError('access_denied','Compiler cannot issue widget operations.');
           const ref = args.ref;
           if (
             !ref ||
@@ -184,14 +188,17 @@ export function createWidgetService({
             store.save(ref, { state: args.state });
             return;
           }
-          if (method === "publish") return renderer.publish(ref, args.value);
+          if(method==='views')return store.listViews(ref.widgetId);
+          if (method === "publish") {
+            return manager.publish(ref,args.viewId,args.value);
+          }
           if (method === "begin") {
-            const event = store.begin(ref, args.token);
+            const event = await manager.begin(ref, args.token);
             const w = store.get(ref.widgetId);
-            return { event, message: w.message, dropped: w.dropped };
+            return { event, dropped: w.dropped };
           }
           if (method === "complete") {
-            store.complete(ref, args.token);
+            manager.complete(ref, args.token);
             return;
           }
           if (method === "drop") {
@@ -199,7 +206,7 @@ export function createWidgetService({
             return;
           }
           if (method === "notifyError") {
-            await manager.error(ref, args.error);
+            await manager.error(ref, args.error,args.viewId,{quiet:args.quiet});
             return;
           }
           if (method === "respond") {
@@ -236,7 +243,7 @@ export function createWidgetService({
           ...rpc.bootstrap,
           owner,
           assets: dir,
-        });
+        },{entry});
         child.request = rpc.request;
         child.close = async () => {
           child.stdin.destroy();
@@ -262,29 +269,31 @@ export function createWidgetService({
         await rpc.close();
         throw e;
       }
-    },
+  }
+  const host = createWidgetHost({
+    launch,
     measureTree: (id) => monitor.measureTree(id),
     terminateTree: (id) => monitor.terminateTree(id),
     onFailure: (o, e) => manager.failure(o, e),
   });
+  const compilerHost=createWidgetHost({
+    launch:(owner,options)=>launch(owner,options,'compiler-runtime.mjs'),
+    measureTree:id=>monitor.measureTree(id),terminateTree:id=>monitor.terminateTree(id),
+  });
+  const builder=createWidgetBuilder({host:compilerHost,authorize});
+  const receipts=createPublicationReceipts({directory:ref=>path.join(assets(ref),"receipts")});
   const renderer = createWidgetRenderer({
     store,
     db,
     telegram,
     filesFor,
     authorize,
-    journal: (ref, message, projection) => {
-      const dir = path.join(assets(ref), "receipts");
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(
-        path.join(dir, ref.widgetId + ".json"),
-        JSON.stringify({ generation: ref.generation, message, projection }),
-        { mode: 0o600 },
-      );
-    },
+    saveInline:(ref,id,content)=>inlineStore?.saveConfirmed(ref,id,content),
+    journal:(ref,message,projection,view)=>receipts.write(ref,view,projection),
+    completeJournal:(ref,id)=>{if(id)receipts.done(ref,id);},
   });
   const build = buildWidget({
-    host,
+    host:{request:(owner,_method,{handler})=>builder.compile(owner,handler)},
     persist: async (id, code, o) => {
       const dest = snapshotPath(id, o);
       fs.writeFileSync(dest, code, { mode: 0o600 });
@@ -299,65 +308,17 @@ export function createWidgetService({
     authorize,
     notify,
     snapshotPath,
-    readReceipt: (w) => {
-      try {
-        const receipt = JSON.parse(
-          fs.readFileSync(
-            path.join(assets(w), "receipts", w.widgetId + ".json"),
-            "utf8",
-          ),
-        );
-        if (
-          receipt.generation !== w.generation ||
-          receipt.message?.chat?.id !== w.chatId ||
-          !Number.isSafeInteger(receipt.message?.message_id)
-        )
-          return null;
-        return {
-          ...receipt.projection,
-          message: receipt.message,
-          messageId: receipt.message.message_id,
-          pollId: receipt.message.poll?.id ?? null,
-        };
-      } catch {
-        return null;
-      }
-    },
+    assertInlineOwner:(scope,id)=>{if(!inlineStore)throw widgetError('inline_message_unknown');inlineStore.assertOwner(scope,id);},
+    recoverReceipts:(w,store)=>receipts.recover(w,store),
+    removeReceipts:w=>receipts.remove(w),
+    ackCallback:async (id,ref)=>{await telegram.call(ref.botId, 'answerCallbackQuery',{callback_query_id:id});},
   });
   const api = createWidgetAPI({
     authorize,
     manager,
     invoke,
     notify,
-    stop: async (ref, name, args) => {
-      const w = store.current(ref),
-        chatId = args.chatId ?? w.chatId,
-        messageId = args.messageId ?? w.messageId;
-      authorize(ref, chatId);
-      const m = await telegram.call(
-        ref.botId,
-        name === "stop_poll" ? "stopPoll" : "stopMessageLiveLocation",
-        { chat_id: chatId, message_id: messageId },
-      );
-      if (messageId === w.messageId && chatId === w.chatId) {
-        const latest = store.current(ref).message;
-        const message =
-          name === "stop_poll"
-            ? { ...latest, poll: m }
-            : {
-                ...m,
-                ...Object.fromEntries(
-                  ["reactions", "pollAnswers"]
-                    .filter((k) => latest?.[k] !== undefined)
-                    .map((k) => [k, latest[k]]),
-                ),
-              };
-        store.patch(ref, {
-          message,
-        });
-      }
-      return m;
-    },
+    stop:createWidgetStop({store,authorize,telegram}),
   });
   function collectSnapshots() {
     const root = path.join(config.dataDir, "widgets");
@@ -385,8 +346,14 @@ export function createWidgetService({
       }
   }
   collectSnapshots();
+  for(const method of ['disableOwner','removeOwner']){
+    const operation=manager[method];manager[method]=async(owner,...args)=>{
+      const [result]=await Promise.all([operation(owner,...args),builder.cancel(owner)]);return result;
+    };
+  }
   const close = manager.close;
   manager.close = async () => {
+    await builder.close();
     await close();
     closed = true;
     monitor?.close();

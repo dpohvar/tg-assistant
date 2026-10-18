@@ -1,6 +1,7 @@
 import { projectReaction } from "../messages/reactions.mjs";
 import { observePoll, observePollAnswer } from "./polls.mjs";
 import { validateWidgetEvent, widgetCallbackAction } from "./contract.mjs";
+import {viewSnapshot} from './views.mjs';
 export function createWidgetEvents({ db, manager, telegram }) {
   const store = manager.store;
   return async (botId, update) => {
@@ -8,8 +9,9 @@ export function createWidgetEvents({ db, manager, telegram }) {
     const callback = update.callback_query;
     if (callback) {
       const m = callback.message;
-      if (!m) return false;
-      w = store.byMessage(botId, m.chat.id, m.message_id);
+      if (!m&&!callback.inline_message_id) return false;
+      const inline=callback.inline_message_id&&store.byTarget(botId,{inlineMessageId:callback.inline_message_id});
+      w = inline?{...store.get(inline.widgetId),view:inline}:m?store.byMessage(botId, m.chat.id, m.message_id):null;
       if (!w) return false;
       const ack = () =>
         telegram
@@ -17,7 +19,7 @@ export function createWidgetEvents({ db, manager, telegram }) {
             callback_query_id: callback.id,
           })
           .catch(() => {});
-      if (w.status !== "active" || !w.buttonNames.includes(callback.data)) {
+      if (w.status !== "active" || w.view.deliveryUnknown || manager.buttonsBlocked?.(w.view.id) || !w.view.buttonNames.includes(callback.data)) {
         await ack();
         return true;
       }
@@ -51,13 +53,13 @@ export function createWidgetEvents({ db, manager, telegram }) {
       source = "reaction";
       name = "onReaction";
       user = data.user;
-      const message = projectReaction(structuredClone(w.message), data);
+      const message = projectReaction(structuredClone(w.view.message), data);
       if (message) {
         if (message.reactions?.users?.length > 1000) {
           message.reactions.users = message.reactions.users.slice(-1000);
           message.reactions.usersComplete = false;
         }
-        store.patch(w, { message });
+        store.patchView(w,w.view.id, { message });
       }
     } else {
       const m = update.message ?? update.channel_post;
@@ -71,6 +73,7 @@ export function createWidgetEvents({ db, manager, telegram }) {
       if (w.status === "active" && !manager.hasHook(w, name)) return false;
     }
     if (w.lifecycleIntent === "delete") return false;
+    if(w.status!=='active')return true;
     if (
       source !== "button" &&
       source !== "reply" &&
@@ -84,11 +87,13 @@ export function createWidgetEvents({ db, manager, telegram }) {
       receivedAt: new Date().toISOString(),
       delayed: false,
       data,
+      view:viewSnapshot(w.view),
       ...(user ? { user } : {}),
     };
     try {
       validateWidgetEvent(event);
-      await manager.admit(w, event);
+      await manager.admit(w, event,{viewId:w.view.id,bindingEpoch:w.view.bindingEpoch,target:w.view.target,
+        ...(source==='button'?{callbackData:callback.data}:{}),...(['poll','poll_answer'].includes(source)?{pollId:w.view.pollId}:{})});
     } catch (e) {
       if (
         [

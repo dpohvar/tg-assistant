@@ -1,400 +1,91 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { openDatabase } from "../../src/storage/database.mjs";
-import { createWidgetStore } from "../../src/widgets/store.mjs";
-import { createWidgetManager } from "../../src/widgets/manager.mjs";
-function fixture(t, options = {}) {
-  const db = openDatabase(":memory:");
-  db.registerBot({ botId: "b", telegramId: 42, username: "bot", ownerId: 1 });
-  db.saveChat("b", { id: 1, type: "private", first_name: "Owner" });
-  const a = db.ensureAgent("b", 1),
-    scope = { botId: "b", agentId: a.agentId, chatId: 1 },
-    store = createWidgetStore(db),
-    calls = [];
-  let nextMessageId = 7;
-  const host = {
-    canReserve: () => true,
-    has: () => true,
-    reserve: async () => {},
-    load: async () => ({ hooks: ["render", "vote"] }),
-    request: async (_r, m) =>
-      m === "render"
-        ? { text: "Fixture" }
-        : m === "reserveEvent"
-          ? true
-          : undefined,
-    release: async () => {},
-    close: async () => {},
-  };
-  const render = {
-    publish: async (ref, value) => {
-      calls.push(value);
-      const w = store.current(ref),
-        message = {
-          message_id: w.messageId ?? nextMessageId++,
-          chat: { id: 1, type: "private" },
-          text: value.text,
-        };
-      store.patch(ref, {
-        messageId: message.message_id,
-        message,
-        lifecycleIntent: null,
-      });
-      return message;
-    },
-    disable: async () => {},
-    forget() {},
-  };
-  const manager = createWidgetManager({
-    db,
-    host,
-    store,
-    build: async () => ({ snapshotId: "s" }),
-    render,
-    authorize: () => scope,
-    notify: async () => {},
-    ...options,
-  });
-  t.after(async () => {
-    await manager.close();
-    db.close();
-  });
-  return { manager, store, scope, render, calls, host, db };
-}
-test("create, active replacement and disabled resume preserve message identity", async (t) => {
-  const f = fixture(t),
-    created = await f.manager.set(f.scope, {
-      handler: "a.tsx",
-      description: "First",
-      state: { keep: 1 },
-    });
-  const before = f.store.get(created.widgetId);
-  await f.manager.set(f.scope, {
-    widgetId: created.widgetId,
-    handler: "b.tsx",
-    description: "Second",
-  });
-  const replaced = f.store.get(created.widgetId);
-  assert.equal(replaced.messageId, 7);
-  assert.equal(replaced.generation, before.generation + 1);
-  assert.deepEqual(replaced.state, { keep: 1 });
-  f.store.disableOwner(replaced, "fixture");
-  f.store.admit(replaced, {
-    name: "onReply",
-    source: "reply",
-    receivedAt: new Date().toISOString(),
-    delayed: false,
-    data: {},
-  });
-  await f.manager.set(f.scope, { widgetId: created.widgetId });
-  assert.equal(f.store.get(created.widgetId).status, "active");
-  assert.equal(f.store.head(f.store.get(created.widgetId)).event.delayed, true);
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {widgetFixture} from '../helpers/widget-views-fixture.mjs';
+
+const stoppedError=()=>Object.assign(new Error('widget_stopped'),{code:'widget_stopped'});
+
+test('create, active replacement and stopped recovery preserve all message and view identities',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView(),before=f.store.get(one.widgetId);
+  await f.manager.update(f.scope,{widgetId:one.widgetId,handler:'b.tsx',description:'Second'});
+  assert.equal(f.store.get(one.widgetId).generation,before.generation+1);assert.equal(f.store.getView(one.viewId).target.messageId,one.target.messageId);
+  await f.manager.disableOwner(before,'test');assert.equal(f.store.get(one.widgetId).pending,0);
+  await f.manager.update(f.scope,{widgetId:one.widgetId});assert.equal(f.store.get(one.widgetId).status,'active');assert.ok(f.store.getView(one.viewId));
 });
 
-test("an unhandled render error revokes effects and releases a disabled-only runtime", async (t) => {
-  const f = fixture(t);
-  const c = await f.manager.set(f.scope, {
-    handler: "a.tsx",
-    description: "First",
-  });
-  const w = f.store.get(c.widgetId);
-  let released = 0;
-  f.host.release = async () => {
-    released++;
-  };
-  await f.manager.error(w, { code: "render_failed", message: "Bad render" });
-  assert.equal(
-    f.store.get(w.widgetId).disabledReason,
-    "render_failed: Bad render",
-  );
-  assert.equal(f.manager.isRevoked(w), true);
-  assert.equal(released, 1);
+test('unhandled view errors stay isolated and do not revoke a healthy runtime',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView(),w=f.store.get(one.widgetId);let released=0;f.host.release=async()=>released++;
+  await f.manager.error(w,{code:'render_failed',message:'Bad render'},one.viewId);
+  assert.equal(f.store.get(w.widgetId).status,'active');assert.equal(f.manager.isRevoked(w),false);assert.equal(released,0);assert.equal(f.notices.length,1);
 });
 
-test("close drains a pending replacement and prevents late publication", async (t) => {
-  const f = fixture(t);
-  let finish, entered;
-  const gate = new Promise((r) => {
-    entered = r;
-  });
-  f.host.reserve = async () => {
-    entered();
-    await new Promise((r) => {
-      finish = r;
-    });
-  };
-  const setting = f.manager.set(f.scope, {
-    handler: "a.tsx",
-    description: "Pending",
-  });
-  const rejected = assert.rejects(setting, /widget_stopped/);
-  await gate;
-  let done = false;
-  const closing = f.manager.close().then(() => {
-    done = true;
-  });
-  await new Promise((r) => setImmediate(r));
-  assert.equal(done, false);
-  finish();
-  await rejected;
-  await closing;
-  assert.equal(f.calls.length, 0);
-});
-test("foreign ownership rejects state, event and deletion", async (t) => {
-  const f = fixture(t),
-    c = await f.manager.set(f.scope, {
-      handler: "a.tsx",
-      description: "First",
-    }),
-    other = { ...f.scope, agentId: "foreign" };
-  assert.throws(
-    () => f.manager.state(other, { widgetId: c.widgetId }),
-    /widget_not_found/,
-  );
-  await assert.rejects(
-    () => f.manager.delete(other, { widgetId: c.widgetId }),
-    /widget_not_found/,
-  );
-});
-test("uncertain send retains disabled provisional registration without retry", async (t) => {
-  const f = fixture(t);
-  f.render.publish = async () => {
-    throw Object.assign(new Error("unknown"), { code: "delivery_unknown" });
-  };
-  await assert.rejects(
-    () => f.manager.set(f.scope, { handler: "a.tsx", description: "Unknown" }),
-    (e) => e.code === "delivery_unknown" && !!e.widgetId,
-  );
-  const w = f.store.list(f.scope)[0];
-  assert.equal(w.status, "disabled");
-  assert.equal(w.messageId, null);
-  await assert.rejects(
-    () => f.manager.set(f.scope, { widgetId: w.widgetId }),
-    /delivery_unknown/,
-  );
-});
-test("disabled debug is admitted separately without draining paused replies", async (t) => {
-  const f = fixture(t),
-    c = await f.manager.set(f.scope, {
-      handler: "a.tsx",
-      description: "First",
-    }),
-    w = f.store.get(c.widgetId);
-  f.store.disableOwner(w, "fixture");
-  f.store.admit(w, {
-    name: "onReply",
-    source: "reply",
-    receivedAt: new Date().toISOString(),
-    delayed: false,
-    data: {},
-  });
-  await f.manager.render(f.scope, {
-    widgetId: c.widgetId,
-    state: { value: 2 },
-  });
-  await f.manager.idle();
-  assert.equal(f.store.get(c.widgetId).status, "disabled");
-  assert.equal(f.store.get(c.widgetId).pending, 1);
-  assert.deepEqual(f.store.get(c.widgetId).state, { value: 2 });
+test('close drains a pending creation and prevents late registration or publication',async t=>{
+  let finish,enter;const entered=new Promise(r=>enter=r);
+  const f=await widgetFixture(t,{managerOptions:{build:async()=>{enter();await new Promise(r=>finish=r);return {snapshotId:'s'};}}});
+  const create=f.manager.create(f.scope,{handler:'a.tsx',description:'Pending'}),rejected=assert.rejects(create,/widget_stopped/);await entered;
+  let done=false;const closing=f.manager.close().then(()=>done=true);await new Promise(r=>setImmediate(r));assert.equal(done,false);finish();await rejected;await closing;assert.equal(f.telegramCalls.length,0);
 });
 
-test("shared recovery failure never initializes a stale sibling", async (t) => {
-  const f = fixture(t);
-  const first = await f.manager.set(f.scope, {
-    handler: "a.tsx",
-    description: "First",
-  });
-  await f.manager.set(f.scope, { handler: "b.tsx", description: "Second" });
-  const loaded = [];
-  f.host.load = async (w) => {
-    loaded.push(w.widgetId);
-    throw new Error("init failed");
-  };
-  await f.manager.recover();
-  assert.deepEqual(loaded, [first.widgetId]);
-  assert.equal(
-    f.store.list(f.scope).every((w) => w.status === "disabled"),
-    true,
-  );
+test('foreign ownership rejects state, update, event, view and deletion',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView(),other={...f.scope,agentId:'foreign'};
+  assert.throws(()=>f.manager.state(other,{widgetId:one.widgetId}),/widget_not_found/);
+  for(const action of [()=>f.manager.update(other,{widgetId:one.widgetId}),()=>f.manager.event(other,{widgetId:one.widgetId,name:'increment'}),()=>f.manager.setView(other,{widgetId:one.widgetId,send:{}}),()=>f.manager.deleteView(other,{viewId:one.viewId}),()=>f.manager.delete(other,{widgetId:one.widgetId})])await assert.rejects(action,/widget_not_found/);
 });
-test("recovery restores a confirmed provisional send without replaying it or rolling back observations", async (t) => {
-  let receipt;
-  const f = fixture(t, { readReceipt: () => receipt });
-  const w = f.store.create({
-    ...f.scope,
-    handler: "a.tsx",
-    description: "Pending",
-    snapshotId: "s",
-    status: "disabled",
-    lifecycleIntent: "creating",
-  });
-  receipt = {
-    messageId: 71,
-    message: { message_id: 71, chat: { id: 1 }, text: "confirmed" },
-    lifecycleIntent: null,
-  };
-  await f.manager.recover();
-  assert.equal(f.store.get(w.widgetId).messageId, 71);
-  assert.equal(f.calls.length, 0);
-  f.store.patch(w, {
-    message: { ...receipt.message, reactions: { total: 3 } },
-  });
-  await f.manager.recover();
-  assert.equal(f.store.get(w.widgetId).message.reactions.total, 3);
+
+test('uncertain first sends stay diagnostic candidates without creating or stopping a view',async t=>{
+  const f=await widgetFixture(t),w=await f.manager.create(f.scope,{handler:'a.tsx',description:'Unknown'});f.failNextEdit('telegram_transport_failed');
+  await assert.rejects(f.manager.setView(f.scope,{widgetId:w.widgetId,send:{}}),e=>e.code==='delivery_unknown'&&e.widgetId===w.widgetId&&Boolean(e.viewId));
+  assert.equal(f.store.get(w.widgetId).status,'active');assert.equal(f.store.listViews(w.widgetId).length,0);assert.equal(f.store.listCandidates(w.widgetId).length,1);
+  const before=f.telegramCalls.length;await f.manager.update(f.scope,{widgetId:w.widgetId});assert.equal(f.telegramCalls.length,before);
 });
-test("multiple disabled debug jobs render their supplied state in order", async (t) => {
-  const f = fixture(t);
-  const c = await f.manager.set(f.scope, {
-    handler: "a.tsx",
-    description: "First",
-  });
-  const w = f.store.get(c.widgetId);
-  f.store.disableOwner(w, "fixture");
-  const states = [];
-  f.host.request = async (_r, m, args) => {
-    if (m === "render") {
-      states.push(args.state);
-      return { text: "debug" };
-    }
-  };
-  await Promise.all([
-    f.manager.render(f.scope, { widgetId: w.widgetId, state: { n: 1 } }),
-    f.manager.render(f.scope, { widgetId: w.widgetId, state: { n: 2 } }),
-  ]);
-  await f.manager.idle();
-  assert.deepEqual(states, [{ n: 1 }, { n: 2 }]);
-  assert.equal(f.store.get(w.widgetId).pending, 0);
+
+test('stopped widgets reject new events and update restarts without replaying old pending work',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView(),w=f.store.get(one.widgetId);
+  f.store.admit(w,{name:'increment',source:'agent',receivedAt:new Date().toISOString(),delayed:false,data:{}});await f.manager.disableOwner(w);
+  await assert.rejects(f.manager.event(f.scope,{widgetId:w.widgetId,name:'increment'}),/widget_stopped/);
+  await f.manager.update(f.scope,{widgetId:w.widgetId,state:{count:2}});await f.idle();assert.equal(f.store.get(w.widgetId).state.count,2);assert.equal(f.store.get(w.widgetId).pending,0);
 });
-test("retiring the caller during a child build prevents child publication", async (t) => {
-  let hold = false,
-    started,
-    finish;
-  const gate = new Promise((r) => {
-    started = r;
-  });
-  const f = fixture(t, {
-    build: async () => {
-      if (hold) {
-        started();
-        await new Promise((r) => {
-          finish = r;
-        });
-      }
-      return { snapshotId: "s" };
-    },
-    authorize: (ref) => {
-      if (ref.widgetId && f.manager.isRevoked(ref))
-        throw Object.assign(new Error("widget_stopped"), {
-          code: "widget_stopped",
-        });
-      return f.scope;
-    },
-  });
-  const source = await f.manager.set(f.scope, {
-    handler: "a.tsx",
-    description: "Source",
-  });
-  const callerRef = f.store.get(source.widgetId);
-  hold = true;
-  const setting = f.manager.set(
-    f.scope,
-    { handler: "b.tsx", description: "Child" },
-    { callerRef },
-  );
-  const rejected = assert.rejects(setting, /widget_stopped/);
-  await gate;
-  await f.manager.delete(f.scope, { widgetId: source.widgetId });
-  finish();
-  await rejected;
-  assert.equal(f.calls.length, 2); // only source's initial render and onCreate render
-  assert.equal(f.store.list(f.scope).length, 0);
+
+test('shared recovery transport failure stops every sibling and never initializes a stale sibling',async t=>{
+  const f=await widgetFixture(t);await f.withOneView();await f.manager.create(f.scope,{handler:'b.tsx',description:'Sibling'});
+  const loaded=[];f.host.load=async w=>{loaded.push(w.widgetId);throw Object.assign(new Error('runtime unavailable'),{code:'sandbox_unavailable'});};
+  await f.manager.recover();assert.equal(loaded.length,1);assert.ok(f.store.list(f.scope).every(w=>w.status==='stopped'));assert.equal(f.notices.filter(e=>e.eventType==='widget_runtime_failed').length,1);
 });
-test("repeated projection storage failure preserves IDs and tears down its runtime", async (t) => {
-  const f = fixture(t);
-  let released = 0;
-  f.host.release = async () => {
-    released++;
-  };
-  f.render.publish = async () => {
-    f.store.patch = () => {
-      throw new Error("storage still unavailable");
-    };
-    throw Object.assign(new Error("confirmed send, failed DB"), {
-      code: "storage_failed",
-      messageId: 71,
-      nativeMessage: { message_id: 71, chat: { id: 1 }, text: "sent" },
-    });
-  };
-  await assert.rejects(
-    () => f.manager.set(f.scope, { handler: "a.tsx", description: "Failure" }),
-    (e) =>
-      e.code === "storage_failed" &&
-      e.confirmedMessageId === 71 &&
-      typeof e.widgetId === "string",
-  );
-  assert.equal(released, 1);
+
+test('recovery preserves durable view observations and does not republish',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView(),w=f.store.get(one.widgetId),view=f.store.getView(one.viewId);
+  f.store.patchView(w,view.id,{message:{...view.message,reactions:{total:3}}});const before=f.telegramCalls.length;
+  await f.manager.recover();assert.equal(f.store.getView(view.id).message.reactions.total,3);assert.equal(f.telegramCalls.length,before);
 });
-test("a failed projection never kills a healthy sibling runtime", async (t) => {
-  const f = fixture(t);
-  await f.manager.set(f.scope, { handler: "a.tsx", description: "Healthy" });
-  let released = 0;
-  f.host.release = async () => {
-    released++;
-  };
-  f.render.publish = async () => {
-    f.store.patch = () => {
-      throw new Error("DB unavailable");
-    };
-    throw Object.assign(new Error("storage failure"), {
-      code: "storage_failed",
-      messageId: 72,
-      nativeMessage: { message_id: 72, chat: { id: 1 } },
-    });
-  };
-  await assert.rejects(
-    () => f.manager.set(f.scope, { handler: "b.tsx", description: "Failed" }),
-    { code: "storage_failed" },
-  );
-  assert.equal(released, 0);
+
+test('concurrent stopped updates serialize supplied state and keep the same view',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView();await f.manager.disableOwner(f.store.get(one.widgetId));
+  await Promise.all([f.manager.update(f.scope,{widgetId:one.widgetId,state:{count:1}}),f.manager.update(f.scope,{widgetId:one.widgetId,state:{count:2}})]);
+  assert.equal(f.store.get(one.widgetId).state.count,2);assert.equal(f.store.listViews(one.widgetId)[0].id,one.viewId);
 });
-test("retiring the caller during onCreate prevents the next render", async (t) => {
-  const f = fixture(t, {
-    authorize: (ref) => {
-      if (ref.widgetId && f.manager.isRevoked(ref))
-        throw Object.assign(new Error("widget_stopped"), {
-          code: "widget_stopped",
-        });
-      return f.scope;
-    },
-  });
-  const source = await f.manager.set(f.scope, {
-    handler: "a.tsx",
-    description: "Source",
-  });
-  const callerRef = f.store.get(source.widgetId);
-  let started, finish;
-  const gate = new Promise((r) => {
-    started = r;
-  });
-  f.host.request = async (_r, m, args) => {
-    if (m === "render") return { text: "Child" };
-    if (m === "hook" && args.name === "onCreate") {
-      started();
-      await new Promise((r) => {
-        finish = r;
-      });
-    }
-  };
-  const setting = f.manager.set(
-    f.scope,
-    { handler: "b.tsx", description: "Child" },
-    { callerRef },
-  );
-  const rejected = assert.rejects(setting, /widget_stopped/);
-  await gate;
-  await f.manager.delete(f.scope, { widgetId: source.widgetId });
-  finish();
-  await rejected;
-  assert.equal(f.calls.length, 3);
-  assert.equal(f.store.list(f.scope)[0].status, "disabled");
+
+test('retiring a caller during child build prevents child creation',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView(),caller=f.store.get(one.widgetId);let enter,finish;const entered=new Promise(r=>enter=r);
+  // Build is routed through the host by production; the fixture replaces that boundary.
+  const childManager=await import('../../src/widgets/manager.mjs');
+  const manager=childManager.createWidgetManager({db:f.db,store:f.store,host:f.host,render:f.renderer,authorize:ref=>{if(ref.widgetId&&f.manager.isRevoked(ref))throw stoppedError();return f.scope;},build:async()=>{enter();await new Promise(r=>finish=r);return {snapshotId:'s'};}});
+  const create=manager.create(f.scope,{handler:'child.tsx',description:'Child'},{callerRef:caller}),rejected=assert.rejects(create,/widget_stopped/);await entered;await f.manager.delete(f.scope,{widgetId:one.widgetId});finish();await rejected;assert.equal(f.store.list(f.scope).length,0);
+});
+
+test('failed view persistence reports IDs and keeps the previous binding available',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView();f.store.replaceView=()=>{throw Object.assign(new Error('disk unavailable'),{code:'storage_failed'});};
+  await assert.rejects(f.manager.setView(f.scope,{widgetId:one.widgetId,target:one.target}),e=>e.code==='storage_failed'&&e.widgetId===one.widgetId&&Boolean(e.viewId));
+  assert.equal(f.store.byTarget('b',one.target).id,one.viewId);assert.equal(f.store.getView(one.viewId).deliveryUnknown,true);
+});
+
+test('a failed projection does not kill healthy sibling widgets',async t=>{
+  const f=await widgetFixture(t),one=await f.withOneView(),sibling=await f.manager.create(f.scope,{handler:'b.tsx',description:'Sibling'});f.failNextEdit();
+  await f.manager.update(f.scope,{widgetId:one.widgetId,state:{count:1}});assert.equal(f.store.get(sibling.widgetId).status,'active');assert.equal(f.manager.isRevoked(f.store.get(sibling.widgetId)),false);
+});
+
+test('retiring a caller during child onCreate prevents activation and later publication',async t=>{
+  let enter,finish;const entered=new Promise(r=>enter=r);let hold=false,caller;
+  const f=await widgetFixture(t,{module:{async onCreate(){if(hold){enter();await new Promise(r=>finish=r);}}},managerOptions:{authorize:ref=>{if(ref.widgetId&&ref.widgetId===caller?.widgetId&&f.manager.isRevoked(ref))throw stoppedError();return f.scope;}}});
+  const one=await f.withOneView();caller=f.store.get(one.widgetId);hold=true;
+  const create=f.manager.create(f.scope,{handler:'b.tsx',description:'Child'},{callerRef:caller}),rejected=assert.rejects(create,/widget_stopped/);await entered;await f.manager.delete(f.scope,{widgetId:caller.widgetId});finish();await rejected;
+  assert.equal(f.store.list(f.scope)[0].status,'stopped');assert.equal(f.telegramCalls.filter(c=>c.method==='sendMessage').length,1);
 });

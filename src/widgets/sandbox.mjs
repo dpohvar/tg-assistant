@@ -68,8 +68,8 @@ export function sandboxLaunchSpec(
   ];
   return { executable: config.codexExecutable, args, cwd, env, permissions };
 }
-export function launchSandbox(config, owner, assets, bootstrap) {
-  const spec = sandboxLaunchSpec(config, owner, assets);
+export function launchSandbox(config, owner, assets, bootstrap, options) {
+  const spec = sandboxLaunchSpec(config, owner, assets, options);
   fs.mkdirSync(path.join(spec.cwd, ".temp", owner.agentId), {
     recursive: true,
   });

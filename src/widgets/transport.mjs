@@ -36,7 +36,7 @@ function rpc(socket, handle) {
             Object.assign(
               widgetError(m.error.code ?? "widget_failed", m.error.message),
               Object.fromEntries(
-                ["widgetId", "confirmedMessageId"]
+                ["widgetId", "confirmedMessageId", "viewId", "phase", "status", "ownerAgentId", "causeCode"]
                   .filter((k) => m.error[k] !== undefined)
                   .map((k) => [k, m.error[k]]),
               ),
@@ -64,7 +64,7 @@ function rpc(socket, handle) {
           code: e.code ?? "widget_failed",
           message: String(e.message).slice(0, 1000),
           ...Object.fromEntries(
-            ["widgetId", "confirmedMessageId"]
+            ["widgetId", "confirmedMessageId", "viewId", "phase", "status", "ownerAgentId", "causeCode"]
               .filter((k) => e[k] !== undefined)
               .map((k) => [k, e[k]]),
           ),

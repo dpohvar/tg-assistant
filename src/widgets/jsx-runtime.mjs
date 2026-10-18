@@ -536,7 +536,7 @@ export function normalizeRender(value) {
     if (out[k] !== undefined)
       throw widgetError(
         "invalid_argument",
-        `Creation/envelope field ${k} belongs in set_widget.`,
+        `Creation/envelope field ${k} belongs in set_widget_view arguments.`,
       );
   const visit = (v) => {
     if (!v || typeof v !== "object") return;

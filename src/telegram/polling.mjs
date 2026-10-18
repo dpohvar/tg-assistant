@@ -3,7 +3,7 @@ export async function poll({ botId, telegram, signal, getOffset, setOffset, rece
   let retry = 500;
   while (!signal.aborted) {
     try {
-      const events = await telegram.call(botId, 'getUpdates', { offset: getOffset(), timeout: 30, allowed_updates: ['message', 'edited_message', 'channel_post', 'edited_channel_post', 'callback_query', 'my_chat_member', 'message_reaction', 'message_reaction_count','poll','poll_answer'] }, { signal });
+      const events = await telegram.call(botId, 'getUpdates', { offset: getOffset(), timeout: 30, allowed_updates: ['message', 'edited_message', 'channel_post', 'edited_channel_post', 'callback_query', 'inline_query', 'my_chat_member', 'message_reaction', 'message_reaction_count','poll','poll_answer'] }, { signal });
       for (const event of events) { if (signal.aborted) break; await receive(botId, event); setOffset(event.update_id + 1); }
       retry = 500;
     } catch (error) {

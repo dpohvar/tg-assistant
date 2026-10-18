@@ -2,6 +2,7 @@ import { syntaxError } from "./arguments.mjs";
 import { pagination } from "./contract.mjs";
 import { range } from "./administrative.mjs";
 import { formatWidgets, formatWidget } from "./widgets-format.mjs";
+import {messageChunks} from './message-chunks.mjs';
 export async function handleWidgetCommand({
   botId,
   message,
@@ -11,6 +12,11 @@ export async function handleWidgetCommand({
   send,
 }) {
   if (!manager) throw syntaxError("Widget storage is not configured.");
+  const sendOne=send;send=async value=>{for(const part of messageChunks(value))await sendOne(part);};
+  const describe=async w=>{
+    const full=manager.describe?await manager.describe(w):{...w,views:manager.store.listViews?.(w.widgetId)??[]};
+    return {...full,views:(full.views??[]).map(view=>{const chat=view.target.chatId&&db.getChat(botId,view.target.chatId);return {...view,chatType:chat?.chatType??view.chatType,chatUsername:chat?JSON.parse(chat.json).username:undefined};})};
+  };
   const action = parts.shift() ?? "list";
   function owner(filter, { all = false } = {}) {
     if (!filter.length)
@@ -48,7 +54,7 @@ export async function handleWidgetCommand({
         await Promise.all(
           filtered
             .slice(start, end)
-            .map((w) => (manager.describe ? manager.describe(w) : w)),
+            .map(describe),
         ),
         start,
         end,
@@ -60,7 +66,7 @@ export async function handleWidgetCommand({
   if (action === "show" && parts.length === 1) {
     const w = manager.store.get(parts[0]);
     if (!w || w.botId !== botId) throw syntaxError("Widget not found.");
-    await send(formatWidget(manager.describe ? await manager.describe(w) : w));
+    await send(formatWidget(await describe(w)));
     return;
   }
   if (action === "delete" && parts.length) {

@@ -34,7 +34,7 @@ test("all shipped examples compile and exercise render/action/error/creation tra
       "Hello",
       (s) => assert.equal(s.last, "Hello"),
     ],
-    ["dice-onCreate.tsx", "explain", {}, (s) => assert.equal(s.value, 4)],
+    ["dice-onCreate.tsx", "explain", {}, (s) => assert.equal(s.created, true)],
     [
       "rich-media-update.tsx",
       "update",
@@ -70,6 +70,8 @@ test("all shipped examples compile and exercise render/action/error/creation tra
       const runtime = createRuntime({
           bridge: async (name, args) => {
             if (name === "save") saved = structuredClone(args.state);
+            if (name === 'views')return [{id:'view',target:{chatId:1,messageId:7},props:{}}];
+            if (name === 'api'&&args.name==='get_widget')return {views:[{id:'view',message:{dice:{value:4}}}]};
             if (name === "notifyError") notifications++;
             if (name === "publish")
               return { message_id: 7, dice: { value: 4 } };
@@ -81,15 +83,17 @@ test("all shipped examples compile and exercise render/action/error/creation tra
           state: {},
           message: { message_id: 7, dice: { value: 4 } },
           module: mod,
+          viewMode:true,
         });
         await runtime.hook(ref, "onInit");
         await runtime.hook(ref, "onCreate");
-        assert.ok(await runtime.render(ref));
+        assert.ok(await runtime.render(ref,{view:{id:'view',target:{chatId:1,messageId:7},props:{}}}));
         await runtime.dispatch(ref, {
           name: action,
           source: "agent",
           user: { id: 1 },
           data,
+          view:{id:'view',target:{chatId:1,messageId:7},props:{}},
         });
         check(saved);
         assert.equal(notifications, 0);

@@ -36,8 +36,19 @@ import {topicIdOf} from './telegram/topics.mjs';
 import {createTopicStore} from './storage/topics.mjs';
 import {createWidgetService} from './widgets/service.mjs';
 import {createWidgetEvents} from './widgets/events.mjs';
+import {createInlineRequests} from './inline/requests.mjs';
+import {createInlineService} from './inline/service.mjs';
+import {createInlineAvatars} from './inline/avatars.mjs';
+import {createInlineStore} from './inline/store.mjs';
+import {createInlineEvents} from './inline/events.mjs';
+import {createInlineMessages} from './inline/messages.mjs';
+import {normalizeInlineResults} from './inline/results.mjs';
+import {inlinePolicy} from './inline/contract.mjs';
 export function createController({ db, telegram, agent, onError = () => {}, cursorKey, clock = Date.now, config,widgetService }) {
   let widgets,widgetEvents;
+  const inlineStore=createInlineStore(db,{now:clock}),inlineRequests=createInlineRequests({now:clock,policy:inlinePolicy(config?.inline)});
+  const inlineAvatars=createInlineAvatars({telegram,getBot:id=>db.getBot(id),getMasterId:()=>config?.masterTelegramId,now:clock});
+  let inline,inlineEvents,inlineMessages;
   const lifecycle = new Lifecycle(), scopes = new Map(), gate = new BotGate(), deleting = new Set(), stopping = new Set();
   const isStopping = (botId, chatId) => stopping.has(`${botId}:${chatId}`);
   const assertCurrent = scope => { if(scope.widgetRef)widgets.authorize(scope.widgetRef);else lifecycle.assertCurrent(scope); if (isStopping(scope.botId, scope.chatId)) throw new Error("Chat is stopping."); };
@@ -106,11 +117,16 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     assertCurrent(scope);
     if (deleting.has(scope.botId)) throw new Error('Bot is being deleted.');
     if (db.getChat(scope.botId, scope.chatId)?.chatType === 'private' && !db.role(scope.botId, scope.chatId)) throw new Error('Private user is no longer authorized');
-    if(['set_widget','delete_widget','widgets','widget_state','widget_event','render_widget'].includes(name)){
+    if(name==='set_inline_results')return inline.setResults(scope,args);
+    if(name==='read'&&args.inlineMessageId!==undefined)return inlineMessages.read(scope,args);
+    if(name==='read'&&(!Array.isArray(args.messageIds)||args.messageIds.some(id=>!Number.isSafeInteger(id)||id<=0)))throw Object.assign(new Error('Use messageIds as an array of positive integers, or inlineMessageId alone.'),{code:'invalid_argument'});
+    if(name==='edit'&&args.inlineMessageId!==undefined)return inlineMessages.edit(scope,args);
+    if(['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','list_widgets','get_widget','widget_event'].includes(name)){
       if(!widgets)throw new Error('Widget storage is not configured.');
-      if(name==='widgets')return widgets.list(scope);if(name==='widget_state')return widgets.state(scope,args);
-      if(name==='set_widget')return widgets.set(scope,args);if(name==='delete_widget'){await widgets.delete(scope,args);return {};}
-      if(name==='widget_event'){await widgets.event(scope,args);return {};}await widgets.render(scope,args);return {};
+      if(name==='list_widgets')return widgets.list(scope);if(name==='get_widget')return widgets.get(scope,args);
+      if(name==='create_widget')return widgets.create(scope,args);if(name==='update_widget')return widgets.update(scope,args);if(name==='set_widget_view')return widgets.setView(scope,args);
+      if(name==='delete_widget_view'){await widgets.deleteView(scope,args);return {};}if(name==='delete_widget'){await widgets.delete(scope,args);return {};}
+      await widgets.event(scope,args);return {};
     }
     if (name === 'rich_help') return richHelp();
     if (name === 'time') return { now: new Date().toISOString() };
@@ -132,7 +148,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (name === 'download_custom_emoji') return downloadCustomEmoji(scope, args);
     if (['sticker_sets','sticker_set_get','sticker_set_create','sticker_set_edit','sticker_set_delete'].includes(name)) return stickerSets(scope, name, args);
     if (name === 'save_image') return filesFor(scope).saveImage(scope.threadId, args.savedPath, args.dir);
-    if (['read', 'history', 'search'].includes(name)) {const result=history[name](scope,args);if(name==='read'&&widgets)result.messages=result.messages.map((m,i)=>m.error==='message_not_found'?readableDates(widgets.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageIds[i])?.message??m):m);return result;}
+    if (['read', 'history', 'search'].includes(name)) {const result=history[name](scope,args);if(name==='read'&&widgets)result.messages=result.messages.map((m,i)=>m.error==='message_not_found'?readableDates(widgets.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageIds[i])?.view?.message??m):m);return result;}
     if(name==='topics'){const chatId=args.chatId??scope.chatId;access.assertRead(scope,chatId);return createTopicStore(db).list(scope.botId,chatId);}
     if (name === 'note_get') return { text: db.agent(scope.botId, scope.chatId).notes };
     if (name === 'note_set') { if (typeof args.text !== 'string' || [...args.text].length > 4000) throw new Error('Note exceeds 4000 code points'); db.sql.prepare('UPDATE agents SET notes=? WHERE agentId=?').run(args.text, scope.agentId); return { status: 'saved' }; }
@@ -162,7 +178,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       queue.enqueue(target.agentId, { eventType: 'agent_message', from: { agentId: scope.agentId, ...(db.getChat(scope.botId, scope.chatId).chatType !== 'private' ? { chatId: scope.chatId } : {}) }, text: args.text }, 'agent');
       return { status: 'queued' };
     }
-    if (name === 'send' || name === 'edit') {if(name==='edit'&&widgets?.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageId)?.status==='active')throw Object.assign(new Error('Use widget_event or render_widget to edit an active widget.'),{code:'widget_owned'});return messages[name](scope, args);}
+    if (name === 'send' || name === 'edit') {const owned=name==='edit'&&widgets?.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageId);if(owned)throw Object.assign(new Error('Use widget_event, update_widget or set_widget_view for an owned widget message.'),{code:'widget_owned',ownerAgentId:owned.agentId,widgetId:owned.widgetId,viewId:owned.view.id});return messages[name](scope, args);}
     if (name === 'forward' || name === 'copy') return messages.transfer(scope, name, args);
     if (['delete', 'pin', 'unpin', 'react'].includes(name)) {
       const target = args.chatId ?? scope.chatId; if (name === 'delete' && target !== scope.chatId) throw new Error('Deletion is allowed only in the current chat.'); if (isStopping(scope.botId, target)) throw new Error('Target chat is stopping.'); access.assertWrite(scope, target); assertCurrent(scope);
@@ -172,14 +188,14 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         const event={chat:{id:target},message_id:args.messageId,date:clock()/1000};
         recordReaction(db,scope.botId,event,args.reaction);
         const w=widgets?.store.byMessage(scope.botId,target,args.messageId);
-        if(w){const message=projectReaction(structuredClone(w.message),event,args.reaction);if(message)widgets.store.patch(w,{message});}
+        if(w){const message=projectReaction(structuredClone(w.view.message),event,args.reaction);if(message)widgets.store.patchView(w,w.view.id,{message});}
       }
-      if (name === 'delete') {const w=widgets?.store.byMessage(scope.botId,target,args.messageId);if(w)await widgets.delete(w,{widgetId:w.widgetId});db.sql.prepare('DELETE FROM messages WHERE botId=? AND chatId=? AND messageId=?').run(scope.botId, target, args.messageId);}
+      if (name === 'delete') {const w=widgets?.store.byMessage(scope.botId,target,args.messageId);if(w)await widgets.deleteView(w,{viewId:w.view.id});db.sql.prepare('DELETE FROM messages WHERE botId=? AND chatId=? AND messageId=?').run(scope.botId, target, args.messageId);}
       return { status: 'done' };
     }
     throw new Error('Unknown or invalid tool');
   };
-  const invoke = (scope, name, args) => ['set_widget','delete_widget'].includes(name)?invokeTool(scope,name,args):gate.run(scope.botId, () => invokeTool(scope, name, args), scope.agentId);
+  const invoke = (scope, name, args) => ['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget'].includes(name)?invokeTool(scope,name,args):gate.run(scope.botId, () => invokeTool(scope, name, args), scope.agentId);
   const scheduled = new Map();
   const trackConsumed = (id, events) => { if (!consumed.has(id)) consumed.set(id, new Map()); const count = consumed.get(id); for (const e of events) if (e.eventType === 'agent_message') count.set(e.from.agentId, (count.get(e.from.agentId) ?? 0) + 1); };
   const prepare = (id, events) => addGapHint(id, events.map(e => { if (e.eventType !== 'scheduled') { if (e.eventType === 'message' || e.eventType === 'message_edited') { if (!activeMessages.has(id)) activeMessages.set(id, { messages: new Set(), edits: new Set() }); activeMessages.get(id).messages.add(e.messageId); if (e.eventType === 'message_edited') activeMessages.get(id).edits.add(e.messageId); } return e; } const full = scheduler.take(e.taskId); if (full) { if (!scheduled.has(id)) scheduled.set(id, new Set()); scheduled.get(id).add(e.taskId); } return full; }).filter(Boolean));
@@ -188,7 +204,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     for (const [sender, n] of count ?? []) { const remaining = (outstanding?.get(sender) ?? 0) - n; if (remaining > 0) outstanding.set(sender, remaining); else outstanding?.delete(sender); }
   };
   const completeScheduled = (id, success) => { const ids = [...(scheduled.get(id) ?? [])]; scheduled.delete(id); for (const taskId of ids) scheduler.complete(taskId, success); };
-  const queue = new AgentQueue({ onDropped: (id, events, source) => { const scope = scopes.get(id); if(scope&&source==='chat')for(const event of Array.isArray(events)?events:[events])if(['message','message_edited'].includes(event.eventType))markGap(scope.botId,scope.chatId,event.topicId); }, dispatch: async (id, events) => { let scope = lifecycle.scope(scopes.get(id)); scopes.set(id, scope); const record = db.agent(scope.botId, scope.chatId); if (record.threadId && record.threadRulesVersion !== db.getBot(scope.botId).rulesVersion) { await agent.waitBackground?.(id).catch(() => {}); lifecycle.invalidate(id); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(id); await agent.deleteSession?.(id, record.threadId); scope = lifecycle.scope({ botId: scope.botId, chatId: scope.chatId, agentId: id }); scopes.set(id, scope); } trackConsumed(id, events); const batch = prepare(id, events); const result = batch.length ? await agent.run(scope, batch, (name, args, threadId) => invoke({ ...scope, threadId }, name, args)) : undefined;
+  const queue = new AgentQueue({ onDropped: (id, events, source) => { const scope = scopes.get(id); if(scope&&source==='chat')for(const event of Array.isArray(events)?events:[events])if(['message','message_edited'].includes(event.eventType))markGap(scope.botId,scope.chatId,event.topicId); }, dispatch: async (id, events) => { let scope = lifecycle.scope(scopes.get(id)); scopes.set(id, scope); const record = db.agent(scope.botId, scope.chatId); if (record.threadId && record.threadRulesVersion !== db.getBot(scope.botId).rulesVersion) { await agent.waitBackground?.(id).catch(() => {}); lifecycle.invalidate(id); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(id); await agent.deleteSession?.(id, record.threadId); scope = lifecycle.scope({ botId: scope.botId, chatId: scope.chatId, agentId: id }); scopes.set(id, scope); } events=events.filter(e=>e.eventType!=="inline"||inlineRequests.get(e.requestId)?.agentId===id&&Boolean(resolveInlineOwner(scope.botId,id))); trackConsumed(id, events); const batch = prepare(id, events); const result = batch.length ? await agent.run(scope, batch, (name, args, threadId) => invoke({ ...scope, threadId }, name, args)) : undefined;
     const batchOrigins = consumed.get(id); consumed.delete(id);
     if (result?.settled) {
       const ids = [...(scheduled.get(id) ?? [])]; scheduled.delete(id);
@@ -226,6 +242,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   agent.onAvailability = (id, status) => { availability.set(id, status); queue.setWaiting(id, status === 'waiting'); updateAction(id); };
   agent.onImageStatus = (id, image, active) => { if (!images.has(id)) images.set(id, new Set()); active ? images.get(id).add(image) : images.get(id).delete(image); updateAction(id); };
   agent.assertCurrent = scope => assertCurrent(scope);
+  agent.filterEvents=(scope,events)=>events.filter(event=>event.eventType!=='inline'||inlineRequests.get(event.requestId)?.agentId===scope.agentId&&Boolean(resolveInlineOwner(scope.botId,scope.agentId)));
   if(config?.botsDir)for(const a of db.sql.prepare('SELECT botId,agentId FROM agents').all()){
     try{new BotFiles(path.join(config.botsDir,a.botId),a.agentId).remove(`.temp/${a.agentId}/websocket`);}catch(e){if(e.code!=='ENOENT')onError(Object.assign(new Error('Old WebSocket files could not be removed.'),{code:'websocket_cleanup_failed'}));}
   }
@@ -256,6 +273,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   const stopAgent = async (botId, chatId, { leave = true } = {}) => {
     const key = `${botId}:${chatId}`; if (stopping.has(key)) throw new Error("Chat is already stopping.");
     const a = db.agent(botId, chatId), chat = db.getChat(botId, chatId); if (!chat) return;
+    if(a)inline?.disableOwner(botId,a.agentId,'agent_removed');
     stopping.add(key); albums.clearChat(botId,chatId);
     try {
     await widgets?.removeChat(botId,chatId);
@@ -334,7 +352,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     let a=db.agent(botId,chatId);
     if(enabled){if(a?.stopPending)throw new Error('Agent is stopping. Retry after completion.');if(chat.agentEnabled)return 'Already enabled';db.sql.prepare('UPDATE chats SET agentEnabled=1 WHERE botId=? AND chatId=?').run(botId,chatId);a=db.ensureAgent(botId,chatId);scopes.set(a.agentId,lifecycle.scope({botId,chatId,agentId:a.agentId}));queue.setHeld(a.agentId,'disabled',false);return `Agent enabled. Missed tasks: ${scheduler.resume(a.agentId)}`;}
     if(!chat.agentEnabled && !a?.stopPending)return 'Already disabled';
-    if(a)await widgets?.disableOwner(a,'agent_disabled');
+    if(a){inline?.disableOwner(botId,a.agentId,'agent_disabled');await widgets?.disableOwner(a,'agent_disabled');}
     db.sql.prepare('UPDATE chats SET agentEnabled=0 WHERE botId=? AND chatId=?').run(botId,chatId);clearChatActivity(botId,chatId);albums.clearChat(botId,chatId);
     if(a){db.sql.prepare('UPDATE agents SET stopPending=1,contextResetPending=1 WHERE agentId=?').run(a.agentId);queue.setHeld(a.agentId,'disabled',true);scheduler.disable(a.agentId);queue.clear(a.agentId);const busy=Boolean(queue.agentJobs.get(a.agentId)?.size || agent.hasBackground?.(a.agentId));const work=finishStop(a);if(!busy)await work;}
     return a && db.agent(botId,chatId)?.stopPending ? 'Agent is stopping' : 'Agent disabled';
@@ -352,6 +370,8 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   const masterCommands = config ? createMaster({ db, config,
     onBotAdded: id => { deleting.delete(id); mcpOAuth.allowBot(id); gate.held.delete(id); config.onBotAdded?.(id); },
     onBotRemoved: async id => {
+      inlineAvatars.forget(id);
+      for(const a of db.sql.prepare('SELECT agentId FROM agents WHERE botId=?').all(id))inline?.disableOwner(id,a.agentId,'bot_removed');
       for(const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(id))await widgets?.removeOwner(a);
       await mcpOAuth.deleteBot(id,()=>createMcpStore(db).list(id));
       deleting.add(id); websockets.deleteBot(id);
@@ -396,15 +416,30 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     }
   };
   const fileCommands = rawFileCommands ? (botId, name, ...args) => name === 'git_setup' ? rawFileCommands(botId, name, ...args) : gate.run(botId, () => rawFileCommands(botId, name, ...args)) : undefined;
-  widgets=widgetService??(config?.dataDir&&config?.botsDir?createWidgetService({db,config,telegram,invoke,filesFor,notify:async(owner,event)=>{const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(owner.botId,owner.agentId);if(!a||!db.getChat(a.botId,a.chatId)?.agentEnabled||lifecycle.closed)return;scopes.set(a.agentId,lifecycle.scope(a));queue.enqueue(a.agentId,event,'widget');},isUnavailable:(botId,agentId)=>lifecycle.closed||deleting.has(botId)||isStopping(botId,db.sql.prepare('SELECT chatId FROM agents WHERE agentId=?').get(agentId)?.chatId)}):null);
+  widgets=widgetService??(config?.dataDir&&config?.botsDir?createWidgetService({db,config,telegram,invoke,filesFor,inlineStore,notify:async(owner,event)=>{const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(owner.botId,owner.agentId);if(!a||!db.getChat(a.botId,a.chatId)?.agentEnabled||lifecycle.closed)return;scopes.set(a.agentId,lifecycle.scope(a));queue.enqueue(a.agentId,event,'widget');},isUnavailable:(botId,agentId)=>lifecycle.closed||deleting.has(botId)||isStopping(botId,db.sql.prepare('SELECT chatId FROM agents WHERE agentId=?').get(agentId)?.chatId)}):null);
   if(widgets)widgetEvents=createWidgetEvents({db,manager:widgets,telegram});
-  const widgetReady=widgets?.recover().catch(onError)??Promise.resolve();
+  function resolveInlineOwner(botId,agentId) {
+    const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(botId,agentId),chat=a&&db.getChat(botId,a.chatId);
+    if(!a||!chat||chat.chatType!=='private'||!chat.agentEnabled||a.stopPending||!db.role(botId,a.chatId)||deleting.has(botId)||isStopping(botId,a.chatId)||lifecycle.closed)return null;
+    const scope=lifecycle.scope(a);scopes.set(a.agentId,scope);return scope;
+  }
+  inline=createInlineService({requests:inlineRequests,clock:{now:clock,setTimeout,clearTimeout},
+    getPromptPhoto:botId=>inlineAvatars.get(botId),
+    resolveActor:(botId,userId)=>{if(botId==='master')return null;const a=db.agent(botId,userId);return a?resolveInlineOwner(botId,a.agentId):null;},
+    enqueue:(scope,event,admit)=>{scopes.set(scope.agentId,lifecycle.scope(scope));if(gate.held.has(scope.botId))queue.setPaused(scope.agentId,true);return queue.enqueue(scope.agentId,event,'inline',admit);},
+    cancelPending:requestId=>{for(const id of queue.states.keys())queue.cancelWhere(id,event=>event.eventType==='inline'&&event.requestId===requestId);},
+    normalizeResults:(scope,results)=>normalizeInlineResults(scope,results,{db,access}),registerPage:(scope,page)=>inlineStore.registerPage(scope,page),
+    answer:(botId,body)=>telegram.call(botId,'answerInlineQuery',body)});
+  inlineMessages=createInlineMessages({db,store:inlineStore,access,telegram,assertCurrent,withTarget:widgets?widgets.withTarget:undefined});
+  inlineEvents=createInlineEvents({store:inlineStore,widgets,queue,resolveOwner:resolveInlineOwner,telegram,onError});
+  const widgetReady=(widgets?.recover().catch(onError)??Promise.resolve()).then(()=>inlineEvents.drain());
   const commands = createCommands({ db, config: config ?? {}, telegram, scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'stopping' : availability.get(id) ?? 'idle',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets,widgets,mcpOAuth, requestMcpRefresh, testMcp:(botId,entry)=>agent.testMcp(botId,entry), masterCommands, fileCommands });
   for (const record of db.sql.prepare('SELECT * FROM agents').all()) {if(!db.getChat(record.botId,record.chatId).agentEnabled)queue.setHeld(record.agentId,'disabled',true);if(record.stopPending)finishStop(record);else if(record.contextResetPending)resetContext(record);}
   return {
-    queue, lifecycle, invoke, scheduler, stopAgent, websockets,widgets,ready:widgetReady,
+    queue, lifecycle, invoke, scheduler, stopAgent, websockets,widgets,inline:{service:inline,requests:inlineRequests,store:inlineStore,events:inlineEvents},ready:widgetReady,
     async receive(botId, update) {
       await widgetReady;
+      if(update.inline_query){if(botId!=='master')inline.receive(botId,update.inline_query);return;}
       const route = update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? update.my_chat_member?.chat?.id;
       if (isStopping(botId, route)) { if (update.callback_query) await telegram.call(botId, "answerCallbackQuery", { callback_query_id: update.callback_query.id, text: "Бот занят" }); return; }
       if (deleting.has(botId)) return;
@@ -415,6 +450,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (commandMessage && await commands.handle(botId, commandMessage)) return;
       if (botId === 'master') return;
       if(widgetEvents&&(update.callback_query||update.poll||update.poll_answer||update.message_reaction||update.message_reaction_count)&&await widgetEvents(botId,update))return;
+      if(update.callback_query?.inline_message_id&&await inlineEvents.receive(botId,update.callback_query))return;
       const reaction = update.message_reaction ?? update.message_reaction_count;
       if (reaction) { recordReaction(db, botId, reaction); return; }
       if (update.callback_query) {
@@ -485,7 +521,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${topicIdOf(m)??0}:${m.media_group_id}`, { ...m, __botId: botId, __triggers:triggers }, trigger);
       else deliver(botId, [{...m,__triggers:triggers}], trigger);
     },
-    idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await gate.idle();await widgetReady;await widgets?.idle();await closing; },
-    close() { unobserveChat?.();websockets.shutdown(); for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= Promise.allSettled([mcpOAuth.close(),agent.close?.(),widgets?.close()]); },
+    idle: async () => { do { await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await gate.idle();await widgetReady;await inline.idle();await widgets?.idle();await closing; },
+    close() { inline.close();inlineAvatars.close();unobserveChat?.();websockets.shutdown(); for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= Promise.allSettled([mcpOAuth.close(),agent.close?.(),widgets?.close()]); },
   };
 }

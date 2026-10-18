@@ -90,6 +90,7 @@ function fixture(t) {
     status: "active",
   });
   const acks = [], events = [];
+  const view=store.createView(w,{target:{chatId:-1,messageId:7},message:{message_id:7,chat:{id:-1,type:'supergroup'},text:'Old'}});
   const route = createWidgetEvents({ db, manager: {
     store, hasHook: () => true,
     admit: async (ref, event) => {
@@ -108,7 +109,9 @@ function fixture(t) {
   const renderer = createWidgetRenderer({ store, db, filesFor: () => ({}), authorize: () => ({}),
     telegram,
   });
-  return { db, store, w, acks, events, callback, renderer, telegram };
+  const publish=renderer.publish.bind(renderer);
+  renderer.publish=(ref,value)=>publish(ref,value,{},store.getView(view.id));
+  return { db, store, w, view, acks, events, callback, renderer, telegram };
 }
 
 test("registered void callbacks acknowledge immediately without queue/state/render effects", async (t) => {
@@ -146,7 +149,7 @@ test("failed publication preserves the previous registry and cannot authorize ne
     throw Object.assign(new Error("Bad Request: fixture failure"), { code: "telegram_api_error" });
   };
   await assert.rejects(() => f.renderer.publish(f.w, keyboard(["cell:new"])), /fixture failure/);
-  assert.deepEqual(f.store.get(f.w.widgetId).buttonNames, ["cell:old"]);
+  assert.deepEqual(f.store.getView(f.view.id).buttonNames, ["cell:old"]);
   await f.callback("cell:new");
   assert.equal(f.events.length, 0);
   await f.callback("cell:old");
@@ -164,14 +167,14 @@ test("registry refresh removes old payloads and retains nested rich and inline c
     ] }] },
     reply_markup: { inline_keyboard: [[{ text: "Next", callback_data: "next" }]] },
   });
-  assert.deepEqual(f.store.get(f.w.widgetId).buttonNames, ["cell:new:2", "void", "next"]);
+  assert.deepEqual(f.store.getView(f.view.id).buttonNames, ["cell:new:2", "void", "next"]);
   await f.callback("cell:old");
   assert.equal(f.events.length, 0);
   await f.callback("cell:new:2");
   assert.equal(f.events[0].name, "cell");
   assert.equal(f.events[0].data.data, "cell:new:2");
   await f.renderer.publish(f.w, { text: "No buttons" });
-  assert.deepEqual(f.store.get(f.w.widgetId).buttonNames, []);
+  assert.deepEqual(f.store.getView(f.view.id).buttonNames, []);
   await f.callback("cell:new:2");
   assert.equal(f.events.length, 1);
 });
@@ -179,7 +182,7 @@ test("registry refresh removes old payloads and retains nested rich and inline c
 test("disabled widgets ignore registered group and void callbacks", async (t) => {
   const f = fixture(t);
   await f.renderer.publish(f.w, keyboard(["cell:1", "void"]));
-  f.store.patch(f.w, { status: "disabled" });
+  f.store.patch(f.w, { status: "stopped" });
   await f.callback("cell:1");
   await f.callback("void");
   assert.equal(f.events.length, 0);
@@ -188,8 +191,8 @@ test("disabled widgets ignore registered group and void callbacks", async (t) =>
 
 test("a legacy registry containing reserved prefixes cannot invoke system hooks", async (t) => {
   const f = fixture(t);
-  f.store.patch(f.w, { buttonNames: ["render:x", "onInit:x", "__render:x", "void:x", ":x"] });
-  for (const value of f.store.get(f.w.widgetId).buttonNames)
+  f.store.patchView(f.w, f.view.id, { buttonNames: ["render:x", "onInit:x", "__render:x", "void:x", ":x"] });
+  for (const value of f.store.getView(f.view.id).buttonNames)
     assert.equal(await f.callback(value), true);
   assert.equal(f.events.length, 0);
   assert.equal(f.acks.length, 5);
@@ -205,7 +208,7 @@ test("routed group callbacks execute the single export and preserve the native c
     if (method === "notifyError" || method === "drop") assert.fail(JSON.stringify(args));
   } });
   t.after(() => runtime.close());
-  await runtime.load(f.w, { state: {}, message: f.w.message, module: {
+  await runtime.load(f.w, { state: {}, message: f.store.getView(f.view.id).message, module: {
     render: () => keyboard(["cell:a:b", "cell:", "void"]),
     cell(ctx, event) {
       ctx.state.selected = event.data.data.slice("cell:".length);
