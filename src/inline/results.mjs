@@ -26,6 +26,7 @@ function fields(value,format,extra=[]) {
   for(const [field,item]of Object.entries(value)) {
     if(['type','id',...extra].includes(field))continue;
     if(['entities','caption_entities'].includes(field)){if(!Array.isArray(item))fail(field+' must be an array.');continue;}
+    if(field==='rich_message'&&typeof item==='string')continue;
     if(['rich_message','reply_markup','input_message_content','link_preview_options'].includes(field)){object(item);continue;}
     if(field==='show_caption_above_media'){if(typeof item!=='boolean')fail(field+' must be boolean.');continue;}
     if(['latitude','longitude','horizontal_accuracy'].includes(field)||/(?:_width|_height|_duration)$/.test(field)||['live_period','heading','proximity_alert_radius'].includes(field)){
@@ -51,7 +52,7 @@ function filePresent(value,id) {
   if(value.file_id===id)return true;
   return Object.values(value).some(child=>filePresent(child,id));
 }
-export function validateInlineFiles(scope,value,fileSources=[],{db,access}={}) {
+export function validateInlineFiles(scope,value,fileSources=[],{db,access,allowUnprovenFileIds=false}={}) {
   if(!Array.isArray(fileSources))fail('file_sources must be an array.');
   const proof=id=>fileSources.some(source=>{
     if(!source||source.fileId!==id||!Number.isSafeInteger(source.messageId))return false;
@@ -65,7 +66,7 @@ export function validateInlineFiles(scope,value,fileSources=[],{db,access}={}) {
       const url=new URL(source);if(url.hostname.toLowerCase()==='api.telegram.org'&&/^\/(?:file\/)?bot/i.test(url.pathname))throw inlineError('file_not_accessible','Secret-bearing Telegram URLs are forbidden.');
       if(rich)throw inlineError('file_not_accessible','Inline rich media require previously uploaded Telegram file IDs.');return;
     }
-    if(!proof(source))throw inlineError('file_not_accessible','A saved, readable outer message in file_sources must prove every Telegram file_id.');
+    if(!allowUnprovenFileIds&&!proof(source))throw inlineError('file_not_accessible','A saved, readable outer message in file_sources must prove every Telegram file_id.');
   }
   const mediaKeys=new Set(['photo','video','animation','audio','voice','voice_note','document','sticker','video_note','cover','thumbnail']);
   function visit(node,rich=false) {
@@ -81,6 +82,18 @@ export function validateInlineFiles(scope,value,fileSources=[],{db,access}={}) {
     }
   }
   visit(value);
+}
+export function validateNativeInlineResult(native) {
+  object(native);
+  if(typeof native.id!=='string'||!native.id||Buffer.byteLength(native.id)>64)fail('Result IDs must contain 1–64 UTF-8 bytes.');
+  const isCached=Object.keys(native).some(key=>key.endsWith('_file_id')),format=isCached?cached[native.type]:formats[native.type];
+  if(!format)fail('Unsupported inline result type.');
+  fields(native,format,['type','id','reply_markup',...(native.type==='article'?[]:['input_message_content'])]);
+  if(native.input_message_content)inputContent(native.input_message_content);
+  if(native.parse_mode!==undefined&&native.caption_entities!==undefined)fail('Use caption_entities or parse_mode.');
+  if(!isCached&&native.type==='document'&&!['application/pdf','application/zip'].includes(native.mime_type))fail('URL documents require PDF or ZIP MIME type.');
+  if(!isCached&&native.type==='video'&&!['text/html','video/mp4'].includes(native.mime_type))fail('URL video requires text/html or video/mp4.');
+  if(native.mime_type==='text/html'&&native.type==='video'&&!native.input_message_content)fail('HTML video requires input_message_content.');
 }
 export function normalizeInlineResults(scope,results,adapters={}) {
   if(!Array.isArray(results))fail('results must be an array.');
@@ -109,13 +122,7 @@ export function normalizeInlineResults(scope,results,adapters={}) {
     }
     native.id??=ids();
     if(typeof native.id!=='string'||!native.id.length||Buffer.byteLength(native.id)>64||used.has(native.id))fail('Result IDs must be unique and contain 1–64 UTF-8 bytes.');used.add(native.id);
-    const isCached=Object.keys(native).some(key=>key.endsWith('_file_id')),format=isCached?cached[native.type]:formats[native.type];
-    if(!format)fail('Unsupported inline result type.');
-    fields(native,format,['type','id','reply_markup',...(native.type==='article'?[]:['input_message_content'])]);
-    if(native.parse_mode!==undefined&&native.caption_entities!==undefined)fail('Use caption_entities or parse_mode.');
-    if(!isCached&&native.type==='document'&&!['application/pdf','application/zip'].includes(native.mime_type))fail('URL documents require PDF or ZIP MIME type.');
-    if(!isCached&&native.type==='video'&&!['text/html','video/mp4'].includes(native.mime_type))fail('URL video requires text/html or video/mp4.');
-    if(native.mime_type==='text/html'&&native.type==='video'&&!native.input_message_content)fail('HTML video requires input_message_content.');
+    validateNativeInlineResult(native);
     return {native,definitions};
   });
   return [...prepared.filter(item=>item.native.type!=='photo'),...prepared.filter(item=>item.native.type==='photo')];

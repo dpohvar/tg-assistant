@@ -21,6 +21,7 @@ An enabled private chat, group, or supergroup has one agent record and a persist
 | Codex adapter | Start/resume threads, provide instructions and tools, observe root/subagent activity |
 | Usage accounting | Attribute reported token deltas and native image counts/bytes to bots; provide master reports |
 | Message layer | Validate chat access and local attachments, pass Telegram file IDs through, call Telegram, persist known results |
+| Guest transport | Save separate owner-scoped guest payloads, enqueue compact personal-agent events, publish native replies and register each inline result independently |
 | Scheduler | Store tasks/firings, coalesce occurrences, recover failures and overdue one-time events |
 | WebSocket manager | Hold connections independently of turns and buffer incoming data |
 | Retention | Periodically remove expired history, interagent records, and temporary files |

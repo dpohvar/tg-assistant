@@ -46,8 +46,12 @@ export function createWidgetViews({db,widgets}){
     byMessage(botId,chatId,messageId){const v=byTarget(botId,{chatId,messageId});return v?{...widgets.get(v.widgetId),view:v}:null;},
     byPoll(botId,pollId){const v=decode(sql.prepare('SELECT * FROM widget_views WHERE botId=? AND pollId=? LIMIT 1').get(botId,pollId));return v?{...widgets.get(v.widgetId),view:v}:null;},
     addCandidate(ref,{viewId='v'+randomUUID().replaceAll('-',''),target,createdAt=Date.now(),reason='delivery_unknown'}){widgets.current(ref);
-      sql.prepare('INSERT OR REPLACE INTO widget_publication_candidates(viewId,widgetId,botId,agentId,chatId,messageId,createdAt,reason) VALUES(?,?,?,?,?,?,?,?)').run(viewId,ref.widgetId,ref.botId,ref.agentId,target.chatId,target.messageId??null,createdAt,reason);return viewId;},
-    listCandidates(widgetId){return sql.prepare('SELECT * FROM widget_publication_candidates WHERE widgetId=? ORDER BY createdAt,viewId').all(widgetId).map(row=>({viewId:row.viewId,target:{chatId:row.chatId,...(row.messageId?{messageId:row.messageId}:{})},createdAt:row.createdAt,reason:row.reason}));},
+      if(!target||typeof target!=='object'||Array.isArray(target))throw widgetError('invalid_argument');
+      const ordinary=Number.isSafeInteger(target.chatId)&&target.chatId!==0&&Object.keys(target).every(k=>['chatId','messageId'].includes(k))&&(target.messageId===undefined||Number.isSafeInteger(target.messageId)&&target.messageId>0);
+      const opaque=Object.keys(target).length===1&&['inlineMessageId','guestRequestId'].some(key=>typeof target[key]==='string'&&target[key]);
+      if(!ordinary&&!opaque)throw widgetError('invalid_argument','A publication candidate needs an ordinary, inline or pending guest address.');
+      sql.prepare('INSERT OR REPLACE INTO widget_publication_candidates(viewId,widgetId,botId,agentId,chatId,messageId,createdAt,reason,inlineMessageId,guestRequestId) VALUES(?,?,?,?,?,?,?,?,?,?)').run(viewId,ref.widgetId,ref.botId,ref.agentId,target.chatId??null,target.messageId??null,createdAt,reason,target.inlineMessageId??null,target.guestRequestId??null);return viewId;},
+    listCandidates(widgetId){return sql.prepare('SELECT * FROM widget_publication_candidates WHERE widgetId=? ORDER BY createdAt,viewId').all(widgetId).map(row=>({viewId:row.viewId,target:row.inlineMessageId?{inlineMessageId:row.inlineMessageId}:row.guestRequestId?{guestRequestId:row.guestRequestId}:{chatId:row.chatId,...(row.messageId?{messageId:row.messageId}:{})},createdAt:row.createdAt,reason:row.reason}));},
     getCandidate(viewId){return sql.prepare('SELECT * FROM widget_publication_candidates WHERE viewId=?').get(viewId)??null;},
     removeCandidate(ref,viewId){widgets.current(ref);sql.prepare('DELETE FROM widget_publication_candidates WHERE widgetId=? AND viewId=?').run(ref.widgetId,viewId);}
   };

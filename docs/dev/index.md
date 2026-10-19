@@ -23,6 +23,7 @@ The original documentation was preserved under `archive/` during the wiki reorga
 | Example bot rules | [Minion](examples/Agents_Minion.md): an English AGENTS.md template for a personal and group assistant |
 | Wiki validation | [check-wiki.mjs](check-wiki.mjs): run `node docs/dev/check-wiki.mjs` from the repository |
 | Inline agent / shared widget views | [Accepted design](inline-agent-concept.md), [execution plan](plans/2026-10-18-inline-agent-widget-views.md), [verification](inline-widget-verification.md), [completion review](inline-agent-widget-views-completion.md), [calibration](inline-calibration-results.md), [native media matrix](inline-media-matrix-verification.md), [unchanged Wordle migration](wordle-migration-verification.md) |
+| Guest Mode v1 | [Accepted concept](guest-message-concept.md), [implementation plan](plans/2026-10-19-guest-mode-v1.md), [live transport evidence](guest-message-verification.md); [reply routing investigation](guest-message-reply-routing-future.md) is deferred |
 
 New development documents may be written in any language. Preserve historical evidence rather than rewriting it to claim newer behavior. Keep executable tests in `test/`; untracked local runtime files and credentials do not belong in this archive.
 

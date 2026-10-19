@@ -30,6 +30,7 @@ export function createWidgetRenderer({
   journal = () => {},
   completeJournal = () => {},
   saveInline = () => {},
+  guest,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
   const caches = new Map();
@@ -78,6 +79,7 @@ export function createWidgetRenderer({
       let authored = normalized;
       if (w.status === "stopped" || w.status === "disabled") authored = disabledRender(normalized);
       const kind = messageKind(authored);
+      const guestPrepared=view?.target.guestRequestId?guest.prepare(scope,authored,'widget'):null;
       if (w.message && w.renderSpec) {
         const previous = w.renderSpec;
         if (
@@ -100,7 +102,17 @@ export function createWidgetRenderer({
       if(view?.target.inlineMessageId && prepared.uploads.length)throw widgetError('invalid_argument','Inline messages require existing file IDs or public URLs; upload to a buffer chat first.');
       if (w.message && !w.deliveryUnknown && w.renderHash === renderHash) return view?{message:w.message,target:view.target,projection:{...view}}:w.message;
       let sent = w.message;
-      if (!w.messageId && !view?.target.inlineMessageId) {
+      if(view?.target.guestRequestId){
+        journal(ref,null,null,view);
+        try {
+          const published=await guest.publishPrepared(scope,{guestRequestId:view.target.guestRequestId,prepared:guestPrepared,viewId:view.id});
+          view.guestPublicationId=published.publicationId;view.target={inlineMessageId:published.inlineMessageId};sent=published.message;
+        }catch(error){
+          if(error.confirmedTarget){view.target=error.confirmedTarget;journal(ref,null,{message:guestPrepared.snapshot},view);}
+          else if(error.noEffect||!['delivery_unknown','storage_failed'].includes(error.code))completeJournal(ref,view.id);
+          throw error;
+        }
+      } else if (!w.messageId && !view?.target.inlineMessageId) {
         if (w.lifecycleIntent === "delivery_unknown")
           throw widgetError("delivery_unknown");
         const { chatId, messageId, widgetId, ...create } = envelope;
@@ -221,7 +233,7 @@ export function createWidgetRenderer({
             "storage_failed",
             "Telegram confirmed publication but persistence failed; do not resend.",
           ),
-          { nativeMessage: sent, messageId: sent.message_id,confirmedMessageId:sent.message_id },
+          { nativeMessage: sent, messageId: sent.message_id,confirmedMessageId:sent.message_id,...(view?.target.inlineMessageId?{confirmedTarget:view.target}:{}) },
         );
       }
       try {
@@ -230,7 +242,7 @@ export function createWidgetRenderer({
       try{if(!view?.target.inlineMessageId)cacheWidgetMedia(prepared, sent, cache);}
       catch(error){throw Object.assign(error,{nativeMessage:sent,confirmedMessageId:sent.message_id,confirmedTarget:{chatId:w.chatId,messageId:sent.message_id}});}
       if(view&&store.getView(view.id))completeJournal(ref,view.id);
-      return view ? {message:sent,projection,target:view.target.inlineMessageId?view.target:{chatId:w.chatId,messageId:sent.message_id}} : sent;
+      return view ? {message:sent,projection,target:view.target.inlineMessageId?view.target:{chatId:w.chatId,messageId:sent.message_id},...(view.guestPublicationId?{guestPublicationId:view.guestPublicationId}:{})} : sent;
     },
     async disable(ref, view) {
       if(!view&&store.listViews){await Promise.allSettled(store.listViews(ref.widgetId).map(v=>this.disable(ref,v)));return;}

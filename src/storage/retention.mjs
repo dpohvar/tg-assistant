@@ -4,9 +4,13 @@ import path from 'node:path';
 import { cleanTemp } from '../files/cleanup.mjs';
 import {createUsageStore} from './usage.mjs';
 import {createInlineStore} from '../inline/store.mjs';
+import {createGuestStore} from '../guest/store.mjs';
+import {createGuestReceipts} from '../guest/receipts.mjs';
 export async function retention({ db, config, telegram, now = Date.now() }) {
   createUsageStore(db).cleanup(now);
   createInlineStore(db).cleanup(now);
+  createGuestStore(db).cleanup(now);
+  if(config?.dataDir)createGuestReceipts({directory:path.join(config.dataDir,'guest-publications')}).cleanup(now);
   db.sql.prepare('DELETE FROM messages WHERE receivedAt<?').run(now - 30 * 86400000);
   db.sql.prepare('DELETE FROM agent_messages WHERE date<?').run(now - 7 * 86400000);
   for (const bot of db.sql.prepare('SELECT * FROM bots').all()) {

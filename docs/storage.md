@@ -40,11 +40,14 @@ Cleanup runs every 24 hours while the service is running:
 | Data | Expiry threshold |
 |---|---|
 | Saved Telegram messages | First receipt older than 30 days |
+| Guest request payloads and publication attempts | Original guest receipt reaches 30 days; separate from ordinary chat history |
 | Interagent message audit records | Date older than 7 days |
 | Temporary files | `mtime` older than 24 hours |
 | Registered native image-generation sources | `mtime` older than 24 hours |
 
 These are cleanup thresholds, not exact maximum lifetimes. A daily sweep can leave expired data until the next run, and no cleanup runs during downtime. Unprocessed scheduler firings are not deleted by message-history retention.
+
+Guest request records use their own opaque handles and bot/agent ownership, without connecting the destination chat or inserting its numeric addresses into ordinary history. Each explicit publication attempt has its own result record; a request can retain several successful inline message IDs. Access checks enforce the 30-day request deadline between cleanup sweeps. Deleting a guest request does not delete a live widget view or the inline ownership that view still needs. Local retention does not establish Telegram's answer deadline.
 
 ## Usage accounting
 

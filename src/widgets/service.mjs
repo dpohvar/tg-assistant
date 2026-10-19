@@ -27,6 +27,7 @@ export function createWidgetService({
   notify,
   isUnavailable = () => false,
   inlineStore,
+  guest,
 }) {
   const store = createWidgetStore(db),
     access = createAccess(db);
@@ -283,6 +284,7 @@ export function createWidgetService({
   const builder=createWidgetBuilder({host:compilerHost,authorize});
   const receipts=createPublicationReceipts({directory:ref=>path.join(assets(ref),"receipts")});
   const renderer = createWidgetRenderer({
+    guest,
     store,
     db,
     telegram,
@@ -300,6 +302,7 @@ export function createWidgetService({
     },
   });
   manager = createWidgetManager({
+    guest,
     db,
     host,
     store,

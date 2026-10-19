@@ -3,7 +3,7 @@ import {validateSetWidget,validateWidgetState,plainJSON,assertActionName,WIDGET_
 import {widgetTarget,viewSnapshot} from './views.mjs';
 import {viewLossReason} from './errors.mjs';
 
-export function createWidgetManager({db,host,store,build,render,authorize,notify=async()=>{},snapshotPath=id=>id,assertInlineOwner=()=>{throw widgetError('inline_message_unknown');},ackCallback=async()=>{},recoverReceipts=()=>false,removeReceipts=()=>{}}) {
+export function createWidgetManager({db,host,store,build,render,authorize,guest,notify=async()=>{},snapshotPath=id=>id,assertInlineOwner=()=>{throw widgetError('inline_message_unknown');},ackCallback=async()=>{},recoverReceipts=()=>false,removeReceipts=()=>{}}) {
   const jobs=new Set(),locks=new Map(),hooks=new Map(),revoked=new Map(),cutoffs=new Map(),origins=new Map(),loaded=new Set(),reservations=new Map();
   let closed=false;
   const refKey=r=>`${r.widgetId}:${r.generation}`;
@@ -125,6 +125,9 @@ export function createWidgetManager({db,host,store,build,render,authorize,notify
     async setView(scope,args,{callerRef}={}) {
       assertOpen();if(!args||typeof args!=='object'||Array.isArray(args))throw widgetError('invalid_argument');let w=own(scope,args.widgetId);
       if(!args||Object.keys(args).some(k=>!['widgetId','send','target','props'].includes(k))||Boolean(args.send)===Boolean(args.target))throw widgetError('invalid_argument','Use exactly one of send or target.');
+      const guestId=args.send?.guestRequestId,guestSend=guestId!==undefined;
+      if(guestSend&&(typeof guestId!=='string'||!guestId||Object.keys(args.send).some(key=>key!=='guestRequestId')))throw widgetError('invalid_argument','Use guestRequestId alone in a guest send envelope.');
+      if(guestSend&&!guest)throw widgetError('guest_request_unavailable');
       if(args.send!==undefined){
         const send=args.send;
         if(!send||typeof send!=='object'||Array.isArray(send)||send.chatId!==undefined&&(!Number.isSafeInteger(send.chatId)||send.chatId===0)||send.topicId!==undefined&&(!Number.isSafeInteger(send.topicId)||send.topicId<1))throw widgetError('invalid_argument');
@@ -135,9 +138,9 @@ export function createWidgetManager({db,host,store,build,render,authorize,notify
       }
       if(w.status!=='active')throw widgetError('widget_stopped');
       const props=JSON.parse(plainJSON(args.props??{}));if(!props||Array.isArray(props)||typeof props!=='object')throw widgetError('invalid_argument','View props must be a JSON object.');
-      const target=args.target?widgetTarget(args.target.messageId!==undefined?{chatId:scope.chatId,...args.target}:args.target):{chatId:args.send.chatId??scope.chatId};
-      const envelope=args.send??{};if(args.send&&Object.keys(envelope).some(k=>!['chatId','topicId','reply_parameters','disable_notification','protect_content','message_effect_id'].includes(k)))throw widgetError('invalid_argument');
-      if(target.inlineMessageId)assertInlineOwner(scope,target.inlineMessageId);else authorize(w,target.chatId);
+      const target=args.target?widgetTarget(args.target.messageId!==undefined?{chatId:scope.chatId,...args.target}:args.target):guestSend?{guestRequestId:guestId}:{chatId:args.send.chatId??scope.chatId};
+      const envelope=args.send??{};if(args.send&&Object.keys(envelope).some(k=>!(guestSend?['guestRequestId']:['chatId','topicId','reply_parameters','disable_notification','protect_content','message_effect_id']).includes(k)))throw widgetError('invalid_argument');
+      if(guestSend)guest.assertRequest(scope,guestId);else if(target.inlineMessageId)assertInlineOwner(scope,target.inlineMessageId);else authorize(w,target.chatId);
       const atEntry=args.target&&store.byTarget(w.botId,target);
       if(atEntry&&atEntry.widgetId!==w.widgetId)throw Object.assign(widgetError('view_conflict','This message belongs to another widget.'),{ownerAgentId:atEntry.agentId,widgetId:atEntry.widgetId,viewId:atEntry.id});
       cutoff(atEntry?.id,1);
@@ -165,11 +168,12 @@ export function createWidgetManager({db,host,store,build,render,authorize,notify
             try{view=old?store.replaceView(w,old.id,fields):store.createView(w,fields);}
             catch(cause){throw Object.assign(widgetError('storage_failed','Telegram confirmed publication but binding persistence failed; do not resend.'),{confirmedMessageId:result.target.messageId,confirmedTarget:result.target,cause});}
             render.confirm?.(w,candidate.id);
+            if(result.guestPublicationId)guest.complete(result.guestPublicationId);
             store.patch(w,{lastError:null});return {viewId:view.id,target:view.target};
           } catch(error) {
             error.widgetId=w.widgetId;error.viewId=candidate.id;
             if(publication){error.confirmedTarget=publication.target;error.confirmedMessageId=publication.target.messageId;}
-            const uncertain=error.confirmedTarget||['delivery_unknown','storage_failed'].includes(error.code);
+            const uncertain=!error.noEffect&&(error.confirmedTarget||['delivery_unknown','storage_failed'].includes(error.code));
             try{
               if(old&&uncertain)store.patchView(w,old.id,{deliveryUnknown:true});
               if(!args.target&&uncertain)store.addCandidate(w,{viewId:candidate.id,target:error.confirmedTarget??(error.nativeMessage?.message_id?{chatId:target.chatId,messageId:error.nativeMessage.message_id}:target),reason:error.code});
@@ -177,7 +181,7 @@ export function createWidgetManager({db,host,store,build,render,authorize,notify
             if(publication&&manager.isRevoked(w))await render.disable(w,{...candidate,...publication.projection,target:publication.target,chatId:publication.target.chatId,messageId:publication.target.messageId});
             if(host.has(w)&&!manager.isRevoked(w))await host.request(w,'handleError',{error:{code:error.code??'render_failed',message:String(error.message),operation:old?'replace':'attach',view:viewSnapshot(candidate),...(old?{previousView:viewSnapshot(old)}:{})},...(old?{viewId:old.id}:{}),quiet:true}).catch(()=>{});
             throw error;
-          }
+          } finally {if(candidate.guestPublicationId)guest?.settle(candidate.guestPublicationId);}
         },{self:callerRef?.widgetId===w.widgetId});
       },{self:callerRef?.widgetId===w.widgetId})).finally(()=>cutoff(atEntry?.id,-1)));
     },

@@ -4,6 +4,8 @@ Agents publish through controller tools; their final Codex text is internal. The
 
 ## Send a message
 
+For an explicit [guest invocation](guest-mode.md), use `send({guestRequestId,...content})` rather than an ordinary chat destination. It returns `{inlineMessageId}`, supports content/options representable by one native inline result, and cannot upload local files. Guest validation never falls back to a private send. Ordinary calls retain the defaults and results below.
+
 `send` requires exactly one content field. The controller maps it to the corresponding Telegram method:
 
 | Content field | Telegram method | Shape |

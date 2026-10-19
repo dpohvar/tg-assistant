@@ -28,9 +28,9 @@ export function createPublicationReceipts({directory}) {
             store.patchView(ref,bound.id,{deliveryUnknown:true,renderHash:null});uncertain=true;
           }
           api.done(ref,receipt.viewId);
-        }else if(!target.inlineMessageId){
+        }else{
           store.addCandidate(ref,{viewId:receipt.viewId,target,createdAt:receipt.at,reason:receipt.projection?'storage_failed':'delivery_unknown'});uncertain=true;
-        }else {api.done(ref,receipt.viewId);uncertain=true;}
+        }
       }
       return uncertain;
     },

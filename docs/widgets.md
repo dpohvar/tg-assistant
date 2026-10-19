@@ -43,6 +43,8 @@ Description is required only at creation. Omitted replacement fields preserve ol
 
 ## Message addresses and replacement
 
+To publish an owned widget as the direct answer to a [guest invocation](guest-mode.md#widgets-and-callbacks), use `set_widget_view({widgetId,send:{guestRequestId},props:{}})`. The first visible message is the prepared render. Its initial frozen target is `{guestRequestId}` until Telegram returns the real inline ID; later views/events use `{inlineMessageId}`. Each successful publication creates an independent view, even if Telegram accepted multiple answers for the same request. Local uploads and unsupported initial native result formats are rejected before publication.
+
 `send:{}` publishes in the agent's current chat. Creation options are `chatId`, `topicId`, `reply_parameters`, `disable_notification`, `protect_content` and `message_effect_id`.
 
 ```js

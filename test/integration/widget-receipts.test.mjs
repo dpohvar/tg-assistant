@@ -29,3 +29,12 @@ test('receipt for an already committed projection is consumed without making it 
   receipts.write(w,v,{message:v.message,renderHash:v.renderHash});receipts.recover(w,f.store);
   assert.equal(f.store.getView(v.id).deliveryUnknown,false);assert.equal(receipts.list(w).length,0);
 });
+test('guest and inline publication candidates retain exact targets during receipt recovery',async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'widget-guest-receipts-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const receipts=createPublicationReceipts({directory:()=>root}),f=await widgetFixture(t),one=await f.withOneView(),w=f.store.get(one.widgetId);
+  receipts.write(w,{id:'pending-guest',target:{guestRequestId:'request'}});
+  receipts.write(w,{id:'confirmed-inline',target:{inlineMessageId:'confirmed'}},{message:{text:'Game'}});
+  assert.equal(receipts.recover(w,f.store),true);
+  assert.deepEqual(f.store.listCandidates(w.widgetId).map(v=>v.target).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))),[{guestRequestId:'request'},{inlineMessageId:'confirmed'}]);
+  assert.equal(f.store.listViews(w.widgetId).length,1);
+});

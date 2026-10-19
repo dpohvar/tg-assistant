@@ -22,6 +22,8 @@ Another enabled chat agent must act through delegation. A passive basic group is
 
 ## Sandbox and network
 
+Guest request handles are scoped to the receiving bot, selected personal agent and original caller, with authorization checked again immediately before publication. A [guest message](guest-mode.md) is not a connected chat, even if its numeric ID equals a known ordinary address. Reading the saved payload grants no group history or ordinary send rights. Every returned native inline ID gets an exact owner registration; callbacks are routed only by established IDs, never by content, dates or invisible links. The personal agent's public response must not disclose unrelated private history, notes or secrets.
+
 Codex runs with named filesystem permissions: minimal runtime reads, write access to the bot workspace, denial of `.git` and all `.temp` except the caller's temp, and read access to the Codex executable directory. Bot tokens, control state, sessions, and neighboring bot workspaces are outside the permitted area. Controller file operations additionally validate paths and reject symlink traversal.
 
 Approval policy is `never`: requests that need extra approval cannot obtain it interactively. Shell programs and scripts can run inside the configured sandbox. Network access is enabled, and live web search is available. The sandbox does not impose a general localhost/private-network filter on shell, WebSocket, or configured MCP traffic; server network/firewall policy determines what those processes can reach.

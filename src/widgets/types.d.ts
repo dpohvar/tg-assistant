@@ -35,11 +35,11 @@ export interface WidgetEvent {
   ) => Promise<void>;
 }
 export type WidgetTarget = {chatId:number;messageId:number} | {inlineMessageId:string};
-export interface WidgetView {readonly id:string;readonly target:Readonly<WidgetTarget|{chatId:number}>;readonly props:Readonly<Record<string,JSONValue>>;}
+export interface WidgetView {readonly id:string;readonly target:Readonly<WidgetTarget|{chatId:number}|{guestRequestId:string}>;readonly props:Readonly<Record<string,JSONValue>>;}
 export interface WidgetAPI {
   create_widget(args:{handler:string;description:string;state?:State}):Promise<{widgetId:string}>;
   update_widget(args:{widgetId:string;handler?:string;description?:string;state?:State}):Promise<{widgetId:string;renderErrors?:{viewId:string;code:string;message:string}[]}>;
-  set_widget_view(args:{widgetId:string;props?:Record<string,JSONValue>;send?:{chatId?:number;topicId?:number;reply_parameters?:Record<string,JSONValue>;disable_notification?:boolean;protect_content?:boolean;message_effect_id?:string};target?:WidgetTarget|{messageId:number}}):Promise<{viewId:string;target:WidgetTarget}>;
+  set_widget_view(args:{widgetId:string;props?:Record<string,JSONValue>;send?:{chatId?:number;topicId?:number;reply_parameters?:Record<string,JSONValue>;disable_notification?:boolean;protect_content?:boolean;message_effect_id?:string}|{guestRequestId:string};target?:WidgetTarget|{messageId:number}}):Promise<{viewId:string;target:WidgetTarget}>;
   delete_widget_view(args:{viewId:string}):Promise<void>;
   delete_widget(args:{widgetId:string}):Promise<void>;
   list_widgets(args?:{}):Promise<{canCreate:number;items:Record<string,unknown>[]}>;

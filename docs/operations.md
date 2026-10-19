@@ -68,6 +68,8 @@ The release includes x86-64 and ARM64 Linux binaries. PNG frame output does not 
 
 ## Configuration and authentication
 
+Enable Guest Mode for the desired child bot through BotFather and verify `getMe.supports_guest_queries` before testing mentions outside member chats. The controller subscribes to `guest_message`; there is no new guest configuration block or automatic personal-agent creation. Upgrade applies the additive schema-17 migration and preserves existing widgets. Restart retains guest request handles and local publication receipts, without replaying unanswered model work. Existing Codex contexts can keep old developer instructions; use explicit `/agent clear` where an instruction refresh is required. No context reset is automatic. See [Guest Mode](guest-mode.md) for supported output and live-check limits.
+
 Edit `config.json`, starting from [config.example.json](../config.example.json):
 
 | Setting | Meaning |

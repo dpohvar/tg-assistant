@@ -57,7 +57,7 @@ export function createInlineStore(db,{now=Date.now}={}) {
       assertOwner(scope,id);const checked=JSON.parse(plainJSON(change));
       db.transaction(()=>{
         const row=sql.prepare('SELECT content FROM inline_snapshots WHERE botId=? AND inlineMessageId=?').get(scope.botId,id),content=row?JSON.parse(row.content):{};
-        const kinds=['text','rich_message','media','photo','video','animation','audio','document'];
+        const kinds=['text','rich_message','media','photo','video','animation','audio','document','voice','sticker','location','venue','contact'];
         const selected=kinds.find(kind=>checked[kind]!==undefined);
         if(selected){
           for(const kind of kinds)if(kind!==selected)delete content[kind];
@@ -74,7 +74,7 @@ export function createInlineStore(db,{now=Date.now}={}) {
       const row=sql.prepare('SELECT * FROM inline_snapshots WHERE botId=? AND inlineMessageId=?').get(scope.botId,id),view=sql.prepare('SELECT message,deliveryUnknown FROM widget_views WHERE botId=? AND inlineMessageId=?').get(scope.botId,id);
       if(view?.message){const content=JSON.parse(view.message);return {inlineMessageId:id,...content,snapshotComplete:true,deliveryUnknown:Boolean(view.deliveryUnknown)};}
       if(!row||row.expiresAt<=now()&&!view)return null;
-      const content=JSON.parse(row.content),complete=['text','rich_message','media'].some(key=>content[key]!==undefined)&&content.reply_markup!==undefined;
+      const content=JSON.parse(row.content),complete=['text','rich_message','media','photo','video','animation','audio','document','voice','sticker','location','venue','contact'].some(key=>content[key]!==undefined)&&content.reply_markup!==undefined;
       return {inlineMessageId:id,...content,snapshotComplete:complete,updatedAt:row.updatedAt,deliveryUnknown:Boolean(row.deliveryUnknown)};
     },
     cleanup(at=now()) {db.transaction(()=>{

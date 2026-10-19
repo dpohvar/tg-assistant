@@ -14,6 +14,7 @@ This wiki describes the current implementation. Start with [installation and ope
 | [Message events](message-events.md) | Event batches, short messages, detailed reads, and examples |
 | [Messaging](messaging.md) | Text, rich messages, media, buttons, callbacks, and permits |
 | [Inline mode](inline.md) | Paginated agent results, action buttons, inline ownership and media buffers |
+| [Guest Mode](guest-mode.md) | Explicit mentions outside member chats, personal-agent routing and guest request storage |
 | [Widgets](widgets.md) | Sandboxed programmable messages, TSX handlers, timers, events and administration |
 | [Scheduler](scheduler.md) | One-time tasks, cron, time zones, failures, and retries |
 | [Storage](storage.md) | Database, history, notes, shared files, temporary files, and Git |
