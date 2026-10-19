@@ -7,6 +7,25 @@ import { openDatabase } from '../../src/storage/database.mjs';
 import { CodexAgent, dynamicTools } from '../../src/codex/threads.mjs';
 import {isolatedMcpArgs} from '../../src/mcp/runtime.mjs';
 
+for (const resume of [false, true]) test(`native launch disables shell snapshots on thread ${resume ? 'resume' : 'start'}`, async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-shell-snapshot-')),db=openDatabase(':memory:');
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);
+ if(resume)db.sql.prepare('UPDATE agents SET threadId=? WHERE agentId=?').run('thread1',scope.agentId);
+ let launch;
+ const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath,defaultTimezone:'UTC'},prepareMcpArgs:async options=>{
+  launch=await isolatedMcpArgs({...options,readConfig:async()=>({features:{shell_snapshot:true},mcp_servers:{}})});
+  return [path.resolve('test/fixtures/codex-server.mjs')];
+ }});
+ t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ const session=await agent.session(scope,async()=>({}));
+ const overrides=launch.filter((_arg,index)=>launch[index-1]==='-c');
+ assert.ok(overrides.includes('features.shell_snapshot=false'),'Controller launch must override inherited shell snapshots');
+ assert.ok(overrides.includes('default_permissions="tg-agent"'));
+ assert.ok(overrides.includes('permissions.tg-agent.network={enabled=true}'));
+ assert.ok(!overrides.includes('allow_login_shell=false'),'Login-shell semantics remain available');
+ assert.equal(session.threadId,'thread1');
+});
+
 test('background child failure keeps its stage and provider category',async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-child-error-')),db=openDatabase(':memory:');
  db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);

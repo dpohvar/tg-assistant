@@ -151,6 +151,8 @@ Restore only while stopped, with the same directory layout and permissions. If a
 
 ## Application and runtime upgrades
 
+The controller explicitly disables Codex shell snapshots for model sessions, including resumed threads. This avoids an Alpine ash startup failure when a snapshot under private `CODEX_HOME` is unavailable inside the agent sandbox. Login-shell semantics remain available; normal shell startup files and the inherited service environment determine tool availability. No additional service JSON or global Codex configuration is needed. Restart the controller after upgrading so existing Codex processes receive this launch policy; clearing agent context is not required for this policy change. Filesystem permissions remain unchanged. See the [investigation](dev/shell-file-access-investigation.md) for reproduction details.
+
 1. Stop the service, confirm shutdown, and take a recoverable backup.
 2. Update to the reviewed code revision and run `npm ci` and `npm test`; run native reader tests where their dependencies are installed.
 3. Start using the same config and inspect status/logs. Database migrations run automatically in a transaction before Telegram events are accepted.

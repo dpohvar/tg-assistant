@@ -125,7 +125,8 @@ export class CodexAgent {
     fs.mkdirSync(path.join(cwd, '.git'), { recursive: true });
     const allow = { ':minimal': 'read', [cwd]: 'write', [path.join(cwd, '.git')]: 'deny', [path.join(cwd, '.temp')]: 'deny', [path.join(cwd, '.temp', scope.agentId)]: 'write', [path.dirname(this.config.codexExecutable)]: 'read' };
     const toml = '{' + Object.entries(allow).map(([p, v]) => `${JSON.stringify(p)}=${JSON.stringify(v)}`).join(',') + '}';
-    let args = this.spawnArgs ?? ['app-server', '--stdio', '--strict-config', ...(process.platform==='win32'?['--enable','prefer_mxc']:[]), '-c', 'approval_policy="never"', '-c', 'default_permissions="tg-agent"', '-c', `permissions.tg-agent.filesystem=${toml}`, '-c', 'permissions.tg-agent.network={enabled=true}', '-c', 'web_search="live"', '-c', 'features.multi_agent=true'];
+    // Snapshots live outside the agent sandbox; ash can exit silently before executing a login command.
+    let args = this.spawnArgs ?? ['app-server', '--stdio', '--strict-config', ...(process.platform==='win32'?['--enable','prefer_mxc']:[]), '-c', 'approval_policy="never"', '-c', 'default_permissions="tg-agent"', '-c', `permissions.tg-agent.filesystem=${toml}`, '-c', 'permissions.tg-agent.network={enabled=true}', '-c', 'web_search="live"', '-c', 'features.multi_agent=true', '-c', 'features.shell_snapshot=false'];
     const env = { ...process.env, CODEX_HOME: this.config.codexHome }; for (const k of Object.keys(env)) if (/TOKEN|SECRET|PASSWORD|API_KEY/i.test(k)) delete env[k];
     if(!this.spawnArgs||this.prepareMcpArgs)try{args=await (this.prepareMcpArgs??isolatedMcpArgs)({executable:this.config.codexExecutable,args,cwd,env,botId:scope.botId,entries:createMcpStore(this.db).list(scope.botId),signal:startup.signal,onRpc:rpc=>this.trackRpc(rpc)});}catch(e){this.checkStartup(scope,startup);throw markFailure(e,{stage:'mcp_preflight'});}
     this.checkStartup(scope,startup);
