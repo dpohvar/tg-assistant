@@ -10,6 +10,11 @@ test('inline results and alternative read/edit addresses reach the actual model 
   for(const name of ['read','edit']){const schema=dynamicTools.find(tool=>tool.name===name).inputSchema;assert.equal(schema.properties.inlineMessageId.type,'string');assert.ok(schema.oneOf);}
 });
 
+test('the model can keep an inline stream open using an optional boolean done parameter',()=>{
+  const schema=dynamicTools.find(tool=>tool.name==='set_inline_results').inputSchema;
+  assert.equal(schema.properties.done?.type,'boolean');assert.equal(schema.required.includes('done'),false);
+});
+
 test('agents can give audio buffers a stored title before reusing their file ID inline',()=>{
   const send=dynamicTools.find(tool=>tool.name==='send').inputSchema.properties;
   assert.deepEqual(send.title,{type:'string'});

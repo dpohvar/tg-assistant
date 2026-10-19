@@ -33,3 +33,5 @@ New development documents may be written in any language. Preserve historical ev
 The legacy standalone probes were copied from the original development checkout so they are preserved in the repository. Its local originals were left intact. Personal bot-rule files remain excluded; the Minion template is a separately adapted, reusable example. Active application tests remain in `test/`; legacy probe copies are archival artifacts, not required service dependencies.
 
 - [Unknown-destination inline reply/reaction control](inline-unknown-events-verification.md)
+
+- Incremental inline results: [accepted design](inline-streaming-design.md), [implementation plan](plans/2026-10-20-inline-streaming.md), [verification and live procedure](inline-streaming-verification.md).

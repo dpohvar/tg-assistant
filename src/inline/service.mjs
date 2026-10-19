@@ -24,15 +24,20 @@ export function createInlineService({requests,clock={now:Date.now,setTimeout,cle
       if(!live(r)||r.phase!=='waiting')finish();
     });
   }
+  async function transmit(botId,q,r,body){
+    if(r&&!authorized(r))body={inline_query_id:q.id,results:[],next_offset:'',cache_time:0,is_personal:true};
+    const results=body.results;
+    observation({type:'answer_started',queryId:q.id,requestId:r?.requestId,at:clock.now(),rows:results.length,resultKinds:results.map(x=>x.type)});
+    try{await answer(botId,body);observation({type:'answer_finished',queryId:q.id,requestId:r?.requestId,at:clock.now()});}
+    catch(e){if(r)requests.close(r.requestId,'answer_failed');observation({type:'answer_failed',queryId:q.id,requestId:r?.requestId,at:clock.now(),code:e.code??'answer_failed'});return false;}
+    return body;
+  }
   async function send(botId,q,r,results,more=false,button){
     // Recheck after registry/async work, then issue exactly this cursor immediately before send.
     if(r&&!authorized(r)){results=[];more=false;}
     const offset=more?requests.issueCursor(r.requestId):'';
     const body={inline_query_id:q.id,results,next_offset:offset,cache_time:0,is_personal:true,...(button?{button}:{})};
-    observation({type:'answer_started',queryId:q.id,requestId:r?.requestId,at:clock.now(),rows:results.length,resultKinds:results.map(x=>x.type)});
-    try{await answer(botId,body);observation({type:'answer_finished',queryId:q.id,requestId:r?.requestId,at:clock.now()});}
-    catch(e){if(r)requests.close(r.requestId,'answer_failed');observation({type:'answer_failed',queryId:q.id,requestId:r?.requestId,at:clock.now(),code:e.code??'answer_failed'});return false;}
-    return true;
+    return transmit(botId,q,r,body);
   }
   async function page(botId,q,receivedAt){
     let r;
@@ -50,6 +55,16 @@ export function createInlineService({requests,clock={now:Date.now,setTimeout,cle
     const cursor=requests.resolveCursor({botId,userId:q.from.id,cursor:q.offset});r=cursor?.request;
     if(!r||!authorized(r))return send(botId,q,null,[]);
     observation({type:'page_received',queryId:q.id,requestId:r.requestId,receivedAt,issuedAt:cursor.issuedAt,phase:r.phase});
+    if(cursor.page){
+      const body=await cursor.page;
+      if(!authorized(r)||!body)return send(botId,q,null,[]);
+      return transmit(botId,q,r,{...body,inline_query_id:q.id});
+    }
+    const previous=r.pageTail??Promise.resolve();
+    const job=previous.then(()=>authorized(r)?continuation(botId,q,r,cursor,receivedAt):send(botId,q,null,[]));
+    cursor.page=job;r.pageTail=job.catch(()=>{});return job;
+  }
+  async function continuation(botId,q,r,cursor,receivedAt){
     if(r.phase==='delivered')return send(botId,q,r,[]);
     if(r.phase==='prompt'){
       if(receivedAt-cursor.issuedAt<r.policy.triggerMs)
@@ -65,18 +80,24 @@ export function createInlineService({requests,clock={now:Date.now,setTimeout,cle
     if(!authorized(r))return send(botId,q,null,[]);
     if(r.phase==='waiting')return send(botId,q,r,[neutral('⬇️ Agent is working')],true);
     if(r.phase==='delivered')return send(botId,q,r,[]);
-    const prepared=r.prepared?.length?r.prepared:[{native:neutral('Work complete')}];
+    const prepared=r.prepared?.length?r.prepared:r.nextResult===0?[{native:neutral('Work complete')}]:[];
     const start=r.nextResult,candidate=prepared.slice(start,start+r.policy.pageSize);
-    // Normalization puts photos last; begin that group on its own page for client compatibility.
-    const firstPhoto=candidate.findIndex(item=>item.native.type==='photo');
-    const part=firstPhoto>0?candidate.slice(0,firstPhoto):candidate;
-    if(!part.length)return send(botId,q,r,[]);
-    r.nextResult+=part.length;const more=r.nextResult<prepared.length;
+    // Portions keep their order; split both photo-to-text and text-to-photo boundaries.
+    const photo=candidate[0]?.native.type==='photo',boundary=candidate.findIndex(item=>(item.native.type==='photo')!==photo);
+    const part=boundary>0?candidate.slice(0,boundary):candidate;
+    if(!part.length){const body=await send(botId,q,r,[]);if(body&&live(r))requests.delivered(r.requestId);return body;}
+    r.nextResult+=part.length;
     let results;
     try{if(!authorized(r))return send(botId,q,null,[]);results=await registerPage({botId:r.botId,agentId:r.agentId,chatId:r.userId},part);}
     catch(e){requests.close(r.requestId,'registration_failed');observation({type:'registration_failed',requestId:r.requestId,code:e.code??'storage_failed'});return;}
+    if(!authorized(r))return send(botId,q,null,[]);
+    const more=!r.inputDone||r.nextResult<(r.prepared?.length??0);
+    results=results.map((native,index)=>part[index].status&&(more||index<part.length-1)?{...native,title:'⬇️ '+native.title}:native);
+    if(!more&&r.inputDone)r.phase='ready';
+    else r.phase=r.nextResult<(r.prepared?.length??0)?'ready':'waiting';
     const ok=await send(botId,q,r,results,more);
     if(ok&&!more&&live(r))requests.delivered(r.requestId);
+    return ok;
   }
   return {
     receive(botId,q){
@@ -86,8 +107,11 @@ export function createInlineService({requests,clock={now:Date.now,setTimeout,cle
       const job=page(botId,q,receivedAt).catch(e=>{const c=q.offset&&requests.resolveCursor({botId,userId:q.from.id,cursor:q.offset});if(c)requests.close(c.request.requestId,'page_failed');observation({type:'page_failed',queryId:q.id,code:e.code??'inline_failed'});});
       jobs.add(job);job.finally(()=>jobs.delete(job));
     },
-    setResults(scope,{requestId,results}){const r=requests.assert(scope,requestId);if(!authorized(r))throw inlineError('request_unavailable');
-      if(r.hasResults)return {status:'already_set'};const prepared=normalizeResults(scope,results);return requests.setReady(scope,requestId,prepared);},
+    setResults(scope,{requestId,results,done=true}){const r=requests.assert(scope,requestId);if(!authorized(r))throw inlineError('request_unavailable');
+      if(r.inputDone)return {status:'already_set'};
+      if(typeof done!=='boolean')throw inlineError('invalid_argument','done must be boolean.');
+      const prepared=normalizeResults(scope,results).map(item=>({...item,native:{...item.native,id:randomUUID().replaceAll('-','')}}));
+      return requests.setReady(scope,requestId,prepared,done);},
     disableOwner(botId,agentId,reason='agent_disabled'){requests.closeOwner(botId,agentId,reason);},
     close(){if(closed)return;closed=true;requests.closeAll();stopped();seen.clear();},
     async idle(){while(jobs.size)await Promise.allSettled([...jobs]);}

@@ -41,3 +41,22 @@ test('a new initial query cancels a pending inline job and rejects its late resu
   await f.query();assert.equal(f.c.queue.pending(f.agent.agentId),0);
   await assert.rejects(f.c.invoke(f.scope,'set_inline_results',{requestId:old,results:[{title:'Old',message:{text:'x',buttons:[{text:'x',action:'x'}]}}]}),{code:'request_unavailable'});assert.equal(f.db.sql.prepare('SELECT count(*) n FROM inline_buttons').get().n,0);
 });
+
+test('incremental controller portions retain delayed button registration and replay consumed groups without resurrection',async t=>{
+  const f=await fixture(t),initial=await f.query(),sent=await f.query(initial.next_offset);await f.c.queue.idle();
+  const requestId=f.batches[0].events[0].requestId;
+  await f.c.invoke(f.scope,'set_inline_results',{requestId,results:[{title:'Preparing',description:'A game'}],done:false});
+  const status=await f.query(sent.next_offset);assert.equal(status.results[0].title,'⬇️ Preparing');assert.ok(status.next_offset);
+  await f.c.invoke(f.scope,'set_inline_results',{requestId,results:[{title:'Wordle',message:{text:'Wordle',buttons:[{text:'Start',action:'Activate Wordle',group:'start'}]}}],done:false});
+  assert.equal(f.db.sql.prepare('SELECT count(*) n FROM inline_buttons').get().n,0);
+  const card=await f.query(status.next_offset);assert.equal(card.results[0].title,'Wordle');assert.ok(card.next_offset);
+  assert.equal(f.db.sql.prepare('SELECT count(*) n FROM inline_buttons').get().n,1);
+  const data=card.results[0].reply_markup.inline_keyboard[0][0].callback_data;
+  await f.c.receive('b',{callback_query:{id:'stream-click',inline_message_id:'stream-game',from:{id:2,first_name:'Player'},data}});await f.c.queue.idle();
+  const replay=await f.query(status.next_offset);assert.deepEqual(replay.results,card.results);assert.equal(replay.next_offset,card.next_offset);
+  assert.equal(f.db.sql.prepare('SELECT count(*) n FROM inline_buttons').get().n,0);
+  await f.c.receive('b',{callback_query:{id:'stream-repeat',inline_message_id:'stream-game',from:{id:2,first_name:'Player'},data}});await f.c.queue.idle();
+  assert.equal(f.batches.flatMap(b=>b.events).filter(e=>e.action==='Activate Wordle').length,1);
+  await f.c.invoke(f.scope,'set_inline_results',{requestId,results:[],done:true});
+  const end=await f.query(card.next_offset);assert.deepEqual(end.results,[]);assert.equal(end.next_offset,'');
+});

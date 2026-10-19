@@ -16,8 +16,8 @@ export function inlineFixture(t,options={}){
     resolveActor:options.resolveActor??(()=>({...scope,userId:1})),
     enqueue:(owner,event,admit)=>{queued.push({owner,event,admit});return 'accepted';},
     cancelPending:id=>cancelled.push(id),
-    normalizeResults:(_owner,results)=>{normalizeCalls++;if(!Array.isArray(results)||results.some(x=>!x.title))throw Object.assign(new Error('Invalid result'),{code:'invalid_argument'});return results.map(x=>({native:{type:'article',id:x.id??'result-'+normalizeCalls,title:x.title,input_message_content:{message_text:x.message?.text??'✖️'}}}));},
-    registerPage:(owner,page)=>{if(registrationFailure)throw registrationFailure;registered.push(page);return page.map(x=>x.native);},
+    normalizeResults:(_owner,results)=>{normalizeCalls++;if(options.normalizeResults)return options.normalizeResults(_owner,results);if(!Array.isArray(results)||results.some(x=>!x.title))throw Object.assign(new Error('Invalid result'),{code:'invalid_argument'});return results.map(x=>({native:{type:'article',id:x.id??'result-'+normalizeCalls,title:x.title,input_message_content:{message_text:x.message?.text??'✖️'}},status:x.message===undefined}));},
+    registerPage:async(owner,page)=>{if(registrationFailure)throw registrationFailure;registered.push(page);await options.registerPage?.(owner,page);return page.map(x=>x.native);},
     answer:async(botId,body)=>{if(answerFailure)throw answerFailure;await options.answer?.(body);answers.push(body);return true;},
     observe:event=>observations.push(event)});
   t.after(()=>service.close());

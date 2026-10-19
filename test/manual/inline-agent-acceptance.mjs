@@ -22,12 +22,13 @@ export function acceptanceUpdate(update,{ownerId}){
   return Boolean((user||chat)&&(!user||user.id===ownerId)&&(!chat||chat.id===ownerId));
 }
 
-export function acceptanceEffects({botId,ownerId,sends=8,edits=128}){
+export function acceptanceEffects({botId,ownerId,sends=8,edits=128,quietPhotosOnly=false}){
   const messages=new Set(),inline=new Set();let sent=0,edited=0;
   return {messages,allowMessage:id=>messages.add(id),allowInline:id=>inline.add(id),
     before(bot,method,args){
       if(bot!==botId)throw new Error('Foreign bot target');
       if(args.chat_id!==undefined&&args.chat_id!==ownerId)throw new Error('Foreign chat target');
+      if(quietPhotosOnly&&method.startsWith('send')&&method!=='sendChatAction'&&(method!=='sendPhoto'||args.disable_notification!==true))throw new Error('Streaming acceptance permits only quiet photo buffers.');
       if(args.inline_message_id&&!inline.has(args.inline_message_id))throw new Error('Foreign inline target');
       if((method.startsWith('edit')||method==='deleteMessage')&&args.message_id&&!messages.has(args.message_id))throw new Error('Foreign message target');
       if(method.startsWith('send')&&method!=='sendChatAction'&&++sent>sends||method.startsWith('edit')&&++edited>edits)throw new Error('Acceptance effect budget exceeded');
@@ -38,10 +39,10 @@ async function nativeRuntime({config:privateConfig,mode,root,signal,report}){
   const botId='inline-acceptance',config={dataDir:path.join(root,'data'),botsDir:path.join(root,'bots'),codexHome:path.join(root,'codex-home'),codexExecutable:privateConfig.codexExecutable,defaultTimezone:'UTC',defaultModel:privateConfig.model??'gpt-6.1-sol',serviceOwnerId:privateConfig.ownerId,inline:privateConfig.inline};
   fs.mkdirSync(config.codexHome,{recursive:true});
   if(!fs.existsSync(path.join(config.codexHome,'auth.json')))fs.copyFileSync(path.join(privateConfig.codexHome,'auth.json'),path.join(config.codexHome,'auth.json'));
-  const native=createTelegram({getToken:()=>privateConfig.token??fs.readFileSync(privateConfig.tokenFile,'utf8').trim()}),guard=acceptanceEffects({botId,ownerId:privateConfig.ownerId,...(mode==='matrix'?{sends:12}:{})});
-  const cursors=new Map(),protectedEdits=new Set();
+  const native=createTelegram({getToken:()=>privateConfig.token??fs.readFileSync(privateConfig.tokenFile,'utf8').trim()}),guard=acceptanceEffects({botId,ownerId:privateConfig.ownerId,...(mode==='matrix'?{sends:12}:mode==='streaming'?{sends:3,quietPhotosOnly:true}:{})});
+  const cursors=new Map(),protectedEdits=new Set(),streamingBuffers=new Set();
   const telegram={getToken:native.getToken,call:async(b,method,args={},options)=>{
-    guard.before(b,method,args);
+    try{guard.before(b,method,args);}catch(error){report({type:'acceptance_effect_refused',method,reason:error.message});throw error;}
     if(method.startsWith('edit')&&protectedEdits.has(args.message_id))throw Object.assign(new Error('Fixture must reject via_bot edits before Telegram.'),{code:'fixture_edit_attempt'});
     if(method==='answerInlineQuery'){
       if(args.next_offset)cursors.set(args.next_offset,Date.now());
@@ -49,11 +50,13 @@ async function nativeRuntime({config:privateConfig,mode,root,signal,report}){
     }
     let result;try{result=await native.call(b,method,args,options);}catch(error){if(method==='answerInlineQuery')report({type:'answer_failed',queryId:args.inline_query_id,code:error.code??'telegram_failed',description:String(error.message??'').replace(/bot\d+:[\w-]+/g,'bot[redacted]').slice(0,300)});throw error;}
     if(method.startsWith('send')&&result?.message_id)guard.allowMessage(result.message_id);
-    if(method==='answerInlineQuery')report({type:'answer',queryId:args.inline_query_id,kinds:args.results.map(r=>r.type),sources:args.results.map(r=>Object.keys(r).some(k=>k.endsWith('_file_id'))?'cached':Object.keys(r).some(k=>k.endsWith('_url'))?'url':'native'),rows:args.results.length,more:Boolean(args.next_offset),labels:args.results.map(r=>r.title).filter(title=>/^(?:⬇️ )?(Scroll to send command \[|Command sent to agent$|Agent is working$)/.test(title??''))});
+    if(mode==='streaming'&&method==='sendPhoto'&&result?.message_id)streamingBuffers.add(result.message_id);
+    if(method==='answerInlineQuery')report({type:'answer',queryId:args.inline_query_id,kinds:args.results.map(r=>r.type),sources:args.results.map(r=>Object.keys(r).some(k=>k.endsWith('_file_id'))?'cached':Object.keys(r).some(k=>k.endsWith('_url'))?'url':'native'),rows:args.results.length,more:Boolean(args.next_offset),labels:args.results.map(r=>r.title).filter(title=>mode==='streaming'||/^(?:⬇️ )?(Scroll to send command \[|Command sent to agent$|Agent is working$)/.test(title??''))});
     return result;
   }};
   const me=await telegram.call(botId,'getMe');if(me.id!==privateConfig.botTelegramId||!me.supports_inline_queries)throw new Error('Designated inline bot identity mismatch');
-  if((await telegram.call(botId,'getWebhookInfo')).url)throw new Error('Test bot webhook is active');
+  const webhook=await telegram.call(botId,'getWebhookInfo');if(webhook.url)throw new Error('Test bot webhook is active');
+  const previousAllowed=webhook.allowed_updates??[];
   const db=openDatabase(path.join(config.dataDir,'controller.sqlite')),registered=db.getBot(botId);
   if(registered){if(registered.telegramId!==me.id||registered.ownerId!==privateConfig.ownerId)throw new Error('Fixture identity mismatch');}
   else db.registerBot({botId,telegramId:me.id,username:me.username,ownerId:privateConfig.ownerId});
@@ -64,7 +67,7 @@ async function nativeRuntime({config:privateConfig,mode,root,signal,report}){
   if(privateConfig.wordleSource)fs.cpSync(path.join(privateConfig.wordleSource,'widgets'),path.join(workspace,'widgets'),{recursive:true});
   const hashes=privateConfig.wordleSource?sourceHashes(workspace):null;
   const rules=path.join(config.dataDir,'rules',botId);fs.mkdirSync(rules,{recursive:true});
-  fs.writeFileSync(path.join(rules,'AGENTS.md'),`This is an isolated bounded live acceptance environment. Never spawn subagents, contact other agents, commit, push or touch anything outside this bot workspace. Only publish in the current private chat or the exact authenticated inlineMessageId from a controller button event. Keep output concise.\nCase: ${mode}.\nFor a Wordle inline request, prepare a card titled Wordle, message text Wordle, with one Start action button (group start, permits {"*":null}). Its self-contained action must tell you to create widgets/wordle/widget.tsx unchanged with notify:false, then attach it to this exact inlineMessageId using set_widget_view. On the button event, do that. Do not modify the archived game files. Games run with native widget callbacks, not model turns.\nFor image requests generate exactly one tiny cat image with the native image tool, save_image in the same JS block, send to the current user privately with disable_notification:true, read the returned outer message, then set_inline_results with its cached photo_file_id and matching file_sources. Never upload directly in inline output.\nFor other requests use set_inline_results explicitly. Native final text is internal. Do not invent successful tool results.\n`);
+  fs.writeFileSync(path.join(rules,'AGENTS.md'),`This is an isolated bounded live acceptance environment. Never spawn subagents, contact other agents, commit, push or touch anything outside this bot workspace. Only publish in the current private chat or the exact authenticated inlineMessageId from a controller button event. Keep output concise.\nCase: ${mode}.\nFor a Wordle inline request, prepare a card titled Wordle, message text Wordle, with one Start action button (group start, permits {"*":null}). Its self-contained action must tell you to create widgets/wordle/widget.tsx unchanged with notify:false, then attach it to this exact inlineMessageId using set_widget_view. On the button event, do that. Do not modify the archived game files. Games run with native widget callbacks, not model turns.\n${mode==='streaming'?'For this streaming image acceptance, generate exactly THREE separate small cat images sequentially using native image generation; do not use prepared fixtures, a collage, drawing code, shell, or web images. Make them distinct: a cat with a blue hat, a cat with a red scarf, a cat with a green bow. Before generation append a friendly intermediate report with title and optional description, NO message and NO arrows, done:false. For EACH image: generate and save_image sequentially in the same JavaScript block, privately send that image to the current user with disable_notification:true, read its returned outer message, then IMMEDIATELY append ONE native cached photo result with its actual photo_file_id and matching file_sources. Use done:false for the first two images, done:true for the third. Publish each photo before generating the next. Do not wait for all images, re-send buffers, add buttons, or publish other private messages. Never upload directly in inline output. If the request becomes unavailable, stop further work. If generation fails, report the failure with a final neutral status card and done:true instead of pretending images were generated.':'For image requests generate exactly one tiny cat image with the native image tool, save_image in the same JS block, send to the current user privately with disable_notification:true, read the returned outer message, then set_inline_results with its cached photo_file_id and matching file_sources. Never upload directly in inline output.'}\nFor other requests use set_inline_results explicitly. Native final text is internal. Do not invent successful tool results.\n`);
   if(mode==='background')fs.appendFileSync(path.join(rules,'AGENTS.md'),`\nFor EVERY inline event in this background case, call time, schedule exactly one continuation 30 seconds later, and finish your root turn WITHOUT set_inline_results. The scheduled instruction must include the exact original requestId and tell you to call set_inline_results with one card titled Background ready, message text Background ready, and one repeatable button titled Check restart, permits {"*":null}, action: Edit this exact inlineMessageId to text Button survived restart. Do not schedule from a scheduled event. If set_inline_results returns request_unavailable, the cancellation is expected: finish without sending or retrying. On a button event perform the action through edit.\n`);
   const scheduledTasks=new Set();let schedules=0;
   const agent=new CodexAgent({db,config});let controller;
@@ -74,7 +77,7 @@ async function nativeRuntime({config:privateConfig,mode,root,signal,report}){
     const response=await run(scope,events,async(name,args,threadId)=>{
       if(!['set_inline_results','rich_help','time','send','read','edit','save_image','list_widgets','get_widget','create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','widget_event','user_roles','chats','user_photos','schedule'].includes(name))throw new Error('Tool outside acceptance scope');
       if(name==='schedule'&&(mode!=='background'||++schedules>4||args.cron||!args.at||Date.parse(args.at)<=Date.now()||Date.parse(args.at)>Date.now()+60000))throw new Error('Schedule outside bounded acceptance scope');
-      report({type:'tool_started',tool:name,...(name==='set_inline_results'?{requestId:args.requestId}:{} )});try{const result=await invoke(name,args,threadId);if(name==='schedule'&&result.taskId)scheduledTasks.add(result.taskId);report({type:'tool_finished',tool:name,error:result?.error,status:result?.status});return result;}catch(error){report({type:'tool_failed',tool:name,code:error.code??'tool_failed'});throw error;}
+      report({type:'tool_started',tool:name,...(name==='set_inline_results'?{requestId:args.requestId,done:args.done??true,rows:args.results?.length,kinds:args.results?.map(r=>r.native?.type??'article')}:{} )});try{const result=await invoke(name,args,threadId);if(name==='schedule'&&result.taskId)scheduledTasks.add(result.taskId);report({type:'tool_finished',tool:name,error:result?.error,status:result?.status});return result;}catch(error){report({type:'tool_failed',tool:name,code:error.code??'tool_failed'});throw error;}
     });const request=controller.inline.requests.current(botId,privateConfig.ownerId);report({type:'root_completed',inlinePhase:request?.phase,hasResults:request?.hasResults});return response;
   };
   controller=createController({db,config,telegram,agent,onError:e=>report({type:'controller_error',...agentFailureDiagnostic(e)})});
@@ -124,6 +127,7 @@ async function nativeRuntime({config:privateConfig,mode,root,signal,report}){
       for(const update of updates){offset=update.update_id+1;if(signal.aborted)break;
         if(update.message?.from?.id===privateConfig.ownerId&&update.message.text==='/accept stop')return;
         if(!acceptanceUpdate(update,{ownerId:privateConfig.ownerId}))continue;
+        if(mode==='streaming'&&!update.inline_query)continue;
         if(mode==='matrix'&&update.message?.text==='/accept via'){
           try{
             await controller.idle();
@@ -150,12 +154,18 @@ async function nativeRuntime({config:privateConfig,mode,root,signal,report}){
   },async close(){report({type:'closing',inlinePhase:controller.inline.requests.current(botId,privateConfig.ownerId)?.phase,actionDefinitions:db.sql.prepare('SELECT count(*) n FROM inline_buttons WHERE botId=?').get(botId).n});controller.scheduler.cancel(controller.lifecycle.scope(owner),[...scheduledTasks]);controller.close();await agent.close();await controller.idle();
     if(hashes&&JSON.stringify(sourceHashes(workspace))!==JSON.stringify(hashes))report({type:'source_changed'});
     const records=db.sql.prepare('SELECT widgetId,status FROM widgets').all();report({type:'stopped',widgets:records.length});db.close();
+    if(mode==='streaming'){
+      const cleanup=[];
+      for(const messageId of streamingBuffers)try{await native.call(botId,'deleteMessage',{chat_id:privateConfig.ownerId,message_id:messageId},{signal:AbortSignal.timeout(10000)});cleanup.push({messageId,deleted:true});}catch{cleanup.push({messageId,deleted:false});}
+      let updatesRestored=false;try{await native.call(botId,'getUpdates',{offset,timeout:0,allowed_updates:previousAllowed},{signal:AbortSignal.timeout(10000)});updatesRestored=true;}catch{}
+      fs.writeFileSync(path.join(root,'cleanup.json'),JSON.stringify({stopped:true,cleanup,updatesRestored},null,2),{mode:0o600});report({type:'streaming_cleanup',buffers:cleanup.length,deleted:cleanup.filter(x=>x.deleted).length,updatesRestored});
+    }
   }};
 }
 export async function runInlineAcceptance({argv=process.argv.slice(2),createRuntime=nativeRuntime,signal,log=e=>console.log(JSON.stringify(e))}={}){
   const {values:v}=parseArgs({args:argv,options:{config:{type:'string'},case:{type:'string',default:'wordle'},'state-dir':{type:'string'},'prompt-rows':{type:'string'},'duration-seconds':{type:'string',default:'600'}}});
   if(!v.config)throw new Error('An explicit private config is required.');
-  if(!['wordle','media','background','ownership','mixed','matrix'].includes(v.case))throw new Error('Invalid acceptance case');
+  if(!['wordle','media','background','ownership','mixed','matrix','streaming'].includes(v.case))throw new Error('Invalid acceptance case');
   const config=JSON.parse(fs.readFileSync(v.config,'utf8')),duration=Number(v['duration-seconds']);
   if(v['prompt-rows']!==undefined){const overrides={...config.inline,promptRows:Number(v['prompt-rows'])};inlinePolicy(overrides);config.inline=overrides;}
   if(config.controllerActive||!Number.isSafeInteger(config.ownerId)||!Number.isSafeInteger(config.botTelegramId)||!config.codexHome||!config.codexExecutable)throw new Error('Explicit designated bot/model configuration is required');

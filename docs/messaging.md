@@ -52,6 +52,8 @@ await send({
 });
 ```
 
+Ordinary media fields such as `photo`, `video` and `document` take a string file ID, public URL or `attach://name`, not an InputMedia object. InputMedia objects are used inside album entries, rich-media blocks and media edits.
+
 The controller reads these local paths and creates multipart uploads. It rejects paths outside the permitted area, hidden components, symlinks and other agents' temp. Albums cannot include `reply_markup` or `permits`; send a separate button message. Media entries use native InputMedia `{type,media,...}`, not bare strings or invented `image`, `source` or `url` blocks.
 
 Reuse known native `file_id` values directly instead of uploading the same bytes. IDs may come from messages, sticker sets or another bot-token-accessible source:

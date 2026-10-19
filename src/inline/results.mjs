@@ -123,7 +123,7 @@ export function normalizeInlineResults(scope,results,adapters={}) {
     native.id??=ids();
     if(typeof native.id!=='string'||!native.id.length||Buffer.byteLength(native.id)>64||used.has(native.id))fail('Result IDs must be unique and contain 1–64 UTF-8 bytes.');used.add(native.id);
     validateNativeInlineResult(native);
-    return {native,definitions};
+    return {native,definitions,...(item.native===undefined&&item.message===undefined?{status:true}:{})};
   });
   return [...prepared.filter(item=>item.native.type!=='photo'),...prepared.filter(item=>item.native.type==='photo')];
 }

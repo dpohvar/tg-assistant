@@ -52,8 +52,8 @@ test('trigger compares each cursor issuance and submits only once',async t=>{
   await f.clock.advance(2000);await f.query({offset:fast.next_offset});
   assert.equal(f.queued.length,1);assert.equal(f.queued[0].event.eventType,'inline');
   assert.equal(f.queued[0].event.from,undefined);assert.equal(f.queued[0].event.query,'wordle');
-  await f.query({offset:first.next_offset});assert.equal(f.queued.length,1);
-  await f.clock.advance(5000);assert.equal(f.answers.at(-1).results.length,1);
+  const replay=await f.query({offset:first.next_offset});assert.equal(f.queued.length,1);
+  assert.deepEqual(replay.results,fast.results);assert.equal(replay.next_offset,fast.next_offset);
 });
 
 test('submission is acknowledged immediately once, before delayed working pages',async t=>{
@@ -73,7 +73,7 @@ test('explicit results wake a waiting page early and register only on issuance',
   assert.deepEqual(f.service.setResults(f.scope,{requestId,results:[{title:'Ready',message:{text:'cat'}}]}),{status:'accepted'});
   await tick();assert.equal(f.answers.at(-1).results[0].title,'Ready');assert.equal(f.clock.now(),2800);
   assert.equal(f.registered.length,1);assert.equal(f.answers.at(-1).next_offset,'');
-  await f.query({offset:first.next_offset});assert.deepEqual(f.answers.at(-1).results,[]);
+  await f.query({offset:first.next_offset});assert.deepEqual(f.answers.at(-1).results,sent.results);
   assert.equal(f.registered.length,1);
 });
 test('new initial removes previous queued work and never accepts its late result',async t=>{
