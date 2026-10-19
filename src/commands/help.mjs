@@ -33,14 +33,14 @@ function availableCommands({ master = false, role, group = false }) {
     result.user =
       "/user list [RANGE]\n/user set USER_ID [role]\n/user delete USER_ID";
     result.owner = "/owner" + (role === "owner" ? "\n/owner set USER_ID" : "");
-    result.rules = "/rules\n/rules set\n/rules set PRE_BLOCK";
     result.git =
       "/git setup [BRANCH [REMOTE_URL [TOKEN]]]\n/git changes\n/git sync MESSAGE";
-    result.file =
-      "/ls [PATH]\n/cat PATH\n/download PATH\n/upload PATH\n/edit PATH PRE_BLOCK\n/mv FROM TO\n/rm PATH";
     result.temp = "/temp status\n/temp cleanup";
   }
-  if(admin&&group){result.rules='/rules set\n/rules set PRE_BLOCK';result.file='/upload PATH';}
+  if(admin){
+    result.rules='/rules\n/rules set\n/rules set PRE_BLOCK';
+    result.file='/ls [PATH]\n/cat PATH\n/download PATH\n/upload PATH\n/edit PATH PRE_BLOCK\n/mv FROM TO\n/rm PATH';
+  }
   return result;
 }
 
@@ -57,9 +57,9 @@ const descriptions = {
   vault: 'Manage this bot’s shared secret store. Requires admin or owner in a private chat. Agents may use secrets through vault_get; Telegram commands never return secret values.',
   user: 'Manage authorization for this bot. Requires admin or owner in a private chat. Roles inherit lower-level permissions:\nuser — use the bot in private messages and manage your own agent and tasks.\nmanager — all user rights, plus add the bot to groups/channels and manage group agents, tasks and triggers.\nadmin — administer the bot, except appointing admins or transferring ownership.\nowner — all rights, including appointing admins and transferring ownership.\nThese are application roles, separate from Telegram administrator rights and BotFather ownership.',
   owner: 'Inspect or transfer application ownership of this bot. Requires admin or owner in a private chat to inspect; only owner may transfer. Application ownership is separate from BotFather ownership.',
-  rules: 'Read or replace the bot-wide AGENTS.md instructions. Requires admin or owner. Replacement is available in private chats and groups; reading rules is private-only. Rules apply to every agent of this bot. Updates wait for active work and reset contexts; chat history, notes, files and scheduled tasks remain.',
+  rules: 'Read or replace the bot-wide AGENTS.md instructions. Requires admin or owner in private chats, groups or supergroups. Rules apply to every agent of this bot. Updates wait for active work and reset contexts; chat history, notes, files and scheduled tasks remain.',
   git: 'Configure optional Git synchronization of this bot’s directory, inspect changes and push commits. Requires admin or owner in a private chat. Ordinary agent synchronization does not fetch or pull.',
-  file: 'Manage files in this bot’s directory. Requires admin or owner. Upload is available in private chats and groups; other file operations are private-only. Paths are relative to the bot root; traversal, symlinks and protected service directories are rejected. Temporary files are accessible but expire.',
+  file: 'Manage files in this bot’s directory. Requires admin or owner in private chats, groups or supergroups. Paths are relative to the bot root; traversal, symlinks and protected service directories are rejected. Temporary files are accessible but expire.',
   temp: 'Inspect or remove expired temporary files in this bot’s .temp directory. Requires admin or owner in a private chat. Expiry is based on file modification time, not last access.',
   bot: 'Manage registered child bots through the master bot, which has no conversational agent. Available only to the configured service owner in private messages. These commands do not operate on BotFather ownership.',
 };
@@ -176,6 +176,11 @@ export function helpSections(options) {
     description:descriptions[name],
     commands:syntax.split('\n').flatMap(s=>expansions[s]??[s]).map(s=>({syntax:s,description:details[s]})),
   }]));
+}
+
+export function resolveHelpSection(sections, name) {
+  if(Object.hasOwn(sections,name))return name;
+  return Object.entries(sections).find(([,section])=>section.commands.some(command=>/^\/([a-z_]+)(?:\s|$)/.exec(command.syntax)?.[1]===name))?.[0];
 }
 
 export function helpMessages(sections, section) {

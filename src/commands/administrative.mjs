@@ -30,19 +30,11 @@ export function createAdministrativeCommands({
   const privateCommands = new Set([
     "set_user",
     "remove_user",
-    "rules",
-    "set_rules",
-    "ls",
-    "cat",
-    "download",
-    "rm",
-    "mv",
-    "edit",
-    "upload",
     "git_setup",
     "git_changes",
     "git_sync",
   ]);
+  const groupCommands=new Set(['rules','set_rules','ls','cat','download','upload','rm','mv','edit']);
   const reply = (botId, m, text) =>
     telegram.call(botId, "sendMessage", {
       chat_id: m.chat.id,
@@ -94,7 +86,7 @@ export function createAdministrativeCommands({
           !taskCommand &&
           !modelCommand &&
           !triggerCommand &&
-          !['upload','set_rules'].includes(name) &&
+          !groupCommands.has(name) &&
           name !== "clear" &&
           name !== "leave"
         ) {

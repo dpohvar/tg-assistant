@@ -35,3 +35,5 @@ The legacy standalone probes were copied from the original development checkout 
 - [Unknown-destination inline reply/reaction control](inline-unknown-events-verification.md)
 
 - Incremental inline results: [accepted design](inline-streaming-design.md), [implementation plan](plans/2026-10-20-inline-streaming.md), [verification and live procedure](inline-streaming-verification.md).
+
+- Group file commands and help aliases: [scope and implementation plan](plans/2026-10-20-group-files-help.md), [verification](group-files-help-verification.md).

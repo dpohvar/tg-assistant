@@ -17,10 +17,10 @@ if(credentials.controllerActive!==false||credentials.username!=='dpohvar_test_pu
 if(!previous.stoppedAt||!Number.isSafeInteger(previous.groupId)||previous.groupId>=0||!['group','supergroup'].includes(previous.groupType)||!previous.backups?.length||!previous.backups.every(b=>b.restored===true))throw new Error('Completed observed group probe required.');
 if(!Number.isSafeInteger(seconds)||seconds<30||seconds>1800)throw new Error('Duration must be 30..1800 seconds.');
 const release=acquireLock(path.join(path.dirname(configFile),'inline-calibration.lock'));
-const sayMode=process.argv[5]==='say',control=sayMode?'saccept':'eaccept';
-const run=randomBytes(3).toString('hex'),startedAt=Date.now(),directory=path.resolve('.runtime-check',sayMode?'say-acceptance':'ephemeral-acceptance',run),botId='ephemeral-acceptance';
+const sayMode=process.argv[5]==='say',filesMode=process.argv[5]==='files',control=sayMode?'saccept':filesMode?'faccept':'eaccept';
+const run=randomBytes(3).toString('hex'),startedAt=Date.now(),directory=path.resolve('.runtime-check',sayMode?'say-acceptance':filesMode?'group-files-acceptance':'ephemeral-acceptance',run),botId='ephemeral-acceptance';
 fs.mkdirSync(directory,{recursive:true});
-const state={run,mode:sayMode?'say':'commands',agentRuns:0,startedAt,expiresAt:startedAt+seconds*1000,groupId:previous.groupId,backups:[],inputs:[],outputs:[],files:[],errors:[],modelCalls:0,pollCycles:0};
+const state={run,mode:sayMode?'say':filesMode?'files':'commands',agentRuns:0,startedAt,expiresAt:startedAt+seconds*1000,groupId:previous.groupId,backups:[],inputs:[],outputs:[],files:[],errors:[],modelCalls:0,pollCycles:0};
 const save=()=>fs.writeFileSync(path.join(directory,'state.json'),JSON.stringify(state,null,2),{mode:0o600});
 const clean=value=>String(value).replaceAll(credentials.token,'[redacted]').slice(0,300);
 const record=event=>{const line=JSON.stringify({at:Date.now(),...event});fs.appendFileSync(path.join(directory,'events.jsonl'),line+'\n',{mode:0o600});console.log(line);};
@@ -52,7 +52,7 @@ const dm=text=>call('sendMessage',{chat_id:credentials.ownerId,text,disable_noti
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 function inspectFiles(){
   state.files=[];
-  for(const [name,filename] of [['document-first',path.join(directory,'bots',botId,'wiki','document-first.txt')],['invitation',path.join(directory,'bots',botId,'wiki','invitation.txt')],['rules',path.join(directory,'rules',botId,'AGENTS.md')]]){
+  for(const [name,filename] of [['document-first',path.join(directory,'bots',botId,'wiki','document-first.txt')],['invitation',path.join(directory,'bots',botId,'wiki','invitation.txt')],['rules',path.join(directory,'rules',botId,'AGENTS.md')],...(filesMode?[['group-file',path.join(directory,'bots',botId,'wiki','group-probe.txt')],['moved-file',path.join(directory,'bots',botId,'wiki','group-moved.txt')]]:[])]){
     if(fs.existsSync(filename)){const bytes=fs.readFileSync(filename);state.files.push({name,size:bytes.length,sha256:hash(bytes)});}
   }
   save();
@@ -80,9 +80,9 @@ async function receive(update){
   if(m.chat.id!==state.groupId||!['group','supergroup'].includes(m.chat.type))return;
   if(sayMode&&!new RegExp(`^/say(?:@dpohvar_test_pub_bot)?\\s+(private|public|restart)\\s+${run}\\s*$`,'i').test(text))return;
   // Only this acceptance's command families and attachments; never run arbitrary agents.
-  if(!sayMode&&!m.document&&!/^\/(help|agent|upload|rules)(?:@dpohvar_test_pub_bot)?(?:\s|$)/i.test(text))return;
+  if(!sayMode&&!m.document&&!(filesMode?/^\/(help|ls|cat|download|upload|edit|mv|rm|rules)(?:@dpohvar_test_pub_bot)?(?:\s|$)/i:/^\/(help|agent|upload|rules)(?:@dpohvar_test_pub_bot)?(?:\s|$)/i).test(text))return;
   if(/^\/agent(?:@\w+)?\s+(?!models\s*$|status\s*$|invalid\s*$)/i.test(text))return;
-  if(/^\/upload(?:@\w+)?\s+/.test(text)&&!/^\/upload(?:@\w+)?\s+wiki\/(document-first|invitation)\.txt\s*$/.test(text))return;
+  if(/^\/upload(?:@\w+)?\s+/.test(text)&&!/^\/upload(?:@\w+)?\s+wiki\/(document-first|invitation|group-probe)\.txt\s*$/.test(text))return;
   if(state.inputs.length>=40)throw new Error('Acceptance input budget exceeded.');
   const entry={number:state.inputs.length+1,at:Date.now(),ephemeral:m.ephemeral_message_id!==undefined,ephemeralId:m.ephemeral_message_id,document:!!m.document,quoted:!!m.reply_to_message,command:text.startsWith('/')?text:null};
   state.inputs.push(entry);save();record({type:'controller_input',number:entry.number,ephemeral:entry.ephemeral,document:entry.document,quoted:entry.quoted});
@@ -124,9 +124,15 @@ try{
   }
   await registerGroupCommands({telegram,botId});
   for(const backup of state.backups){const current=await call('getMyCommands',backup.target);if(!current.some(c=>c.command===(sayMode?'say':'upload')&&c.is_ephemeral))throw new Error('Ephemeral command registration not confirmed.');}
-  db=openDatabase(path.join(directory,'controller.sqlite'));db.registerBot({botId,telegramId:me.id,username:me.username,ownerId:sayMode?me.id:credentials.ownerId});db.saveChat(botId,group);
+  db=openDatabase(path.join(directory,'controller.sqlite'));db.registerBot({botId,telegramId:me.id,username:me.username,ownerId:sayMode||filesMode?me.id:credentials.ownerId});db.saveChat(botId,group);
   if(sayMode){db.setRole(botId,credentials.ownerId,'user');db.ensureAgent(botId,group.id);db.sql.prepare('UPDATE chats SET agentEnabled=1 WHERE botId=? AND chatId=?').run(botId,group.id);state.applicationRole=db.role(botId,credentials.ownerId);}
+  if(filesMode)db.setRole(botId,credentials.ownerId,'admin');
   const config={dataDir:directory,botsDir:path.join(directory,'bots'),serviceOwnerId:credentials.ownerId};fs.mkdirSync(path.join(config.botsDir,botId),{recursive:true});
+  if(filesMode){
+    const wiki=path.join(config.botsDir,botId,'wiki'),rules=path.join(directory,'rules',botId);fs.mkdirSync(wiki,{recursive:true});fs.mkdirSync(rules,{recursive:true});
+    fs.writeFileSync(path.join(wiki,'group-probe.txt'),`Group file acceptance ${run}\n`);fs.writeFileSync(path.join(rules,'AGENTS.md'),`# Group file acceptance ${run}\nTest rules only.\n`);
+    state.applicationRole=db.role(botId,credentials.ownerId);inspectFiles();
+  }
   controller=createTestController();
   save();record({type:'ready',run,username:me.username,membership:member.status,expiresAt:state.expiresAt});
   while(!stop.signal.aborted){

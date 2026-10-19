@@ -16,10 +16,10 @@ Optional arguments appear in brackets; uppercase names are placeholders. Command
 |---|---|
 | `/help` | Argument-formatting guide and an index of available sections with descriptions |
 | `/start [inline]` | Private chat with a child bot: explain how to enable the agent and start a new inline query; does not create or enable an agent |
-| `/help SECTION` | One available section: `agent`, `task`, `chat`, `triggers`, `ws`, `mcp`, `vault`, `user`, `owner`, `rules`, `git`, `file`, or `temp` |
+| `/help SECTION` or `/help COMMAND` | One available section, addressed by its name or by a command it contains; for example `/help ls`, `/help mv` and `/help edit` all show `/help file` |
 | `/say MESSAGE` | Hidden free-form message to this enabled group agent, requiring `user` or higher. See [hidden correspondence](ephemeral.md) and `/help say`. |
 
-Help is in English and follows role and chat restrictions; an unavailable or unknown section is an error. `/help SECTION` explains each available command's effects, targets, defaults, permissions and retained/deleted data. Command syntax uses code entities. Long help is sent as multiple replies, split between entries without truncation. `/help user` also explains all four roles and their inherited permissions, distinct from Telegram administrator rights. Master help is documented on [Master bot](master-bot.md).
+Help is in English and follows role and chat restrictions; an unavailable or unknown section/command is an error. Command-name aliases resolve only within available sections and do not add duplicate entries to the section index. Existing section names take precedence. `/help SECTION` explains each available command's effects, targets, defaults, permissions and retained/deleted data. Command syntax uses code entities. Long help is sent as multiple replies, split between entries without truncation. `/help user` also explains all four roles and their inherited permissions, distinct from Telegram administrator rights. Master help is documented on [Master bot](master-bot.md).
 
 ## Ephemeral group commands
 
@@ -113,7 +113,7 @@ At most 200 trigger phrases are accepted, each 2–50 characters with no newline
 
 ## Users, ownership and rules
 
-These commands require Admin. `/rules set` (document or inline pre form) is also available in groups and supergroups; the other commands require a private chat. Ownership transfer requires Owner.
+These commands require Admin. Reading and replacing `/rules` (document or inline pre form) are available in private chats, groups and supergroups. User and ownership management require a private chat. Ownership transfer requires Owner.
 
 | Command | Result |
 |---|---|
@@ -132,7 +132,7 @@ Rules are shared by all bot agents. Updating them waits for current work and cle
 
 ## Files and Git
 
-All commands below require Admin. `/upload` is also available in groups and supergroups; the other commands require a private child-bot chat. Paths refer to this bot's directory. Path traversal, symlinks and protected dot directories are rejected; `.temp` is accessible to administrators. See [Storage](storage.md) for the layout.
+All commands below require Admin. File commands `/ls`, `/cat`, `/download`, `/upload`, `/edit`, `/mv` and `/rm` are available in private child-bot chats, groups and supergroups. Git commands and `/temp` require a private child-bot chat. Paths refer to this bot's directory. Path traversal, symlinks and protected dot directories are rejected; `.temp` is accessible to administrators. See [Storage](storage.md) for the layout.
 
 | Command | Result |
 |---|---|

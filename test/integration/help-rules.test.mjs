@@ -33,11 +33,28 @@ test('inline rules reject plain/code text, extras, whitespace and forbidden call
 test('an admin can replace rules using an inline pre block in a group',async t=>{
   const f=fixture(t);await f.send('/rules set abc',{chat:{id:-1,type:'group'},from:{id:2},entities:[{type:'pre',offset:11,length:3}]});assert.deepEqual(f.writes,[['b',{text:'abc'},false]]);
 });
-test('group admin help exposes upload and rules replacement without other private-only file operations',()=>{
+test('group admin help exposes the complete file and rules sections',()=>{
   const sections=helpSections({role:'admin',group:true});
-  assert.deepEqual(sections.file.commands.map(c=>c.syntax),['/upload PATH']);
-  assert.deepEqual(sections.rules.commands.map(c=>c.syntax),['/rules set','/rules set PRE_BLOCK']);
+  assert.deepEqual(sections.file.commands.map(c=>c.syntax),['/ls [PATH]','/cat PATH','/download PATH','/upload PATH','/edit PATH PRE_BLOCK','/mv FROM TO','/rm PATH']);
+  assert.deepEqual(sections.rules.commands.map(c=>c.syntax),['/rules','/rules set','/rules set PRE_BLOCK']);
   assert.equal(helpSections({role:'manager',group:true}).file,undefined);
+});
+
+test('help command names resolve to their complete available section without duplicate index entries',async t=>{
+  const f=fixture(t);await f.send('/help file');const expected=f.calls.map(c=>({text:c.text,entities:c.entities}));
+  for(const command of ['ls','cat','download','upload','edit','mv','rm']){
+    f.calls.length=0;await f.send('/help '+command);assert.deepEqual(f.calls.map(c=>({text:c.text,entities:c.entities})),expected,command);
+  }
+  f.calls.length=0;await f.send('/help');const index=f.calls.map(c=>c.text).join('\n');
+  assert.match(index,/\/help file/);assert.doesNotMatch(index,/\/help ls/);
+});
+
+test('help aliases only resolve available commands and reject unavailable or inherited names',async t=>{
+  const f=fixture(t);
+  for(const name of ['ls','mv','download','file','constructor','__proto__','unknown']){
+    f.calls.length=0;await f.send('/help '+name,{from:{id:4},chat:{id:-1,type:'supergroup'}});
+    assert.match(f.calls.at(-1).text,/Unknown or unavailable section/);assert.doesNotMatch(f.calls.at(-1).text,/Manage files/);
+  }
 });
 test('a document replying to inline rules is not a rules upload',async t=>{
   const f=fixture(t);

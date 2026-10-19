@@ -18,7 +18,7 @@ import {
   validateArguments,
 } from "./arguments.mjs";
 import { parseTarget, pagination, commandError } from "./contract.mjs";
-import { helpSections, helpMessages } from "./help.mjs";
+import { helpSections, helpMessages, resolveHelpSection } from "./help.mjs";
 import { createAccess } from "../access/scope.mjs";
 import { createAdministrativeCommands, range } from "./administrative.mjs";
 import { formatAgents } from "./agents-format.mjs";
@@ -248,9 +248,10 @@ function createCommandRouter(deps) {
             role,
             group,
           });
-          if (parts[0] && !help[parts[0]])
+          const selected=parts[0]&&resolveHelpSection(help,parts[0]);
+          if (parts[0] && !selected)
             throw syntaxError("Unknown or unavailable section.");
-          for (const message of helpMessages(help, parts[0])) await send(message);
+          for (const message of helpMessages(help, selected)) await send(message);
           return true;
         }
         if (botId === "master") {
