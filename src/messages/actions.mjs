@@ -15,15 +15,16 @@ function mediaReferences(body) {
   return refs;
 }
 const type = m => Object.keys(kinds).filter(k => k !== 'media').find(k => m[k] !== undefined);
-export function createMessages({ db, access, assertCurrent, assertTarget = () => {}, telegram, uploads = async () => [] }) {
-  const validateFiles = (body, local) => {
+export const validateMessageFiles = (body, local) => {
     try {
       for (const id of mediaReferences(body)) {
         if (/^https?:\/\//i.test(id)) { if (/^https?:\/\/api\.telegram\.org\/(?:file\/)?bot/i.test(id)) throw new Error('Secret URL'); continue; }
         if (id.startsWith('attach://')) { if (!Object.hasOwn(local ?? {}, id.slice(9))) throw new Error('Missing upload'); continue; }
       }
     } catch { return fail('file_not_accessible', 'Uploads require a declared local attachment; secret-bearing Telegram URLs are forbidden.'); }
-  };
+};
+export function createMessages({ db, access, assertCurrent, assertTarget = () => {}, telegram, uploads = async () => [] }) {
+  const validateFiles=validateMessageFiles;
   const savePermits = (scope, chatId, messageId, permits) => { if (permits !== undefined) db.sql.prepare('INSERT INTO button_state(botId,chatId,messageId,permits) VALUES(?,?,?,?) ON CONFLICT(botId,chatId,messageId) DO UPDATE SET permits=excluded.permits').run(scope.botId, chatId, messageId, JSON.stringify(permits)); };
   const call = async (scope, method, args, files) => { assertCurrent(scope); access.assertWrite(scope, args.chat_id); assertTarget(scope, args.chat_id); return telegram.call(scope.botId, method, args, { uploads: files }); };
   const apiError = e => e.code === 'telegram_transport_failed' ? fail('delivery_unknown', 'Telegram confirmation was not received. Do not repeat automatically; the action may have completed.') : fail(e.code ?? 'telegram_failed', e.code === 'telegram_api_error' ? String(e.message).slice(0, 1000) : 'Telegram rejected the request. Check the fields and bot permissions before retrying.');

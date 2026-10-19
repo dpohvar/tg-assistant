@@ -6,6 +6,7 @@ The original documentation was preserved under `archive/` during the wiki reorga
 
 | Material | Location |
 |---|---|
+| Hidden /say correspondence | [Accepted design and verification](ephemeral-command-verification.md#say-accepted-next-iteration-design), [execution plan](plans/2026-10-20-say-ephemeral-agent.md); [current interface](../ephemeral.md) |
 | Sticker-set management | [Accepted specification](sticker-sets-spec.md), [implementation plan](sticker-sets-plan.md), [live verification](sticker-sets-verification.md); [current tool contract](../agent-contract.md#sticker-sets-and-custom-emoji-sets) |
 | Sticker and custom emoji investigation | [Original proposal and final scope](sticker-custom-emoji-plan.md): custom emoji downloading and on-demand inspection using system renderers; [current contract](../agent-contract.md#inspecting-stickers-and-custom-emoji) |
 | Original discussion and agent contract | [discussion](archive/discussion.md), [agent contract](archive/agent-contract.md) |
@@ -13,6 +14,7 @@ The original documentation was preserved under `archive/` during the wiki reorga
 | Plans | [initial implementation](archive/superpowers/plans/2026-10-07-v1.md), [agent commands](archive/superpowers/plans/2026-10-09-agent-state-and-commands.md), [browser/PDF](archive/superpowers/plans/2026-10-09-browser-pdf-read.md), [vault](archive/superpowers/plans/2026-10-10-vault-network-spoiler.md), [WebSocket](archive/superpowers/plans/2026-10-10-active-websocket.md), [HTTP MCP](archive/superpowers/plans/2026-10-10-http-mcp.md) |
 | Runtime and platform probes | [Codex](archive/runtime-check-results.md), [Alpine](archive/alpine-check-results.md), [Telegram](archive/telegram-check-results.md), [Croner](archive/croner-check-results.md) |
 | Alpine shell/file-access failures | [Native reproduction and diagnosis](shell-file-access-investigation.md): inaccessible Codex snapshots, ash exit 2, and tested launch-policy options |
+| Ephemeral slash commands | [Live experiment](ephemeral-command-verification.md): per-command flags, manual input, client behavior and participant visibility; production support is not enabled |
 | Later feature checks | [vault](archive/vault-check-results.md), [WebSocket and MCP](archive/websocket-mcp-check-results.md) |
 | MCP OAuth | [Implementation task](mcp-oauth-plan.md), [verification report](mcp-oauth-probe.md) |
 | Widget message handlers | [Current wiki](../widgets.md), [implementation verification](widgets-verification.md), [consolidated specification](widgets-spec.md), [implementation plan](widgets-plan.md), [design discussion](react-messages-discussion.md), [event examples](widget-event-examples.md), [render field reference](react-message-render-fields.md), [type conversion verification](widget-type-conversions.md), [sandbox verification](widget-sandbox-verification.md), [memory comparison](widget-memory-verification.md), [memory limits](widget-memory-limits-verification.md) |

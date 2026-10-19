@@ -6,12 +6,12 @@ import { cleanTemp } from '../files/cleanup.mjs';
 import { gitChanges, gitSync, gitAuth } from '../git/operations.mjs';
 const escape = s => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 export function createFileCommands({ db, config, telegram, fetchDocument, gitSetup }) {
-  return async (botId, name, args, message) => {
+  return async (botId, name, args, message, {telegram:commandTelegram=telegram}={}) => {
     const root = path.join(config.botsDir, botId), store = new BotFiles(root, 'admin', { admin: true });
     const parts = args.map(a => a.value), filename = parts[0];
     if (name === 'ls') return store.list(filename ?? '.').join('\n');
     if (name === 'cat') { const bytes = store.read(filename), content = bytes.toString('utf8');  return { text: `${escape(filename.slice(0,200))}\n<pre>${escape(content.slice(0,3000))}</pre>${content.length>3000?'\n[truncated]':''}`, parse_mode: 'HTML' }; }
-    if (name === 'download') { await telegram.call(botId, 'sendDocument', { chat_id: message.chat.id, document: 'attach://file', ...(topicIdOf(message)>1?{message_thread_id:topicIdOf(message)}:{}), reply_parameters: { message_id: message.message_id } }, { uploads: [{ name: 'file', filename: path.basename(filename), bytes: store.read(filename) }] }); return null; }
+    if (name === 'download') { await commandTelegram.call(botId, 'sendDocument', { chat_id: message.chat.id, document: 'attach://file', ...(topicIdOf(message)>1?{message_thread_id:topicIdOf(message)}:{}), reply_parameters: { message_id: message.message_id } }, { uploads: [{ name: 'file', filename: path.basename(filename), bytes: store.read(filename) }] }); return null; }
     if (name === 'rm') { store.remove(filename); return 'Deleted'; }
     if (name === 'mv') { store.move(parts[0], parts[1]); return 'Moved'; }
     if (name === 'edit') { store.write(filename, Buffer.from(parts[1])); return 'Saved'; }

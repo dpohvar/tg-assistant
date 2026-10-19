@@ -17,8 +17,17 @@ Optional arguments appear in brackets; uppercase names are placeholders. Command
 | `/help` | Argument-formatting guide and an index of available sections with descriptions |
 | `/start [inline]` | Private chat with a child bot: explain how to enable the agent and start a new inline query; does not create or enable an agent |
 | `/help SECTION` | One available section: `agent`, `task`, `chat`, `triggers`, `ws`, `mcp`, `vault`, `user`, `owner`, `rules`, `git`, `file`, or `temp` |
+| `/say MESSAGE` | Hidden free-form message to this enabled group agent, requiring `user` or higher. See [hidden correspondence](ephemeral.md) and `/help say`. |
 
 Help is in English and follows role and chat restrictions; an unavailable or unknown section is an error. `/help SECTION` explains each available command's effects, targets, defaults, permissions and retained/deleted data. Command syntax uses code entities. Long help is sent as multiple replies, split between entries without truncation. `/help user` also explains all four roles and their inherited permissions, distinct from Telegram administrator rights. Master help is documented on [Master bot](master-bot.md).
+
+## Ephemeral group commands
+
+At child-bot startup, the controller registers supported slash commands with Telegram's `is_ephemeral` flag for group users and administrators (default, English and Russian command lists). An ephemeral command and its controller replies are visible only to the invoking user and bot. Client command lists can refresh with a delay; early attempts may still arrive as ordinary messages. Explicit `/command@BotName` addressing worked before short commands refreshed in the Desktop probe. Unregistered commands do not automatically become ephemeral. More specific command lists configured outside this service can override its group defaults.
+
+Fast commands send their result directly. After five seconds without a response, a delayed command displays `Processing…` and edits that message on completion. Commands issuing an attachment invitation never schedule processing; invitations are fresh messages and are never edited. Non-administrator bots have a 15-second native window for a new reply, so delayed completion uses an existing private acknowledgement. Already-expired private commands are acknowledged without executing their operation. A failed private response is logged and acknowledged without replaying the command or falling back to a public group reply. Shutdown and bot removal cancel pending response sessions. Ordinary incoming commands keep their ordinary response route.
+
+In addition to controller commands and upload invitations, `/say` delivers hidden correspondence to the enabled group agent. It requires `user` or higher, uses free-form text/formatting instead of the administrative argument grammar, and exposes a prepared private response for agent editing/deletion. It grants no extra priority or permissions and does not open public listening. Other unmatched ephemeral messages, edits and callbacks remain excluded from ordinary history and agent/widget delivery. Ephemeral widgets and interactive buttons are deferred. See [hidden correspondence](ephemeral.md) and [verification](dev/ephemeral-command-verification.md).
 
 ## Agent lifecycle
 
@@ -104,7 +113,7 @@ At most 200 trigger phrases are accepted, each 2–50 characters with no newline
 
 ## Users, ownership and rules
 
-These commands require Admin and a private chat, except that ownership transfer requires Owner.
+These commands require Admin. `/rules set` (document or inline pre form) is also available in groups and supergroups; the other commands require a private chat. Ownership transfer requires Owner.
 
 | Command | Result |
 |---|---|
@@ -123,7 +132,7 @@ Rules are shared by all bot agents. Updating them waits for current work and cle
 
 ## Files and Git
 
-All commands below require Admin in a private child-bot chat. Paths refer to this bot's directory. Path traversal, symlinks and protected dot directories are rejected; `.temp` is accessible to administrators. See [Storage](storage.md) for the layout.
+All commands below require Admin. `/upload` is also available in groups and supergroups; the other commands require a private child-bot chat. Paths refer to this bot's directory. Path traversal, symlinks and protected dot directories are rejected; `.temp` is accessible to administrators. See [Storage](storage.md) for the layout.
 
 | Command | Result |
 |---|---|
@@ -141,7 +150,9 @@ All commands below require Admin in a private child-bot chat. Paths refer to thi
 | `/temp`, `/temp status` | Temporary file counts/bytes, including expired totals |
 | `/temp cleanup` | Delete `.temp` files older than 24 hours by mtime |
 
-For `/upload` and `/rules set`, either send a document replying to your command, or send the command replying to your document. The quoted message must be your own, unedited, in the same chat, and not sent on behalf of a chat. A command without a document prompts for one. Invalid document replies are handled as command failures rather than forwarded to the agent. For a spaced path, format the path as one inline-code argument, for example `wiki/Project notes.md`.
+For `/upload` and `/rules set`, send the command replying to your own unedited document in the same chat, not sent on behalf of a chat. Alternatively send the command without an attachment, then attach a document as a reply to the bot's invitation. The invitation binds the bot, chat/topic, user and original parsed command. It lives in memory for one hour, disappears on controller restart, closes after the first successful upload and permits retry after failure. Concurrent attempts cannot both write. Current authorization is checked again when the attachment arrives. Invitation text grants no authority; arbitrary agent or bot output does not create a pending upload. Expired or unmatched ephemeral replies are ignored as commands. Telegram may omit the quoted ephemeral message; without its address, start again with a new command.
+
+The legacy ordinary-message form of replying with a document to your own unedited command remains supported. Ephemeral commands cannot be replied to as your own sent message in the tested Desktop client; use the bot invitation. For a spaced path, format the path as one inline-code argument, for example `wiki/Project notes.md`.
 
 Git setup requires an HTTPS remote without embedded credentials. Omitted remote/token reuse configured values; first setup needs a remote. Setup first clones into staging; a clone failure preserves the wiki. Successful replacement discards local modifications, ignored files and unpushed commits, preserving `.temp`; remote branches containing `.temp` are rejected. Git changes/sync do not fetch or pull. Sync still pushes when no new commit is necessary. The commit message may be ordinary words or a multiline pre block. Token-bearing setup messages are excluded from agent history and deletion is attempted even on failure. Cleanup retains fresh files and reports removed files/bytes and failures.
 

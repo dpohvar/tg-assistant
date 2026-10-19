@@ -5,7 +5,7 @@ import {WIDGET_TOOL_SCHEMAS} from '../../src/widgets/contract.mjs';
 import {GUEST_INSTRUCTIONS} from '../../src/guest/contract.mjs';
 const schema=name=>dynamicTools.find(t=>t.name===name).inputSchema;
 test('guest read adds a third exclusive address without changing ordinary or inline alternatives',()=>{
-  assert.equal(schema('read').properties.guestRequestId.type,'string');assert.equal(schema('read').oneOf.length,3);
+  assert.equal(schema('read').properties.guestRequestId.type,'string');assert.equal(schema('read').oneOf.length,4);
   assert.ok(schema('read').oneOf.some(x=>x.required.includes('messageIds')));assert.ok(schema('read').oneOf.some(x=>x.required.includes('inlineMessageId')));assert.ok(schema('read').oneOf.some(x=>x.required.includes('guestRequestId')));
 });
 test('guest send exposes existing content action rows and required native metadata',()=>{

@@ -4,6 +4,8 @@ Agents publish through controller tools; their final Codex text is internal. The
 
 ## Send a message
 
+For [hidden correspondence](ephemeral.md), prefer `edit({...event.preparedReply,text:"..."})` to complete the private response prepared for `/say`. Ephemeral `read`/`edit`/`delete` use `ephemeralMessageId` and, for outgoing responses, `receiverUserId`. A fresh private `send` uses `ephemeral_message_parameters:{receiver_user_id}` or `reply_parameters:{ephemeral_message_id}` with an inferred known recipient. It returns `{ephemeralMessageId,receiverUserId}`, never ordinary `messageIds:[0]`. These routes are current-chat/agent scoped and cannot mix ordinary, inline or guest addresses. Telegram enforces deadlines and permissions; no automatic public fallback occurs. Private content and recovery limits are documented in the linked article.
+
 For an explicit [guest invocation](guest-mode.md), use `send({guestRequestId,...content})` rather than an ordinary chat destination. It returns `{inlineMessageId}`, supports content/options representable by one native inline result, and cannot upload local files. Guest validation never falls back to a private send. Ordinary calls retain the defaults and results below.
 
 `send` requires exactly one content field. The controller maps it to the corresponding Telegram method:

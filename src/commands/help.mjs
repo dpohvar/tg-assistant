@@ -8,6 +8,7 @@ function availableCommands({ master = false, role, group = false }) {
     manager = admin || role === "manager",
     local = group ? manager : Boolean(role);
   const result = {};
+  if(group&&role)result.say='/say MESSAGE';
   if (local) {
     result.agent = "/agent status\n/agent start\n/agent stop\n/agent clear";
     result.task =
@@ -39,10 +40,12 @@ function availableCommands({ master = false, role, group = false }) {
       "/ls [PATH]\n/cat PATH\n/download PATH\n/upload PATH\n/edit PATH PRE_BLOCK\n/mv FROM TO\n/rm PATH";
     result.temp = "/temp status\n/temp cleanup";
   }
+  if(admin&&group){result.rules='/rules set\n/rules set PRE_BLOCK';result.file='/upload PATH';}
   return result;
 }
 
 const descriptions = {
+  say:'Send hidden correspondence to the enabled agent of this group. Requires user or higher. Uses the normal chat queue and shared context, without extra permissions or priority. Telegram must send the command as ephemeral.',
   widget:'Inspect and delete programmable Telegram widgets without invoking the model. Admin or owner only. Widgets belong to their creating agent, even when published in another permitted chat. Active and disabled registrations retain saved state and count toward the ten-widget limit.',
   usage: 'Inspect reported token usage and native image generation across child bots. Master bot only, for the service owner in private messages. UTC calendar buckets; removed bots retain their statistics. Reply /usage to an intact master usage report to compare lifetime counters.',
   agent: 'Control conversational agents: inspect their state, start or stop them, reset context, inspect inter-agent messages and choose models. A local command needs user or higher in private chats, manager or higher in groups. Explicit targets and model commands need admin or owner.',
@@ -54,14 +57,15 @@ const descriptions = {
   vault: 'Manage this bot’s shared secret store. Requires admin or owner in a private chat. Agents may use secrets through vault_get; Telegram commands never return secret values.',
   user: 'Manage authorization for this bot. Requires admin or owner in a private chat. Roles inherit lower-level permissions:\nuser — use the bot in private messages and manage your own agent and tasks.\nmanager — all user rights, plus add the bot to groups/channels and manage group agents, tasks and triggers.\nadmin — administer the bot, except appointing admins or transferring ownership.\nowner — all rights, including appointing admins and transferring ownership.\nThese are application roles, separate from Telegram administrator rights and BotFather ownership.',
   owner: 'Inspect or transfer application ownership of this bot. Requires admin or owner in a private chat to inspect; only owner may transfer. Application ownership is separate from BotFather ownership.',
-  rules: 'Read or replace the bot-wide AGENTS.md instructions. Requires admin or owner in a private chat. Rules apply to every agent of this bot. Updates wait for active work and reset contexts; chat history, notes, files and scheduled tasks remain.',
+  rules: 'Read or replace the bot-wide AGENTS.md instructions. Requires admin or owner. Replacement is available in private chats and groups; reading rules is private-only. Rules apply to every agent of this bot. Updates wait for active work and reset contexts; chat history, notes, files and scheduled tasks remain.',
   git: 'Configure optional Git synchronization of this bot’s directory, inspect changes and push commits. Requires admin or owner in a private chat. Ordinary agent synchronization does not fetch or pull.',
-  file: 'Manage files in this bot’s directory. Requires admin or owner in a private chat. Paths are relative to the bot root; traversal, symlinks and protected service directories are rejected. Temporary files are accessible but expire.',
+  file: 'Manage files in this bot’s directory. Requires admin or owner. Upload is available in private chats and groups; other file operations are private-only. Paths are relative to the bot root; traversal, symlinks and protected service directories are rejected. Temporary files are accessible but expire.',
   temp: 'Inspect or remove expired temporary files in this bot’s .temp directory. Requires admin or owner in a private chat. Expiry is based on file modification time, not last access.',
   bot: 'Manage registered child bots through the master bot, which has no conversational agent. Available only to the configured service owner in private messages. These commands do not operate on BotFather ownership.',
 };
 
 const details = {
+  '/say MESSAGE':'Send free-form text and Telegram formatting to the current group agent. The controller prepares a private response that the agent may edit or delete; public output depends on your request. Does not enable an agent or start public listening. Private snapshots are retained for 30 days outside ordinary history. Direct messages are already private; /say is for groups.',
   '/widget list [RANGE]':'List the current chat agent\'s widgets, oldest first, with IDs, status, description, publication address and pending events. The selector refers to the owner, not the publication chat.',
   '/widget list [RANGE] agent AGENT_ID':'List widgets owned by the selected agent in this bot. Apply the owner filter before positional RANGE.',
   '/widget list [RANGE] in CHAT_ID':'List widgets owned by this chat\'s agent; their messages may be published elsewhere.',
@@ -129,7 +133,7 @@ const details = {
   '/owner': 'Show this bot’s application owner ID and known name/username. Ownership grants every application permission; it does not imply ownership in BotFather.',
   '/owner set USER_ID': 'Transfer ownership to an already authorized user. Only the current owner can do this. The previous owner becomes admin; transfer to self changes nothing. No confirmation is requested. BotFather ownership is unchanged.',
   '/rules': 'Send the current bot-wide AGENTS.md as a document. These are behavior instructions for all agents, separate from chat notes and shared wiki files.',
-  '/rules set': 'Replace rules from a document: reply with this command to your own unedited document, or send a document replying to your own unedited /rules set message in this chat. Without a document, receive an upload prompt. Foreign/edited reply targets are rejected.',
+  '/rules set': 'Replace rules from a document in private or a group. Reply with this command to your own unedited document, or attach it to the bot invitation. An invitation lasts one hour, is lost on restart and closes after success; transfer failures allow retry. Legacy ordinary replies to your own command still work. Foreign/edited targets are rejected.',
   '/rules set PRE_BLOCK': 'Replace rules with exactly one nonempty Telegram pre block, preserving spaces and newlines. A quoted attachment is ignored, including its ownership/edit status. Plain text or code is not accepted here. A later document reply to this form is not a rules upload.',
   '/git setup [BRANCH [REMOTE_URL [TOKEN]]]': 'With no arguments, show branch, HTTPS remote and token presence, never token value. With BRANCH, clone the selected remote branch and replace local wiki/Git, discarding changes, ignored files and unpushed commits; .temp remains. Omitted remote/token reuse stored values; first setup needs a remote. Clone failure preserves current files. Token-bearing commands are deleted where possible.',
   '/git setup': 'Show the current branch, HTTPS remote and whether a token is configured, never the token value. Does not synchronize, replace files or change Git settings.',
@@ -139,7 +143,7 @@ const details = {
   '/ls [PATH]': 'List a directory’s entries. Without PATH, list the bot root. Use code or spoiler for a path containing spaces. Service directories may appear but protected paths cannot be manipulated.',
   '/cat PATH': 'Send the UTF-8 file contents as a pre block with its name. Content is truncated after 3,000 characters; use /download for the complete file.',
   '/download PATH': 'Send an existing local file as a Telegram document. This command differs from the agent’s download tool, which retrieves Telegram files.',
-  '/upload PATH': 'Save a document at PATH. Reply with this command to your own unedited document, or reply with a document to your own unedited /upload PATH command in this chat. Without a document, receive a prompt. Foreign/edited reply targets are rejected.',
+  '/upload PATH': 'Save a document at PATH in private or a group. Reply with this command to your own unedited document, or attach it to the bot invitation. Invitations last one hour, are lost on restart and close after success; failed transfers allow retry. Ordinary replies to your own unedited command remain supported. Paths with spaces need code/spoiler formatting.',
   '/edit PATH PRE_BLOCK': 'Write exactly the pre-block contents to PATH, replacing an existing file. The path is one argument; code/spoiler preserves spaces. Supply actual Telegram pre formatting rather than literal Markdown fence characters.',
   '/mv FROM TO': 'Move a file or directory from FROM to TO inside the bot directory. Each path is one argument; use code/spoiler for spaces. Protected paths and symlinks are rejected.',
   '/rm PATH': 'Delete a file or entire directory recursively, without confirmation. This is permanent local deletion; Git recovery is possible only for previously committed content. Protected service paths are rejected.',

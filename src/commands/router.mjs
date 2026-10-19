@@ -1,4 +1,6 @@
 import {topicIdOf} from '../telegram/topics.mjs';
+import {createCommandReply,isEphemeral} from './replies.mjs';
+import {createUploadInvitations} from './uploads.mjs';
 import {usageReport} from './usage.mjs';
 import {handleMcpCommand} from './mcp.mjs';
 import {isMcpAuthReply,handleMcpAuthReply} from './mcp-auth-reply.mjs';
@@ -25,6 +27,33 @@ import { cleanTemp } from "../files/cleanup.mjs";
 export { range };
 const fileNames = ["ls", "cat", "download", "upload", "rm", "mv", "edit"];
 export function createCommands(deps) {
+  const uploads=createUploadInvitations({db:deps.db,now:deps.clock??Date.now});
+  const active=new Map();
+  return {close(botId){uploads.clear(botId);for(const [response,id] of active)if(botId===undefined||id===botId)response.close();},async handle(botId,m){
+    const lease=uploads.acquire(botId,m);
+    const match=/^\/([a-z_]+)(?:@([\w]+))?(?:\s|$)/i.exec(m.text??'');
+    if(isEphemeral(m)&&(!lease&&!match||m.edit_date!==undefined||m.sender_chat||match?.[2]&&match[2].toLowerCase()!==deps.db.getBot(botId)?.username?.toLowerCase()))return false;
+    if(match?.[1].toLowerCase()==='say'&&deps.say&&(!match[2]||match[2].toLowerCase()===deps.db.getBot(botId)?.username?.toLowerCase()))return deps.say(botId,m);
+    const response=createCommandReply({telegram:deps.telegram,botId,message:m,now:deps.clock??Date.now});
+    active.set(response,botId);
+    const scoped={...deps,telegram:response.telegram,uploadSucceeded:()=>lease?.succeed?.(),inviteUpload:async({name,args,message})=>{
+      const text=name==='upload'?`Attach a document as a reply to THIS message to upload to ${args[0].value}.`:'Attach a document as a reply to THIS message to replace the bot rules.';
+      const sent=await response.invite({text});uploads.register(botId,message,sent,{name,args});
+    }};
+    try{
+      const invitation=!lease&&!m.document&&!m.reply_to_message?.document&&(/^\/upload(?:@[\w]+)?(?:\s|$)/i.test(m.text??'')||/^\/rules(?:@[\w]+)?\s+set\s*$/i.test(m.text??''));
+      await response.start({processing:!invitation});
+      if(lease?.busy){await response.telegram.call(botId,'sendMessage',{chat_id:m.chat.id,text:'An upload for this invitation is already in progress.',reply_parameters:{message_id:m.message_id}});return true;}
+      const input=lease?{...m,...lease.entry.command,reply_to_message:undefined}:m;
+      return await createCommandRouter(scoped).handle(botId,input);
+    }catch(error){
+      if(!error.commandReplyFailed)throw error;
+      try{deps.onError?.(error);}catch{}
+      return true;
+    }finally{lease?.release?.();await response.finish();active.delete(response);}
+  }};
+}
+function createCommandRouter(deps) {
   const {
     db,
     telegram,
@@ -483,7 +512,6 @@ export function createCommands(deps) {
         if (section === "rules") {
           if (parts.length === 2 && parts[0] === 'set' && parsed[1].type === 'pre') {
             requireAdmin();
-            if (m.chat.type !== 'private') throw syntaxError('Rules can be changed only in private chats.');
             if (!parts[1].trim()) throw syntaxError('The rules pre block must not be empty.');
             await deps.updateRules(botId, {text:parts[1]}, false);
             await send('Rules updated. Agent context will be cleared.');
@@ -532,6 +560,7 @@ export function createCommands(deps) {
         await legacy.handle(botId, adapted);
         return true;
       } catch (e) {
+        if(e.commandReplyFailed)throw e;
         await send(
           commandError(
             section,

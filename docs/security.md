@@ -1,5 +1,7 @@
 # Security and access boundaries
 
+Hidden `/say` content is user-level chat input, without elevated trust or tool permissions. It requires application role `user` or higher and uses the common chat agent context. Ephemeral snapshots are excluded from ordinary history/search and cross-agent reads; private addresses are bound to the originating bot/chat/agent and recipient. Only recorded bot-authored outgoing responses can be edited/deleted. Known reused addresses are quarantined, operations on one private address are serialized, and uncertain edits prevent automatic repeat edits. Nested contact/location/venue fields cannot override private routing. Private-response failures never trigger public retries or public controller failure notices. See [hidden correspondence](ephemeral.md) for local retention and content limits.
+
 The application is designed for an operator-managed service with trusted bot administrators and sandboxed agents. It protects bot-to-bot filesystem and controller boundaries; it does not promise that an LLM will never mishandle information supplied to it.
 
 ## Roles and chat access
@@ -21,6 +23,8 @@ Managers and higher roles may add a bot to groups, supergroups, or channels. Gro
 Another enabled chat agent must act through delegation. A passive basic group is not a cross-chat write destination. Foreign private chat history remains inaccessible even if the foreign agent is stopped. Private agent identities are discoverable for coordination, but their private chat/user IDs are omitted from foreign agent listings and interagent envelopes.
 
 ## Sandbox and network
+
+Ephemeral slash commands are handled by the controller without model delivery. `/upload` and `/rules set` accept admin/owner users in groups as well as private chats; Telegram administrator status alone grants no application role. Attachment invitations are registered only after a validated user command and confirmed bot send. Their in-memory one-hour entries bind user, bot, chat/topic and original parsed operation, validate the quoted invitation identity and are consumed after successful mutation. Repeated native IDs, bot-looking pre blocks and agent-authored messages do not by themselves authorize uploads. Ephemeral commands and unmatched private replies never enter ordinary ID-zero history or widget/model queues in this iteration. Visibility controls do not prevent forwarding or screenshots.
 
 Guest request handles are scoped to the receiving bot, selected personal agent and original caller, with authorization checked again immediately before publication. A [guest message](guest-mode.md) is not a connected chat, even if its numeric ID equals a known ordinary address. Reading the saved payload grants no group history or ordinary send rights. Every returned native inline ID gets an exact owner registration; callbacks are routed only by established IDs, never by content, dates or invisible links. The personal agent's public response must not disclose unrelated private history, notes or secrets.
 

@@ -4,6 +4,8 @@ The controller sends a JSON **array of event objects** as the text input to a Co
 
 ## Short Telegram messages
 
+Hidden `/say` input uses the ordinary `eventType:"message"` and chat queue, but replaces ordinary `messageId` with `ephemeralMessageId`. It includes `triggers:["/say"]`, stripped short text and optional `preparedReply:{ephemeralMessageId,receiverUserId}` for a different bot-authored private response. A failed preparation uses `replyPreparationError` instead. Use `read({ephemeralMessageId})` for full input. There is no redundant ephemeral boolean. See [hidden correspondence](ephemeral.md); these snapshots are outside ordinary history/search.
+
 Guest invocations use a separate compact envelope: `eventType:"guest_message"`, `guestRequestId`, ISO `date`, `from`, `chatType`, optional `chatTitle` and the existing short content/format/truncation indicators. They omit ordinary `messageId`, `replyTo`, topic and album selectors. Use `read({guestRequestId})` for the complete owner-scoped native payload. A quoted message's author never selects the agent; a fresh explicit mention invokes the new author's personal agent. See [Guest Mode](guest-mode.md).
 
 Each short message starts with `eventType` (`message` or `message_edited`), `messageId` and ISO `date`. Optional `editDate` is also ISO. `from` is either `{userId,name,username?}` or `{chatId,name,username?}` for `sender_chat`; the latter takes precedence over `from`. Other common fields are `replyTo`, `authorSignature` and `albumId`. Inline-bot messages include `viaBot:"username"` without @, or `true` if no username is available; the sender remains the user.

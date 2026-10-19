@@ -23,6 +23,8 @@ export function createAdministrativeCommands({
   stopAgent,
   updateRules,
   fileCommands,
+  inviteUpload,
+  uploadSucceeded,
 }) {
   const access = createAccess(db);
   const privateCommands = new Set([
@@ -92,6 +94,7 @@ export function createAdministrativeCommands({
           !taskCommand &&
           !modelCommand &&
           !triggerCommand &&
+          !['upload','set_rules'].includes(name) &&
           name !== "clear" &&
           name !== "leave"
         ) {
@@ -245,13 +248,14 @@ export function createAdministrativeCommands({
           }
           if (parts.length > 1 || (parts[0] && parts[0] !== "force"))
             throw new Error("/rules set");
-          const document = uploadReply
-            ? m.document
-            : m.reply_to_message?.document;
-          if (!document)
+          const document = m.document ?? m.reply_to_message?.document;
+          if (!document){
+            if(inviteUpload){await inviteUpload({botId,message:m,name,args:parsed});return true;}
             result = "Send a document in reply to your own /rules set command";
+          }
           else {
             await updateRules(botId, document, parts[0] === "force");
+            uploadSucceeded?.();
             result = "Rules updated. Agent context will be cleared.";
           }
         } else if (
@@ -270,7 +274,9 @@ export function createAdministrativeCommands({
             "cleanup_temp",
           ].includes(name)
         ) {
-          result = await fileCommands(botId, name, parsed, m);
+          if(name==='upload'&&!m.document&&!m.reply_to_message?.document&&inviteUpload){await inviteUpload({botId,message:m,name,args:parsed});return true;}
+          result = await fileCommands(botId, name, parsed, m, {telegram});
+          if(name==='upload'&&(m.document||m.reply_to_message?.document))uploadSucceeded?.();
         } else throw new Error("Unknown command.");
         if (result === null) return true;
         if (result?.parse_mode || result?.entities)
@@ -286,6 +292,7 @@ export function createAdministrativeCommands({
             typeof result === "string" ? result : JSON.stringify(result),
           );
       } catch (e) {
+        if(e.commandReplyFailed)throw e;
         await reply(
           botId,
           m,

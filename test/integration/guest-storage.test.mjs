@@ -93,7 +93,7 @@ test('schema 16 upgrade preserves Wordle registrations and guest data survives r
   db=openDatabase(file);try{
     store=createGuestStore(db,{now:()=>2000});assert.equal(store.get(scope,request.guestRequestId).queryId,'retained');
     assert.equal(store.publications(scope,request.guestRequestId)[0].inlineMessageId,'retained-inline');
-    assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,17);
+    assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,18);
     assert.equal(db.sql.prepare("SELECT state FROM widgets WHERE widgetId='wordle'").get().state,'{"input":"А"}');
     assert.equal(db.sql.prepare("SELECT messageId FROM widget_views WHERE viewId='old-view'").get().messageId,7);
     db.sql.prepare("DELETE FROM agents WHERE agentId='a'").run();assert.equal(db.sql.prepare('SELECT count(*) n FROM guest_requests').get().n,0);

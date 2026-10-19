@@ -37,6 +37,8 @@ Incoming short events explain direct causes using optional `triggers`, such as `
 
 ## Queues and availability
 
+`/say` delivers [hidden correspondence](ephemeral.md) through the same chat agent and ordinary queue. It requires application role `user` or higher even in groups, grants no extra instruction authority/priority/capacity, and does not enable an agent or activate public listening. Context remains shared; hidden input is excluded from ordinary saved history, and agents are instructed to preserve its confidentiality unless the user requests disclosure or a public action. A prepared bot response can be edited or deleted through its explicit ephemeral address.
+
 The ordinary queue holds at most ten chat entries, including callbacks and collected albums. Already dispatched work does not occupy a waiting slot. Scheduler, interagent, and WebSocket notifications do not count toward that limit. A full queue rejects a callback immediately; dropped messages remain available in saved history if otherwise retained.
 
 The root agent receives a batch when idle. During a recognized root wait for subagents, the controller may steer new events into the active turn. Waiting for a shell command is not automatically the same as the recognized subagent wait. Active image generation alone does not guarantee immediate processing of new input; root availability determines it.

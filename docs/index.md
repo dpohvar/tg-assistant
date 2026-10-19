@@ -12,6 +12,7 @@ This wiki describes the current implementation. Start with [installation and ope
 | [Agents](agents.md) | Instructions, models, context, triggers, queues, and lifecycle |
 | [Agent contract](agent-contract.md) | Controller tools, arguments, results, and errors |
 | [Message events](message-events.md) | Event batches, short messages, detailed reads, and examples |
+| [Hidden correspondence](ephemeral.md) | `/say`, prepared private replies, tool addresses and retention |
 | [Messaging](messaging.md) | Text, rich messages, media, buttons, callbacks, and permits |
 | [Inline mode](inline.md) | Paginated agent results, action buttons, inline ownership and media buffers |
 | [Guest Mode](guest-mode.md) | Explicit mentions outside member chats, personal-agent routing and guest request storage |

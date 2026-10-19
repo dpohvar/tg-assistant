@@ -6,7 +6,9 @@ import {createUsageStore} from './usage.mjs';
 import {createInlineStore} from '../inline/store.mjs';
 import {createGuestStore} from '../guest/store.mjs';
 import {createGuestReceipts} from '../guest/receipts.mjs';
+import {createEphemeralStore} from '../ephemeral/store.mjs';
 export async function retention({ db, config, telegram, now = Date.now() }) {
+  createEphemeralStore(db).cleanup(now);
   createUsageStore(db).cleanup(now);
   createInlineStore(db).cleanup(now);
   createGuestStore(db).cleanup(now);

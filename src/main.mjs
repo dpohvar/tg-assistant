@@ -13,6 +13,7 @@ import { createController } from './controller.mjs';
 import { retention } from './storage/retention.mjs';
 import { acquireLock } from './service/lock.mjs';
 import { Pollers } from './service/pollers.mjs';
+import {registerGroupCommands} from './commands/registration.mjs';
 ignoreHangup();
 const config = loadConfig(process.argv[2] ?? 'config.json');
 await verifyCodexVersion(config.codexExecutable);
@@ -40,10 +41,10 @@ let cleanupJob;
 const cleanupTimer = setInterval(() => { if (!cleanupJob) cleanupJob = retention({ db, config, telegram }).catch(() => console.error('cleanup_failed')).finally(() => { cleanupJob = null; }); }, 86400000);
 controller.scheduler.recover();
 const pollers = new Pollers((botId, signal) => poll({ botId, telegram, signal, getOffset: () => botId === 'master' ? Number(db.sql.prepare("SELECT value FROM controller_state WHERE key='master_offset'").get()?.value ?? 0) : db.getOffset(botId), setOffset: n => { if (botId === 'master') db.sql.prepare("INSERT INTO controller_state VALUES('master_offset',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(n)); else if (db.getBot(botId)) db.setOffset(botId, n); }, receive: controller.receive, onError: code => console.error(code) }), () => console.error('poll_failed'));
-const startBot = botId => pollers.start(botId);
-config.onBotAdded = botId => startBot(botId);
+const startBot = async botId => { try { await registerGroupCommands({telegram,botId}); } catch { console.error('command_registration_failed',botId); } if(!stop.signal.aborted&&(botId==='master'||db.getBot(botId)))pollers.start(botId); };
+config.onBotAdded = botId => { void startBot(botId).catch(()=>console.error('poll_start_failed',botId)); };
 config.onBotRemoved = botId => pollers.remove(botId);
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { stop.abort(); controller.close(); void pollers.close(); });
 try {
-  startBot('master'); for (const { botId } of db.sql.prepare('SELECT botId FROM bots').all()) startBot(botId); fs.writeFileSync(readyPath, readyIdentity, { mode: 0o600 }); await pollers.wait();
+  await startBot('master'); await Promise.all(db.sql.prepare('SELECT botId FROM bots').all().map(({botId})=>startBot(botId))); fs.writeFileSync(readyPath, readyIdentity, { mode: 0o600 }); await pollers.wait();
 } finally { fs.rmSync(readyPath, { force: true }); clearInterval(cleanupTimer); controller.close(); await pollers.close(); await controller.idle(); await cleanupJob; db.close(); releaseLock(); }
