@@ -37,3 +37,5 @@ The legacy standalone probes were copied from the original development checkout 
 - Incremental inline results: [accepted design](inline-streaming-design.md), [implementation plan](plans/2026-10-20-inline-streaming.md), [verification and live procedure](inline-streaming-verification.md).
 
 - Group file commands and help aliases: [scope and implementation plan](plans/2026-10-20-group-files-help.md), [verification](group-files-help-verification.md).
+
+- [Widget callback diagnostics](widget-callback-diagnostics.md): standalone read-only comparison of working and failing registrations, queue admission and saved handlers.

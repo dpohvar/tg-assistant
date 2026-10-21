@@ -2,16 +2,19 @@ import { projectReaction } from "../messages/reactions.mjs";
 import { observePoll, observePollAnswer } from "./polls.mjs";
 import { validateWidgetEvent, widgetCallbackAction } from "./contract.mjs";
 import {viewSnapshot} from './views.mjs';
+import {resolveInlineWidgetCallback} from './callbacks.mjs';
 export function createWidgetEvents({ db, manager, telegram }) {
   const store = manager.store;
   return async (botId, update) => {
-    let w, name, source, data, user;
+    let w, name, source, data, user, callbackData;
     const callback = update.callback_query;
     if (callback) {
       const m = callback.message;
       if (!m&&!callback.inline_message_id) return false;
       const inline=callback.inline_message_id&&store.byTarget(botId,{inlineMessageId:callback.inline_message_id});
-      w = inline?{...store.get(inline.widgetId),view:inline}:m?store.byMessage(botId, m.chat.id, m.message_id):null;
+      const resolved=resolveInlineWidgetCallback(store,botId,callback),view=resolved?.view??inline;
+      callbackData=resolved?.data??callback.data;
+      w = view?{...store.get(view.widgetId),view}:m?store.byMessage(botId, m.chat.id, m.message_id):null;
       if (!w) return false;
       const ack = () =>
         telegram
@@ -19,12 +22,12 @@ export function createWidgetEvents({ db, manager, telegram }) {
             callback_query_id: callback.id,
           })
           .catch(() => {});
-      if (w.status !== "active" || w.view.deliveryUnknown || manager.buttonsBlocked?.(w.view.id) || !w.view.buttonNames.includes(callback.data)) {
+      if (w.status !== "active" || w.view.deliveryUnknown || manager.buttonsBlocked?.(w.view.id) || !w.view.buttonNames.includes(callbackData)) {
         await ack();
         return true;
       }
       try {
-        name = widgetCallbackAction(callback.data);
+        name = widgetCallbackAction(callbackData);
       } catch {
         // A stale/corrupt registry must never turn a callback into a system hook.
         await ack();
@@ -35,7 +38,7 @@ export function createWidgetEvents({ db, manager, telegram }) {
         return true;
       }
       source = "button";
-      data = callback;
+      data = resolved?{...callback,data:callbackData}:callback;
       user = callback.from;
     } else if (update.poll || update.poll_answer) {
       data = update.poll ?? update.poll_answer;
@@ -93,7 +96,7 @@ export function createWidgetEvents({ db, manager, telegram }) {
     try {
       validateWidgetEvent(event);
       await manager.admit(w, event,{viewId:w.view.id,bindingEpoch:w.view.bindingEpoch,target:w.view.target,
-        ...(source==='button'?{callbackData:callback.data}:{}),...(['poll','poll_answer'].includes(source)?{pollId:w.view.pollId}:{})});
+        ...(source==='button'?{callbackData}:{}),...(['poll','poll_answer'].includes(source)?{pollId:w.view.pollId}:{})});
     } catch (e) {
       if (
         [

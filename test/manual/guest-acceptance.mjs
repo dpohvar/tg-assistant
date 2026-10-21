@@ -12,6 +12,7 @@ import {CodexAgent} from '../../src/codex/threads.mjs';
 import {acquireLock} from '../../src/service/lock.mjs';
 import {WORDLE_ARCHIVE_SHA,sourceHashes} from '../helpers/wordle-fixture.mjs';
 import {fixturePNG} from './inline-fixtures.mjs';
+import {resolveInlineWidgetCallback} from '../../src/widgets/callbacks.mjs';
 const hash=value=>createHash('sha256').update(String(value)).digest('hex').slice(0,12);
 export function extractGuestArchive(archive,workspace,execute=execFileSync){
   return execute('tar',['-xf',path.basename(archive),'-C',workspace.replaceAll('\\','/')],{cwd:path.dirname(path.resolve(archive)),windowsHide:true});
@@ -23,14 +24,14 @@ export function guestProbeControl(message,{ownerId,run}){
   return 'ignore';
 }
 
-export function guestAcceptanceGuard({botId,ownerId,run,startedAt=Date.now(),sendBudget=40,editBudget=2048}) {
+export function guestAcceptanceGuard({botId,ownerId,run,startedAt=Date.now(),sendBudget=40,editBudget=2048,widgetStore=()=>null}) {
   const users=new Set([ownerId]),groups=new Set(),queries=new Set(),inline=new Set(),messages=new Set();let sent=0,edited=0;
   return {
     users,groups,allowUser:id=>users.add(id),allowGroup:id=>groups.add(id),allowQuery:id=>queries.add(id),allowInline:id=>inline.add(id),allowMessage:(chat,id)=>messages.add(`${chat}/${id}`),
     accept(update) {
       const guest=update.guest_message;
       if(guest)return Number.isSafeInteger(guest.from?.id)&&guest.from.id>0&&guest.date*1000>=startedAt-5000&&typeof guest.guest_query_id==='string'&&(guest.text??guest.caption??'').includes(`guest ${run}`);
-      if(update.callback_query?.inline_message_id)return inline.has(update.callback_query.inline_message_id);
+      if(update.callback_query?.inline_message_id)return inline.has(update.callback_query.inline_message_id)||Boolean(resolveInlineWidgetCallback(widgetStore(),botId,update.callback_query));
       if(update.my_chat_member)return update.my_chat_member.from?.id===ownerId;
       const m=update.message;
       if(!m)return false;
@@ -52,7 +53,7 @@ async function nativeRuntime({config:privateConfig,mode,root,archive,signal,repo
   const botId='guest-acceptance',run=randomBytes(3).toString('hex'),startedAt=Date.now();
   const config={dataDir:path.join(root,'data'),botsDir:path.join(root,'bots'),codexHome:path.join(root,'codex-home'),codexExecutable:privateConfig.codexExecutable,defaultTimezone:'UTC',defaultModel:privateConfig.model??'gpt-6.1-sol',serviceOwnerId:privateConfig.ownerId};
   const token=privateConfig.token??fs.readFileSync(privateConfig.tokenFile,'utf8').trim(),native=createTelegram({getToken:()=>token});
-  const guard=guestAcceptanceGuard({botId,ownerId:privateConfig.ownerId,run,startedAt}),buffers=[],addedGroups=new Set();let cleaning=false;
+  const guard=guestAcceptanceGuard({botId,ownerId:privateConfig.ownerId,run,startedAt,widgetStore:()=>controller?.widgets.store}),buffers=[],addedGroups=new Set();let cleaning=false;
   const telegram={getToken:native.getToken,call:async(bot,method,args={},options={})=>{
     guard.before(bot,method,args);
     let result;
@@ -101,6 +102,17 @@ async function nativeRuntime({config:privateConfig,mode,root,archive,signal,repo
         });
       };
       controller=createController({db,config,telegram,agent,onError:error=>report({type:'controller_error',code:error.code??'controller_failed',description:String(error.message??'').replaceAll(token,'[redacted]').slice(0,200)})});
+      const admit=controller.widgets.admit,complete=controller.widgets.complete;
+      controller.widgets.admit=async(w,event,admission)=>{
+        const result=await admit(w,event,admission);
+        if(event.source==='button')report({type:'widget_callback_admitted',widgetId:w.widgetId,action:event.name,actor:event.user?.id===privateConfig.ownerId?'owner':'other',seq:result.seq});
+        return result;
+      };
+      controller.widgets.complete=(ref,seq)=>{
+        const result=complete(ref,seq),w=controller.widgets.store.get(ref.widgetId),s=w?.state;
+        report({type:'widget_event_completed',widgetId:ref.widgetId,seq,status:w?.status,mode:s?.mode,players:Object.keys(s?.players??{}).length,inputLength:s?.players?.[s.activeId]?.input?.length,lastError:w?.lastError?.code});
+        return result;
+      };
     }
     startController();await controller.ready;
     if(mode==='media'){
@@ -123,7 +135,11 @@ async function nativeRuntime({config:privateConfig,mode,root,archive,signal,repo
             if(control==='join'){
               guard.allowUser(m.from.id);db.setRole(botId,m.from.id,'user');db.saveChat(botId,m.chat);db.ensureAgent(botId,m.from.id,config.defaultModel);report({type:'participant_enrolled'});continue;
             }
-            if(!guard.accept(update))continue;
+            const accepted=guard.accept(update);
+            if(update.callback_query){const cb=update.callback_query;
+              if(cb.inline_message_id)fs.appendFileSync(path.join(root,'callback-addresses.jsonl'),JSON.stringify({actor:cb.from?.id===privateConfig.ownerId?'owner':'other',inlineMessageId:cb.inline_message_id})+'\n',{mode:0o600});
+              report({type:'callback_received',actor:cb.from?.id===privateConfig.ownerId?'owner':'other',accepted,hasInlineId:Boolean(cb.inline_message_id),hasOrdinaryMessage:Boolean(cb.message),...(cb.inline_message_id?{inlineHash:hash(cb.inline_message_id)}:{})});}
+            if(!accepted)continue;
             if(update.my_chat_member&&['member','administrator'].includes(update.my_chat_member.new_chat_member?.status)){
               const chat=update.my_chat_member.chat;guard.allowGroup(chat.id);if(['left','kicked'].includes(update.my_chat_member.old_chat_member?.status))addedGroups.add(chat.id);
             }

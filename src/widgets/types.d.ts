@@ -24,7 +24,7 @@ export interface WidgetEvent {
     | "view_delete";
   receivedAt: string;
   delayed: boolean;
-  /** For button events: the original Telegram CallbackQuery; data.data is the full callback_data. */
+  /** For buttons: native CallbackQuery fields with data.data restored to the full authored callback. Inline addresses can differ from view.target; use view.target for registered-view operations. */
   data: unknown;
   user?: Record<string, unknown>;
   fromWidgetId?: string;

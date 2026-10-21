@@ -85,7 +85,7 @@ Timers keep working with zero views. Managed resources dispose in reverse order,
 
 Successful handlers save changed state before rendering each view. `await ctx.render()` commits intermediate state and rerenders all views, including when there are none. A failed view does not undo saved state or prevent other views rendering. Later handler errors restore the last committed state. State serialization omits undefined object fields and converts undefined array elements/holes to null; other unsupported non-JSON values remain invalid.
 
-Widget callback strings are exact current published values, 1–64 UTF-8 bytes:
+Authored widget callback strings must match the current published registry exactly and contain 1–64 UTF-8 bytes:
 
 | String | Behavior |
 | --- | --- |
@@ -95,7 +95,11 @@ Widget callback strings are exact current published values, 1–64 UTF-8 bytes:
 
 Only the first colon separates action/payload. System hooks, `constructor`, `__` names and `void:payload` are forbidden button actions. Prefixes/wildcards do not authorize unregistered values. Rich buttons use the same strings, for example `<tg-button type="callback_data" data="cell:0:1">A2</tg-button>`.
 
-`event.data` keeps the native CallbackQuery. `event.view` records the source view snapshot. Inline callbacks have an inline ID and no invented ordinary message. Return a string, `{text,showAlert}`, null/undefined, or call `await event.respond(answer)`; the first answer wins. Widget buttons have no ordinary one-use groups or permits: check current `user_roles` in handlers when needed.
+For inline and guest views, the controller sends a separate opaque token for each view/action pair. This lets it route a callback even when Telegram identifies the same guest message differently for another participant in a private conversation. Normal and rich buttons use the same routing. Tokens remain within Telegram's 64-byte limit, including for a full-length authored callback. Ordinary message buttons retain their authored wire values.
+
+`event.data` preserves the native CallbackQuery fields, with `data` restored to the complete authored callback string. Its inline ID is the one actually observed from Telegram and can differ from `event.view.target.inlineMessageId`. Use **`event.view.target`** for operations on the registered view; receipt of a token does not grant read/edit ownership of a previously unknown callback address. Inline callbacks have no invented ordinary message. Return a string, `{text,showAlert}`, null/undefined, or call `await event.respond(answer)`; the first answer wins. Widget buttons have no ordinary one-use groups or permits: check current `user_roles` in handlers when needed.
+
+No database migration or handler change is needed for token routing. Existing inline controls adopt tokens on their next render. To repair an already published guest widget immediately after upgrading, call `update_widget({widgetId})`; this repaints its existing views without replacing the handler or state. Legacy unencoded callbacks still work at their exact registered address. A retired view's tokens and tokens for callbacks removed from the current registry are ignored.
 
 Events wait during rendering. Before dispatch, a button must still match the same view ID and exact published callback string; otherwise it is acknowledged without text and ignored. Continuous replacement invalidates button events, but retains replies/reactions against the same message with their original source snapshot. Detach/rebind ends that continuity. Poll events also require the same poll ID. Stop deletes queued work; it is never replayed after recovery.
 
@@ -126,5 +130,7 @@ Ten registrations per agent, including stopped/zero-view; ten owner processes pe
 External queue limits: 1,000 pending events, 64 KiB/event, 8 MiB pending bytes. State limit: 1 MiB. RPC frames: 2 MiB. Local enqueue preserves arbitrary references and returns false at capacity.
 
 Administrators use [widget commands](commands.md#programmable-widgets). Lists show owner, pending count, view count and addresses. Private views never have links; group/channel addresses become links only when enough metadata exists. Inline IDs stay opaque. `show` includes errors/candidates but excludes state.
+
+For server-side comparison of working and failing widgets, the standalone [callback diagnostic](dev/widget-callback-diagnostics.md) reads live registration metadata and event counters without starting a poller or modifying the database. Its counters cover all admitted events; they cannot identify a callback rejected before admission.
 
 Executable examples are under [development examples](dev/examples/widgets/): [pagination](dev/examples/widgets/pagination.tsx), [voting](dev/examples/widgets/consent-voting.tsx), [timer](dev/examples/widgets/timer.tsx), [WebSocket](dev/examples/widgets/websocket-display.tsx), [dice](dev/examples/widgets/dice-onCreate.tsx), [rich media](dev/examples/widgets/rich-media-update.tsx), [live location](dev/examples/widgets/live-location.tsx) and [error recovery](dev/examples/widgets/error-repair.tsx). See [verification](dev/inline-widget-verification.md) for automated and live evidence.

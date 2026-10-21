@@ -21,9 +21,11 @@ test('first guest widget publication is the complete render with native callback
   const w=await f.manager.create(f.scope,{handler:'counter.tsx',description:'Game'});
   const view=await f.manager.setView(f.scope,{widgetId:w.widgetId,send:{guestRequestId:f.request.guestRequestId},props:{part:'game'}});
   assert.deepEqual(snapshots[0].target,{guestRequestId:f.request.guestRequestId});assert.ok(view.target.inlineMessageId);
-  const sends=f.telegramCalls.filter(x=>x.method!=='answerCallbackQuery');assert.equal(sends.length,1);assert.equal(sends[0].method,'answerGuestQuery');assert.equal(sends[0].args.result.input_message_content.message_text,'Wordle');assert.equal(sends[0].args.result.reply_markup.inline_keyboard[0][0].callback_data,'increment');
+  const sends=f.telegramCalls.filter(x=>x.method!=='answerCallbackQuery');assert.equal(sends.length,1);assert.equal(sends[0].method,'answerGuestQuery');assert.equal(sends[0].args.result.input_message_content.message_text,'Wordle');
+  const wire=sends[0].args.result.reply_markup.inline_keyboard[0][0].callback_data;
+  assert.deepEqual(f.store.getView(view.viewId).buttonNames,['increment']);
   assert.equal(f.inlineStore.owner('b',view.target.inlineMessageId).agentId,f.scope.agentId);assert.equal(f.guest.hasPending('b'),false);
-  await f.receiveButton(view.target);await f.idle();assert.equal(f.store.get(w.widgetId).state.count,1);
+  await f.receiveButton(view.target,wire);await f.idle();assert.equal(f.store.get(w.widgetId).state.count,1);assert.equal(f.handled[0].data.data,'increment');
   assert.deepEqual(snapshots.at(-1).target,view.target);
 });
 test('each Telegram-accepted guest widget publication becomes its own synchronized view',async t=>{

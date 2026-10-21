@@ -15,8 +15,12 @@ import {fixturePNG} from './inline-fixtures.mjs';
 import {inlinePolicy} from '../../src/inline/contract.mjs';
 import {prepareMediaMatrix} from './inline-media-matrix.mjs';
 import {shortMessage} from '../../src/telegram/short-message.mjs';
+import {resolveInlineWidgetCallback} from '../../src/widgets/callbacks.mjs';
 
-export function acceptanceUpdate(update,{ownerId}){
+export function acceptanceUpdate(update,{ownerId,inlineMessageIds,widgetStore,botId}){
+  const callback=update.callback_query;
+  if(resolveInlineWidgetCallback(widgetStore,botId,callback))return true;
+  if(callback?.inline_message_id&&!callback.message&&Number.isSafeInteger(callback.from?.id)&&callback.from.id>0&&inlineMessageIds?.has(callback.inline_message_id))return true;
   const user=update.inline_query?.from??update.callback_query?.from??update.message?.from??update.edited_message?.from??update.message_reaction?.user??update.poll_answer?.user;
   const chat=update.message?.chat??update.edited_message?.chat??update.callback_query?.message?.chat??update.message_reaction?.chat??update.message_reaction_count?.chat??update.poll_answer?.voter_chat;
   return Boolean((user||chat)&&(!user||user.id===ownerId)&&(!chat||chat.id===ownerId));
@@ -24,7 +28,7 @@ export function acceptanceUpdate(update,{ownerId}){
 
 export function acceptanceEffects({botId,ownerId,sends=8,edits=128,quietPhotosOnly=false}){
   const messages=new Set(),inline=new Set();let sent=0,edited=0;
-  return {messages,allowMessage:id=>messages.add(id),allowInline:id=>inline.add(id),
+  return {messages,inline,allowMessage:id=>messages.add(id),allowInline:id=>inline.add(id),
     before(bot,method,args){
       if(bot!==botId)throw new Error('Foreign bot target');
       if(args.chat_id!==undefined&&args.chat_id!==ownerId)throw new Error('Foreign chat target');
@@ -81,6 +85,21 @@ async function nativeRuntime({config:privateConfig,mode,root,signal,report}){
     });const request=controller.inline.requests.current(botId,privateConfig.ownerId);report({type:'root_completed',inlinePhase:request?.phase,hasResults:request?.hasResults});return response;
   };
   controller=createController({db,config,telegram,agent,onError:e=>report({type:'controller_error',...agentFailureDiagnostic(e)})});
+  if(mode==='wordle'){
+    const hash=value=>createHash('sha256').update(String(value)).digest('hex').slice(0,12);
+    const admit=controller.widgets.admit;
+    controller.widgets.admit=async(w,event,admission)=>{
+      const result=await admit(w,event,admission);
+      if(event.source==='button')report({type:'widget_callback_admitted',widgetId:w.widgetId,viewId:admission?.viewId,action:event.name,actor:event.user?.id===privateConfig.ownerId?'owner':'other',actorHash:hash(event.user?.id),seq:result.seq});
+      return result;
+    };
+    const complete=controller.widgets.complete;
+    controller.widgets.complete=(ref,seq)=>{
+      const result=complete(ref,seq),w=controller.widgets.store.get(ref.widgetId),s=w?.state;
+      report({type:'widget_event_completed',widgetId:ref.widgetId,seq,status:w?.status,mode:s?.mode,activePlayer:s?.activeId?hash(s.activeId):null,players:Object.keys(s?.players??{}).length,inputLength:s?.players?.[s.activeId]?.input?.length,lastError:w?.lastError?.code});
+      return result;
+    };
+  }
   let offset,viaFixtureId;
   try{
   await controller.ready;
@@ -126,7 +145,8 @@ async function nativeRuntime({config:privateConfig,mode,root,signal,report}){
       let updates;try{updates=await native.call(botId,'getUpdates',{offset,timeout:15,allowed_updates:['inline_query','callback_query','message','message_reaction','message_reaction_count','poll','poll_answer']},{signal});}catch(error){if(signal.aborted)break;throw error;}
       for(const update of updates){offset=update.update_id+1;if(signal.aborted)break;
         if(update.message?.from?.id===privateConfig.ownerId&&update.message.text==='/accept stop')return;
-        if(!acceptanceUpdate(update,{ownerId:privateConfig.ownerId}))continue;
+        if(mode==='wordle'&&update.callback_query)report({type:'callback_received',actor:update.callback_query.from?.id===privateConfig.ownerId?'owner':'other',knownInline:guard.inline.has(update.callback_query.inline_message_id),hasOrdinaryMessage:Boolean(update.callback_query.message)});
+        if(!acceptanceUpdate(update,{ownerId:privateConfig.ownerId,inlineMessageIds:mode==='wordle'?guard.inline:undefined,widgetStore:mode==='wordle'?controller.widgets.store:undefined,botId}))continue;
         if(mode==='streaming'&&!update.inline_query)continue;
         if(mode==='matrix'&&update.message?.text==='/accept via'){
           try{

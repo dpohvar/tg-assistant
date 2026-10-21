@@ -2,6 +2,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase } from "../../src/storage/database.mjs";
 import { createController } from "../../src/controller.mjs";
+import {widgetFixture} from '../helpers/widget-views-fixture.mjs';
+
+test('inline widget callbacks from users without bot roles update shared state through the controller',async t=>{
+  const f=await widgetFixture(t),c=createController({db:f.db,widgetService:f.manager,telegram:f.telegram,agent:{run:async()=>assert.fail('Widget callbacks must not invoke the agent')}});
+  try {
+    await c.ready;
+    const w=await f.manager.create(f.scope,{handler:'counter.tsx',description:'Public counter'});
+    const view=await f.manager.setView(f.scope,{widgetId:w.widgetId,target:{inlineMessageId:'public-inline'}});
+    for(const userId of [1,2]){
+      await c.receive('b',{callback_query:{id:'public-'+userId,from:{id:userId,first_name:'Player'},inline_message_id:view.target.inlineMessageId,data:'increment'}});
+      await f.idle();
+      assert.equal(f.store.get(w.widgetId).state.count,userId);
+    }
+    assert.equal(f.db.role('b',2),null);
+    assert.deepEqual(f.handled.map(event=>event.user.id),[1,2]);
+  } finally {c.close();await c.idle();}
+});
 test("widget replies intercept before disabled chat-agent route and commands still win", async (t) => {
   const db = openDatabase(":memory:");
   db.registerBot({ botId: "b", telegramId: 42, username: "bot", ownerId: 1 });

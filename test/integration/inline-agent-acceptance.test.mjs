@@ -39,3 +39,13 @@ test('live fixture admission confines ordinary callbacks and reactions to the de
   assert.equal(admit({message_reaction:{chat:{id:1},user:{id:1}}}),true);
   for(const update of [{message:{from:{id:1},chat:{id:-2}}},{callback_query:{from:{id:1},message:{chat:{id:-2}}}},{message_reaction:{user:{id:1},chat:{id:-2}}},{message_reaction:{user:{id:2},chat:{id:1}}},{callback_query:{from:{id:2},inline_message_id:'foreign'}},{poll:{id:'unattributed'}}])assert.equal(admit(update),false);
 });
+
+test('Wordle live fixture admits other players only on its known inline messages',()=>{
+  const guard=acceptanceEffects({botId:'b',ownerId:1});guard.allowInline('wordle-view');
+  const scope={ownerId:1,inlineMessageIds:guard.inline};
+  const callback={from:{id:2},inline_message_id:'wordle-view',data:'menu:start'};
+  assert.equal(acceptanceUpdate({callback_query:callback},scope),true);
+  assert.equal(acceptanceUpdate({callback_query:{...callback,inline_message_id:'foreign'}},scope),false);
+  assert.equal(acceptanceUpdate({callback_query:{...callback,message:{chat:{id:2}}}},scope),false);
+  assert.equal(acceptanceUpdate({inline_query:{from:{id:2}}},scope),false);
+});

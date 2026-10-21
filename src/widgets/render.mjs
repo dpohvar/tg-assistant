@@ -10,6 +10,7 @@ import {
 import { buttons, richInput } from "../messages/callbacks.mjs";
 import { destinationFields } from "../telegram/topics.mjs";
 import {messageAddress} from '../messages/address.mjs';
+import {inlineWidgetButtons} from './callbacks.mjs';
 const hash = (v) =>
   createHash("sha256").update(JSON.stringify(v)).digest("hex");
 const creationOnly = new Set([
@@ -76,8 +77,8 @@ export function createWidgetRenderer({
       const widget = store.current(ref), w = view ? {...widget,...view} : widget,
         scope = authorize(ref, view?view.target.chatId:w.chatId),
         normalized = normalizeRender(value);
-      let authored = normalized;
-      if (w.status === "stopped" || w.status === "disabled") authored = disabledRender(normalized);
+      let authored = inlineWidgetButtons(normalized,view);
+      if (w.status === "stopped" || w.status === "disabled") authored = disabledRender(authored);
       const kind = messageKind(authored);
       const guestPrepared=view?.target.guestRequestId?guest.prepare(scope,authored,'widget'):null;
       if (w.message && w.renderSpec) {
