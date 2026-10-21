@@ -69,7 +69,7 @@ Each agent has one private persistent note of at most 4,000 Unicode code points,
 
 All agents of a bot share read/write permanent files. Wiki structure is chosen by the owner and bot rules; no mandatory `raw/`, `log.md`, ingest service, or query/lint tools are imposed. Git is optional. Store long-lived working knowledge in permanent files and confidential chat preferences in the private note. Shared files are not private to a single agent.
 
-Agents may create arbitrary temporary subdirectories under their own `.temp/AGENT_ID/`. Conventional directories include `download`, `upload`, `generated`, and `websocket`. The sandbox denies other agents' temp directories. Local uploads use multipart transfers; files are not deleted immediately after successful sending. Preserve anything needed long term outside `.temp`.
+Agents may create arbitrary temporary subdirectories under their own `.temp/AGENT_ID/`. Conventional directories include `download`, `upload`, `generated`, and `websocket`. The sandbox denies other agents' temp directories. Local uploads are authored as `file:path` in structured media fields and use controller-managed multipart transfers; files are not deleted immediately after successful sending. Preserve anything needed long term outside `.temp`.
 
 `download` caches Telegram file IDs per agent and coalesces concurrent requests for the same ID. Reusing an existing file does not refresh its `mtime`. `save_image` copies a registered native generation into shared files or the caller's temp directory; only a controller-registered source is accepted. Agents should handle paths rather than printing image base64 into context.
 

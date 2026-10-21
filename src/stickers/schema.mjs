@@ -3,7 +3,6 @@ const owner = { type: "integer", minimum: 1 };
 const format = { type: "string", enum: ["static", "animated", "video"] };
 const emojis = { type: "array", minItems: 1, maxItems: 20, items: str };
 const keywords = { type: "array", maxItems: 20, items: { type: "string" } };
-const uploads = { type: "object", additionalProperties: str };
 const sticker = {
   type: "object",
   properties: { sticker: str, format, emoji_list: emojis, keywords },
@@ -35,21 +34,20 @@ export const stickerSetTools = [
   ),
   tool(
     "sticker_set_create",
-    "Create a regular sticker set or custom emoji set. Full name must end _by_<bot_username>. Owner defaults to application bot owner. 1-50 native InputSticker entries: sticker is file_id, supported URL or attach://name; uploads maps names to permitted local paths. Static PNG/WebP, animated TGS, video WebM. needsRepainting is custom emoji only. Returns created status, name, ownerUserId, link; then get the set for native IDs. Never automatically retry delivery_unknown or applied:true errors.",
+    "Create a regular sticker set or custom emoji set. Full name must end _by_<bot_username>. Owner defaults to application bot owner. 1-50 native InputSticker entries: sticker is file_id, supported URL or file:path for a permitted local file. Static PNG/WebP, animated TGS, video WebM. needsRepainting is custom emoji only. Returns created status, name, ownerUserId, link; then get the set for native IDs. Never automatically retry delivery_unknown or applied:true errors.",
     {
       name: str,
       title: { type: "string", minLength: 1, maxLength: 64 },
       type: { type: "string", enum: ["regular", "custom_emoji"] },
       ownerUserId: owner,
       stickers: { type: "array", minItems: 1, maxItems: 50, items: sticker },
-      uploads,
       needsRepainting: { type: "boolean" },
     },
     ["name", "title", "type", "stickers"],
   ),
   tool(
     "sticker_set_edit",
-    "Edit one set operation. add: sticker; replace: oldFileId,sticker; remove: fileId; move: fileId,position (zero-based); set_emojis: fileId,emojiList; set_keywords: fileId,keywords ([] clears); set_title: title; set_thumbnail: regular thumbnail,format or emoji customEmojiId (null resets). Owner for add/replace/regular thumbnail defaults to recorded owner then bot owner. uploads maps attachment names to local paths. Telegram checks edit rights; no catalog membership required. Check delivery_unknown before retrying; applied:true means mutation succeeded.",
+    "Edit one set operation. add: sticker; replace: oldFileId,sticker; remove: fileId; move: fileId,position (zero-based); set_emojis: fileId,emojiList; set_keywords: fileId,keywords ([] clears); set_title: title; set_thumbnail: regular thumbnail,format or emoji customEmojiId (null resets). Owner for add/replace/regular thumbnail defaults to recorded owner then bot owner. Use file:path for local sticker and thumbnail files. Telegram checks edit rights; no catalog membership required. Check delivery_unknown before retrying; applied:true means mutation succeeded.",
     {
       name: str,
       action: {
@@ -76,7 +74,6 @@ export const stickerSetTools = [
       format,
       customEmojiId: { type: ["string", "null"] },
       ownerUserId: owner,
-      uploads,
     },
     ["name", "action"],
   ),

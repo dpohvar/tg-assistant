@@ -1,13 +1,13 @@
 const p = text => ({type:'paragraph',text});
-const photo = {type:'photo',photo:{type:'photo',media:'attach://pic'}};
+const photo = {type:'photo',photo:{type:'photo',media:'file:wiki/image.png'}};
 const list = {type:'list',items:[{blocks:[p('First')]},{blocks:[p('Second')]},{blocks:[p('Done')],has_checkbox:true,is_checked:true}]};
 const guide = {
  source:'https://core.telegram.org/bots/api#inputrichmessage', checked:'2026-10-08',
  rules:[
   'Pass rich_message as an object with exactly one of blocks, html, markdown. Prefer blocks for structured layouts. No parse_mode inside blocks.',
   'RichText is a plain string, an array of RichText values, or one of the typed objects below. Nest them to combine formatting.',
-  'Examples use placeholders: uploads:{pic:"wiki/image.png",file:"wiki/file.pdf"}. Media may instead use HTTPS URLs or reusable Telegram file_id values directly; file_sources is ignored for compatibility.',
-  'Reuse known file_id values in media fields and omit uploads for reused files. Same rule for ordinary attachments, albums and rich media. No saved source message is required.',
+  'Local media use file:wiki/image.png or file:wiki/file.pdf directly in their structured file fields. HTML/Markdown use tg:// references plus rich_message.media; the controller never parses markup. Media may instead use HTTPS URLs or reusable Telegram file_id values directly; file_sources is ignored for compatibility.',
+  'Reuse known file_id values in media fields and omit local file references for reused files. Same rule for ordinary attachments, albums and rich media. No saved source message is required.',
   'details has summary and blocks; is_open:true opens initially, omit for collapsed. list.items are objects with blocks, never strings. Checkbox list items are presentation, not callback buttons or native checklist tasks.',
   'For ordered list items use value and type (1,a,A,i,I). For unordered items omit both. Never mix ordered and unordered items in the same list. Each blockquote/list item/details uses blocks, while expandable_blockquote uses text.',
   'Media captions belong to the outer block as {text,credit?}; captions inside InputMedia are ignored. Table caption is RichText, not a caption object.',
@@ -26,13 +26,13 @@ const guide = {
  {type:'details',summary:'Show more',blocks:[list]},
  {type:'map',location:{latitude:34.7,longitude:33.1},zoom:12,width:600,height:400,caption:{text:'Meeting point'}},
  {type:'buttons',align:'left',buttons:[{text:'⬜️ Choose',callback_data:'[choice]yes',style:'primary'},{text:'Website',url:'https://example.com'},{text:'Copy',copy_text:{text:'Hello'}},{text:'Unavailable',disabled:{}}]},
- ...['animation','audio','document','photo','video','voice_note'].map(kind=>({type:kind,[kind]:{type:kind,media:'attach://'+(kind==='photo'?'pic':'file')},caption:{text:'Media caption'}})),
+ ...['animation','audio','document','photo','video','voice_note'].map(kind=>({type:kind,[kind]:{type:kind,media:kind==='photo'?'file:wiki/image.png':'file:wiki/file.pdf'},caption:{text:'Media caption'}})),
  ],
  orderedList:{type:'list',items:[{blocks:[p('First')],value:1,type:'1'},{blocks:[p('Second')],value:2,type:'1'}]},
  detailsWithList:{blocks:[{type:'details',summary:'Shopping list',blocks:[{type:'list',items:[{blocks:[p('Bread')]},{blocks:[p('Milk')]}]}]}]},
  markdownExample:{markdown:'# Title\n\n**Bold** and _italic_ text.\n\n- First\n- Second'},
  htmlExample:{html:'<details><summary>Shopping list</summary><ul><li>Bread</li><li>Milk</li></ul></details>'},
- htmlMedia:{html:'<p>Before</p><img src="tg://photo?id=pic"/><p>After</p>',media:[{id:'pic',media:{type:'photo',media:'attach://pic'}}]},
+ htmlMedia:{html:'<p>Before</p><img src="tg://photo?id=pic"/><p>After</p>',media:[{id:'pic',media:{type:'photo',media:'file:wiki/image.png'}}]},
  richText:[...['bold','italic','underline','strikethrough','spoiler','subscript','superscript','marked','code'].map(type=>({type,text:'Text'})),
  {type:'date_time',text:'Meeting',unix_time:1791446400,date_time_format:'DT'},
  {type:'text_mention',text:'Person',user:{id:123,is_bot:false,first_name:'Person'}},

@@ -3,6 +3,7 @@ import {readableDates} from '../agents/history.mjs';
 import {NATIVE_SEND,planNativeEdit} from '../messages/edit-plan.mjs';
 import {validateMessageFiles} from '../messages/actions.mjs';
 import {destinationFields,topicIdOf} from '../telegram/topics.mjs';
+import {prepareLocalMedia} from '../files/media.mjs';
 const invalid=text=>ephemeralError('invalid_argument',text);
 const positive=n=>Number.isSafeInteger(n)&&n>0;
 const unsupportedButtons=value=>{
@@ -43,8 +44,9 @@ export function createEphemeralMessages({db,store,telegram,access,assertCurrent,
     },
     async send(scope,args){
       assertCurrent(scope);access.assertWrite(scope,scope.chatId);
-      const {chatId=scope.chatId,topicId,uploads:local,file_sources,...body}=args;
+      const {chatId=scope.chatId,topicId,uploads:legacy,file_sources,...input}=args;
       if(chatId!==scope.chatId||args.ephemeralMessageId!==undefined)throw invalid('Private sends use the current chat.');
+      const {value:body,local}=prepareLocalMedia(input,legacy);
       validateBody(body,sendFields,local);
       const kinds=Object.keys(NATIVE_SEND).filter(key=>body[key]!==undefined);
       if(kinds.length!==1||['poll','dice','live_photo'].includes(kinds[0])||body.media!==undefined||body.location?.live_period)throw invalid('Specify one supported private content type; albums, polls, dice and live locations are unsupported.');
@@ -63,7 +65,7 @@ export function createEphemeralMessages({db,store,telegram,access,assertCurrent,
         if(!body[kind]||typeof body[kind]!=='object'||Array.isArray(body[kind])||Object.keys(body[kind]).some(key=>!nestedFields[kind].includes(key)))throw invalid(`Unsupported private ${kind} field.`);
         Object.assign(body,body[kind]);delete body[kind];
       }
-      const files=await uploads(scope,local);assertCurrent(scope);access.assertWrite(scope,scope.chatId);
+      let files;try{files=await uploads(scope,local);}catch{throw ephemeralError('file_unavailable','A local media file is unavailable or outside permitted paths.');}assertCurrent(scope);access.assertWrite(scope,scope.chatId);
       if(source)store.get(scope,{ephemeralMessageId:body.reply_parameters.ephemeral_message_id});
       let sent;try{sent=await telegram.call(scope.botId,NATIVE_SEND[kind],{...body,...topic,chat_id:scope.chatId},{uploads:files});}catch(error){return resultError(error);}
       if(!positive(sent?.ephemeral_message_id)||sent.receiver_user?.id!==receiver)return {error:'delivery_unknown',description:'Telegram did not confirm a usable private response address. Do not resend automatically.'};
@@ -73,12 +75,13 @@ export function createEphemeralMessages({db,store,telegram,access,assertCurrent,
     },
     async edit(scope,args){
       const record=address(scope,args,{outgoing:true});if(record.deliveryUnknown)throw ephemeralError('delivery_unknown','A prior edit has an uncertain outcome. Do not repeat automatically.');
-      const {chatId,ephemeralMessageId,receiverUserId,uploads:local,file_sources,...body}=args;validateBody(body,editFields,local);
+      const {chatId,ephemeralMessageId,receiverUserId,uploads:legacy,file_sources,...input}=args;
+      const {value:body,local}=prepareLocalMedia(input,legacy);validateBody(body,editFields,local);
       const content=['text','rich_message','media','photo','video','animation','document','audio'].filter(key=>body[key]!==undefined);
       if(content.length>1||body.media&&['caption','caption_entities','parse_mode'].some(key=>body[key]!==undefined))throw invalid('Use one content kind and put media caption formatting inside media.');
       const methods={editMessageText:'editEphemeralMessageText',editMessageMedia:'editEphemeralMessageMedia',editMessageCaption:'editEphemeralMessageCaption',editMessageReplyMarkup:'editEphemeralMessageReplyMarkup'};
       const steps=planNativeEdit(record.message,body);if(!steps.length||steps.some(step=>!methods[step.method]))throw invalid('Unsupported private edit.');
-      const files=await uploads(scope,local),updated=[];
+      let files;try{files=await uploads(scope,local);}catch{throw ephemeralError('file_unavailable','A local media file is unavailable or outside permitted paths.');}const updated=[];
       for(const step of steps){
         if(address(scope,args,{outgoing:true}).deliveryUnknown)throw ephemeralError('delivery_unknown','A prior edit has an uncertain outcome. Do not repeat automatically.');
         try{await telegram.call(scope.botId,methods[step.method],{...target(scope,args),...step.fields},{uploads:files});}

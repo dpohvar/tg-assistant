@@ -33,6 +33,15 @@ test('native hidden reply infers its recipient, preserves uploads and returns a 
   assert.equal(result.receiverUserId,1);assert.equal(result.messageIds,undefined);assert(result.ephemeralMessageId>0);
   assert.deepEqual(f.calls[0].args.ephemeral_message_parameters,{receiver_user_id:1});assert.equal(f.calls[0].options.uploads[0].name,'doc');
 });
+test('hidden sends and edits prepare file references without changing rich Markdown',async t=>{
+  const f=fixture(t);
+  const result=await f.api.send(f.scope,{photo:'file:wiki/image.png',reply_parameters:{ephemeral_message_id:11}});
+  assert(result.ephemeralMessageId>0);assert.match(f.calls[0].args.photo,/^attach:\/\//);assert.equal(f.calls[0].options.uploads[0].filename,'wiki/image.png');
+  const markdown='![](tg://photo?id=pic)';
+  await f.api.edit(f.scope,{...f.address,rich_message:{markdown,media:[{id:'pic',media:{type:'photo',media:'file:wiki/image.png'}}]}});
+  assert.equal(f.calls[1].args.rich_message.markdown,markdown);assert.match(f.calls[1].args.rich_message.media[0].media.media,/^attach:\/\//);
+  assert.equal(f.calls[1].options.uploads.length,1);
+});
 test('private tools reject wrong ownership, mixed selectors, incoming edits, mismatched recipients and unsupported content before Telegram',async t=>{
   const f=fixture(t);
   assert.throws(()=>f.api.read({...f.scope,agentId:'other'},{ephemeralMessageId:11}),{code:'ephemeral_message_unavailable'});

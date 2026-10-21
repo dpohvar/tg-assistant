@@ -14,7 +14,7 @@ For an explicit [guest invocation](guest-mode.md), use `send({guestRequestId,...
 | --- | --- | --- |
 | `text` | `sendMessage` | String; optional `entities` or `parse_mode` |
 | `rich_message` | `sendRichMessage` | Native rich input, normally an object with `blocks`, `html` or `markdown` |
-| `photo`, `video`, `document`, `animation`, `audio`, `voice`, `sticker`, `video_note` | Matching `sendPhoto`, `sendVideo`, `sendDocument`, `sendAnimation`, `sendAudio`, `sendVoice`, `sendSticker`, `sendVideoNote` | URL, reusable Telegram file ID or `attach://name` string |
+| `photo`, `video`, `document`, `animation`, `audio`, `voice`, `sticker`, `video_note` | Matching `sendPhoto`, `sendVideo`, `sendDocument`, `sendAnimation`, `sendAudio`, `sendVoice`, `sendSticker`, `sendVideoNote` | URL, reusable Telegram file ID or `file:path` string |
 | `media` | `sendMediaGroup` | Array of native InputMedia objects |
 | `location`, `venue`, `contact`, `poll`, `dice` | Matching native send method | Object whose fields are flattened into Telegram request |
 
@@ -35,26 +35,23 @@ The names in JavaScript examples stand for tools discovered in `ALL_TOOLS`; use 
 
 ## Uploads, file IDs and reuse
 
-An attachment declaration maps an `attach://` name to a permitted path under the bot root or the current agent's temp:
+Use `file:path` in a structured media field to upload a permitted local file under the bot root or the current agent's temp. Paths are interpreted literally after `file:`; spaces, `#` and `%` are not URL-decoded. Prefer bot-root-relative paths:
 
 ```javascript
-await send({
-  photo: "attach://pic",
-  caption: "Preview",
-  uploads: {pic: "wiki/images/preview.png"}
-});
-await send({
-  media: [
-    {type: "photo", media: "attach://a", caption: "First"},
-    {type: "photo", media: "attach://b", caption: "Second"}
-  ],
-  uploads: {a: "wiki/images/a.png", b: "wiki/images/b.png"}
-});
+await send({photo: "file:wiki/images/preview.png", caption: "Preview"});
+await send({media: [
+  {type: "photo", media: "file:wiki/images/a.png", caption: "First"},
+  {type: "photo", media: "file:wiki/images/b.png", caption: "Second"}
+]});
 ```
 
-Ordinary media fields such as `photo`, `video` and `document` take a string file ID, public URL or `attach://name`, not an InputMedia object. InputMedia objects are used inside album entries, rich-media blocks and media edits.
+The controller clones the input, replaces file references with generated attachment names and builds multipart uploads. All local files are read before the first Telegram mutation. Text, captions, buttons and arbitrary metadata are not searched for file references. HTML and Markdown are never parsed or rewritten; their attachments belong in `rich_message.media`, as shown below.
 
-The controller reads these local paths and creates multipart uploads. It rejects paths outside the permitted area, hidden components, symlinks and other agents' temp. Albums cannot include `reply_markup` or `permits`; send a separate button message. Media entries use native InputMedia `{type,media,...}`, not bare strings or invented `image`, `source` or `url` blocks.
+`uploads` is no longer an agent tool argument. For continuing sessions, internal handlers temporarily accept legacy `attach://name` plus `uploads` declarations; new calls should use `file:path`. The Telegram transport still uses multipart internally.
+
+Ordinary media fields such as `photo`, `video` and `document` take a string file ID, public URL or `file:path`, not an InputMedia object. InputMedia objects are used inside album entries, rich-media blocks and media edits.
+
+The controller reads local paths through the existing scoped file access layer. It rejects paths outside the permitted area, hidden components, symlinks and other agents' temp. Albums cannot include `reply_markup` or `permits`; send a separate button message. Media entries use native InputMedia `{type,media,...}`, not bare strings or invented `image`, `source` or `url` blocks.
 
 Reuse known native `file_id` values directly instead of uploading the same bytes. IDs may come from messages, sticker sets or another bot-token-accessible source:
 
@@ -72,9 +69,9 @@ await send({
 
 No upload or saved source proof is required. `file_sources` is accepted and ignored for compatibility. Telegram decides whether the current bot can use the file. `file_unique_id` is not a reusable send ID. Publication still requires write access to the destination chat.
 
-HTTP(S) media URLs are allowed as references, but token-bearing Telegram API/file URLs are rejected. `attach://name` requires a matching declaration. Telegram validates media availability and shape.
+Existing Telegram file IDs and HTTP(S) media URLs remain supported. HTTP(S) media URLs are allowed as references, but token-bearing Telegram API/file URLs are rejected. `file:path` requires a readable permitted local file. Telegram validates media availability and shape.
 
-`download({fileIds:[...]})` downloads IDs accessible with this bot's token without requiring message proof. Results contain a permitted local `path` or per-file `file_unavailable`. Downloads are cached in own temp by ID hash. Keep private files and IDs confidential. A downloaded file can be uploaded through `attach://`, subject to the authorization for the publication itself.
+`download({fileIds:[...]})` downloads IDs accessible with this bot's token without requiring message proof. Results contain a permitted local `path` or per-file `file_unavailable`. Downloads are cached in own temp by ID hash. Keep private files and IDs confidential. A downloaded file can be uploaded through `file:path`, subject to the authorization for the publication itself.
 
 ## Sticker sets and custom emoji
 
@@ -87,8 +84,7 @@ await sticker_set_create({
   name: "Faces_by_example_bot",
   title: "Faces",
   type: "regular",
-  stickers: [{sticker: "attach://face", format: "static", emoji_list: ["🙂"]}],
-  uploads: {face: "wiki/stickers/face.png"}
+  stickers: [{sticker: "file:wiki/stickers/face.png", format: "static", emoji_list: ["🙂"]}]
 });
 const result = await sticker_set_get({name: "Faces_by_example_bot"});
 await send({sticker: result.set.stickers[0].file_id});
@@ -116,7 +112,7 @@ Native generated images must first be registered by the Codex image-generation e
 
 ## Rich messages
 
-Call `rich_help` for the implemented native examples before unfamiliar layouts. It returns the runtime guide from [`src/messages/rich-help.mjs`](../src/messages/rich-help.mjs), including examples checked in that guide on 2026-10-08. The controller passes rich input through; its help examples are not a full local rich-schema validator, and server acceptance depends on Telegram.
+Call `rich_help` for the implemented native examples before unfamiliar layouts. It returns the runtime guide from [`src/messages/rich-help.mjs`](../src/messages/rich-help.mjs), including examples checked in that guide on 2026-10-08. The controller prepares structured file references and passes rich markup through; its help examples are not a full local rich-schema validator, and server acceptance depends on Telegram.
 
 Pass a native object with exactly one content representation: `blocks`, `html` or `markdown`. Do not place `parse_mode` inside blocks. RichText can be a plain string, an array of RichText values, or a typed formatting object; nesting combines formatting.
 
@@ -124,7 +120,7 @@ Pass a native object with exactly one content representation: `blocks`, `html` o
 await send({rich_message: {blocks: [
   {type: "heading", size: 2, text: "Report"},
   {type: "paragraph", text: ["Status: ", {type: "bold", text: "ready"}]},
-  {type: "photo", photo: {type: "photo", media: "attach://pic"}, caption: {text: "Preview", credit: "Team"}},
+  {type: "photo", photo: {type: "photo", media: "file:wiki/images/preview.png"}, caption: {text: "Preview", credit: "Team"}},
   {type: "details", summary: "Shopping list", blocks: [
     {type: "list", items: [
       {blocks: [{type: "paragraph", text: "Bread"}]},
@@ -132,7 +128,7 @@ await send({rich_message: {blocks: [
       {blocks: [{type: "paragraph", text: "Done"}], has_checkbox: true, is_checked: true}
     ]}
   ]}
-]}, uploads: {pic: "wiki/images/preview.png"}});
+]}});
 ```
 
 List `items` are objects with `blocks`, never strings. Ordered items use `value` and `type` (`1`, `a`, `A`, `i`, `I`); unordered items omit both. Do not mix ordered and unordered items within one list. Checkbox list items are presentation, separate from callbacks and native checklist tasks. `details` has `summary` and `blocks`, with optional `is_open:true`; omission starts collapsed.
@@ -160,11 +156,22 @@ await send({rich_message: {markdown: "# Title\n\n**Bold** and _italic_ text.\n\n
 await send({rich_message: {html: "<details><summary>Shopping list</summary><ul><li>Bread</li><li>Milk</li></ul></details>"}});
 await send({rich_message: {
   html: '<p>Before</p><img src="tg://photo?id=pic"/><p>After</p>',
-  media: [{id: "pic", media: {type: "photo", media: "attach://pic"}}]
-}, uploads: {pic: "wiki/images/preview.png"}});
+  media: [{id: "pic", media: {type: "photo", media: "file:wiki/images/preview.png"}}]
+}});
 ```
 
 The runtime guide's RichText types include `bold`, `italic`, `underline`, `strikethrough`, `spoiler`, `subscript`, `superscript`, `marked`, `code`; `date_time` with `unix_time`/`date_time_format`; `text_mention` with native `user`; `custom_emoji` with `custom_emoji_id`/`alternative_text`; `mathematical_expression`; URL/email/phone/bank-card/mention/hashtag/cashtag/bot-command link forms; inline `button`; `anchor`, `anchor_link`, `reference` and `reference_link`. Use `rich_help.richText` for exact typed examples rather than inventing fields.
+
+Markdown attachments use the same native media table:
+
+```javascript
+await send({rich_message: {
+  markdown: '# Result\n\n![](tg://photo?id=pic "Preview")',
+  media: [{id: "pic", media: {type: "photo", media: "file:wiki/images/preview.png"}}]
+}});
+```
+
+The `id` in the markup selects the matching media-table entry. Local paths appear only in the structured `media` value, never directly in HTML attributes or Markdown link destinations.
 
 Thinking blocks, `sendRichMessageDraft` and streaming drafts are not exposed. [Inline queries](inline.md) use a separate result/action protocol. The archived rich-message gallery is historical supplementary material; the current runtime guide and tool schemas define this project's contract.
 
@@ -176,8 +183,8 @@ Thinking blocks, `sendRichMessageDraft` and streaming drafts are not exposed. [I
 await edit({messageId: 110, text: "Updated text", entities: [{type: "bold", offset: 0, length: 7}]});
 await edit({messageId: 111, caption: "Updated caption"});
 await edit({messageId: 111, media: {
-  type: "photo", media: "attach://new", caption: "New image", parse_mode: "HTML"
-}, uploads: {new: "wiki/images/new.png"}});
+  type: "photo", media: "file:wiki/images/new.png", caption: "New image", parse_mode: "HTML"
+}});
 await edit({messageId: 110, reply_markup: {inline_keyboard: []}});
 await edit({messageId: 110, permits: {"*": []}});
 ```
@@ -235,7 +242,8 @@ Permits are local controller state, not native Telegram access control. They are
 | --- | --- |
 | `{messageIds}` / successful edit components | Telegram confirmed the action and normal local persistence completed. |
 | `invalid_argument` | Invalid content combination/type or unsupported transfer option; correct the request. |
-| `file_not_accessible` | Media reference uses a secret-bearing Telegram URL or lacks a declared upload; correct the reference. |
+| `file_not_accessible` | Media reference uses a secret-bearing Telegram URL or an undeclared legacy attachment; correct the reference. |
+| `file_unavailable` | A local file is missing, unreadable or outside permitted paths; no Telegram mutation was attempted. |
 | `message_not_found` | Edit lacks saved original; do not guess its type. |
 | `telegram_api_error` | Telegram rejected the request; sanitized API description (up to 1,000 characters) identifies the issue. |
 | `telegram_failed` / other Telegram error code | Request rejected/failed; inspect fields and permissions before retrying. |

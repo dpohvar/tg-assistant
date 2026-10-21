@@ -87,6 +87,15 @@ const createArgs = (extra = {}) => ({
   stickers: [input],
   ...extra,
 });
+test('sticker creation, replacement and thumbnails accept file references',async t=>{
+  const f=fixture(t);
+  assert.equal((await f.invoke('sticker_set_create',createArgs({stickers:[{...input,sticker:'file:wiki/face.png'}]}))).status,'created');
+  const create=f.calls.find(c=>c.method==='createNewStickerSet');assert.match(create.args.stickers[0].sticker,/^attach:\/\//);assert.equal(create.options.uploads[0].bytes.toString(),'png-bytes');
+  await f.invoke('sticker_set_edit',{name:'Faces_by_bot',action:'replace',oldFileId:'file-one',sticker:{...input,sticker:'file:wiki/face.png'}});
+  const replace=f.calls.find(c=>c.method==='replaceStickerInSet');assert.match(replace.args.sticker.sticker,/^attach:\/\//);assert.equal(replace.options.uploads.length,1);
+  await f.invoke('sticker_set_edit',{name:'Faces_by_bot',action:'set_thumbnail',thumbnail:'file:wiki/face.png',format:'static'});
+  const thumb=f.calls.find(c=>c.method==='setStickerSetThumbnail');assert.match(thumb.args.thumbnail,/^attach:\/\//);assert.equal(thumb.options.uploads.length,1);
+});
 
 test("create uploads native sticker inputs and catalog survives reopen independently of agents", async (t) => {
   const f = fixture(t);

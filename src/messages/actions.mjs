@@ -1,26 +1,16 @@
 const kinds = { text: 'sendMessage', rich_message: 'sendRichMessage', photo: 'sendPhoto', document: 'sendDocument', video: 'sendVideo', animation: 'sendAnimation', audio: 'sendAudio', voice: 'sendVoice', sticker: 'sendSticker', location: 'sendLocation', venue: 'sendVenue', contact: 'sendContact', poll: 'sendPoll', dice: 'sendDice', video_note: 'sendVideoNote', media: 'sendMediaGroup' };
 import {planNativeEdit} from './edit-plan.mjs';
 import {destinationFields,topicIdOf} from '../telegram/topics.mjs';
+import {mapMediaSources,prepareLocalMedia} from '../files/media.mjs';
 const fail = (error, description, extra = {}) => ({ ...extra, error, description });
-const mediaFields = new Set(['photo', 'document', 'video', 'animation', 'audio', 'voice', 'sticker', 'video_note', 'media', 'cover']);
-function mediaReferences(body) {
-  const refs = [];
-  const visit = (value, media = false) => {
-    if (typeof value === 'string') { if (media) refs.push(value); return; }
-    if (!value || typeof value !== 'object') return;
-    if (Array.isArray(value)) { for (const item of value) visit(item, media); return; }
-    for (const [key, item] of Object.entries(value)) visit(item, mediaFields.has(key));
-  };
-  for (const [key, value] of Object.entries(body)) if (mediaFields.has(key) || key === 'rich_message') visit(value, mediaFields.has(key));
-  return refs;
-}
 const type = m => Object.keys(kinds).filter(k => k !== 'media').find(k => m[k] !== undefined);
 export const validateMessageFiles = (body, local) => {
     try {
-      for (const id of mediaReferences(body)) {
-        if (/^https?:\/\//i.test(id)) { if (/^https?:\/\/api\.telegram\.org\/(?:file\/)?bot/i.test(id)) throw new Error('Secret URL'); continue; }
-        if (id.startsWith('attach://')) { if (!Object.hasOwn(local ?? {}, id.slice(9))) throw new Error('Missing upload'); continue; }
-      }
+      mapMediaSources(body,id=>{
+        if (/^https?:\/\//i.test(id)) { if (/^https?:\/\/api\.telegram\.org\/(?:file\/)?bot/i.test(id)) throw new Error('Secret URL'); }
+        if (id.startsWith('attach://')&&!Object.hasOwn(local??{},id.slice(9)))throw new Error('Missing upload');
+        return id;
+      });
     } catch { return fail('file_not_accessible', 'Uploads require a declared local attachment; secret-bearing Telegram URLs are forbidden.'); }
 };
 export function createMessages({ db, access, assertCurrent, assertTarget = () => {}, telegram, uploads = async () => [] }) {
@@ -36,8 +26,9 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
   };
   return {
     async send(scope, payload) {
-      const { chatId = scope.chatId, topicId, permits, uploads: local, file_sources, ...body } = payload;
+      const { chatId = scope.chatId, topicId, permits, uploads: legacy, file_sources, ...input } = payload;
       access.assertWrite(scope, chatId);
+      let body,local;try{({value:body,local}=prepareLocalMedia(input,legacy));}catch(e){return fail(e.code??'invalid_argument',e.message);}
       let topic;try{topic=destination(scope,chatId,topicId,body);}catch(e){return fail('invalid_argument',e.message);}
       const present = Object.keys(kinds).filter(k => body[k] !== undefined);
       if (present.length !== 1) return fail('invalid_argument', 'Specify exactly one supported message content field.');
@@ -45,7 +36,7 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
       const fileError = validateFiles(body, local); if (fileError) return fileError;
       if (body.reply_parameters?.chat_id) access.assertRead(scope, body.reply_parameters.chat_id);
       if (kind === 'location' || kind === 'venue' || kind === 'contact' || kind === 'poll' || kind === 'dice') { Object.assign(body, body[kind]); delete body[kind]; }
-      const files = await uploads(scope, local);
+      let files;try{files=await uploads(scope, local);}catch{return fail('file_unavailable','A local media file is unavailable or outside permitted paths.');}
       let sent; try { sent = await call(scope, kinds[kind], { ...body, ...topic, chat_id: chatId }, files); } catch (e) { return apiError(e); }
       const results = Array.isArray(sent) ? sent : [sent], messageIds = results.map(m => m.message_id);
       try { for (const m of results) { db.saveMessage(scope.botId, m); savePermits(scope, chatId, m.message_id, permits); } }
@@ -53,11 +44,12 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
       return { messageIds };
     },
     async edit(scope, payload) {
-      const { chatId = scope.chatId, messageId, permits, uploads: local, file_sources, ...body } = payload;
+      const { chatId = scope.chatId, messageId, permits, uploads: legacy, file_sources, ...input } = payload;
       access.assertWrite(scope, chatId);
       const old = db.getMessage(scope.botId, chatId, messageId);
       if (!old) return fail('message_not_found', 'Saved message is unavailable. Edit requires a known original type.');
       if(old.via_bot)return fail('via_bot_edit_forbidden','Messages sent via a bot cannot be edited by chatId/messageId. Use the owned inlineMessageId route.');
+      let body,local;try{({value:body,local}=prepareLocalMedia(input,legacy));}catch(e){return fail(e.code??'invalid_argument',e.message);}
       if (!Object.keys(body).length && permits !== undefined) {
         assertCurrent(scope); access.assertWrite(scope, chatId); assertTarget(scope, chatId);
         try { savePermits(scope, chatId, messageId, permits); }
@@ -68,7 +60,7 @@ export function createMessages({ db, access, assertCurrent, assertTarget = () =>
       const suppliedType = body.media?.type ?? Object.keys(kinds).find(k => body[k] !== undefined);
       if (body.media && ['caption', 'caption_entities', 'parse_mode'].some(key => body[key] !== undefined)) return fail('invalid_argument', 'When media is supplied, put caption and its formatting inside media.');
       const fileError = validateFiles(body, local); if (fileError) return fileError;
-      const files = await uploads(scope, local);
+      let files;try{files=await uploads(scope, local);}catch{return fail('file_unavailable','A local media file is unavailable or outside permitted paths.');}
       const components = [];
       if (suppliedType && suppliedType !== original) {
         for(const step of planNativeEdit(old,body))components.push([suppliedType,step.method,step.fields]);

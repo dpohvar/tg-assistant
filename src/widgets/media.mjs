@@ -1,19 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { widgetError } from "./contract.mjs";
-const mediaRoles = new Set([
-  "photo",
-  "video",
-  "animation",
-  "audio",
-  "document",
-  "voice",
-  "voice_note",
-  "sticker",
-  "video_note",
-  "cover",
-  "thumbnail",
-]);
+import { mapMediaSources } from "../files/media.mjs";
 const at = (v, p) => p.reduce((o, k) => o?.[k], v);
 export function prepareWidgetMedia(
   input,
@@ -75,34 +63,7 @@ export function prepareWidgetMedia(
     uploads.push({ name, filename, bytes });
     return "attach://" + name;
   }
-  function visit(v, p = [], role = null) {
-    if (!v || typeof v !== "object") return;
-    for (const [k, item] of Object.entries(v)) {
-      const next = [...p, k];
-      if (k === "live_photo" && item && typeof item === "object") {
-        const q = next;
-        if (typeof item.media === "string")
-          item.media = source(item.media, [...q, "media"], "live_photo", q);
-        if (typeof item.photo === "string")
-          item.photo = source(item.photo, [...q, "photo"], "photo", [
-            ...q,
-            "photo",
-          ]);
-      } else if (
-        k === "media" &&
-        typeof item === "string" &&
-        typeof v.type === "string"
-      )
-        v[k] = source(item, next, v.type, p[0] === "poll" ? [...p, v.type] : p);
-      else if (mediaRoles.has(k) && typeof item === "string") {
-        const responsePath =
-          p.length === 0 && k === "cover" ? ["video", "cover"] : next;
-        v[k] = source(item, next, k, responsePath);
-      } else if (item && typeof item === "object")
-        visit(item, next, mediaRoles.has(k) ? k : role);
-    }
-  }
-  visit(value);
+  mapMediaSources(value, source);
   return { value, uploads, manifest, signatures };
 }
 export function cacheWidgetMedia(prepared, message, cache) {

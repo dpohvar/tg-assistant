@@ -8,6 +8,12 @@ import {
   cacheWidgetMedia,
 } from "../../src/widgets/media.mjs";
 import { BotFiles } from "../../src/files/paths.mjs";
+test('widget media rejects ordinary InputMedia objects and ignores unrelated metadata',()=>{
+  const files={read:()=>assert.fail('Must not read files'),withParent:()=>assert.fail('Must not inspect files')};
+  assert.throws(()=>prepareWidgetMedia({photo:{type:'photo',media:'file:missing'}},{files,cache:new Map()}),{code:'invalid_argument'});
+  const input={text:'file:missing',metadata:{photo:'file:missing'}};
+  assert.deepEqual(prepareWidgetMedia(input,{files,cache:new Map()}).value,input);
+});
 test('widget raw file IDs pass through without consulting a provenance registry',()=>{
   const value={sticker:'external-file-id'};
   const result=prepareWidgetMedia(value,{files:{},cache:new Map(),approveFile:()=>assert.fail('Provenance checks have been removed')});

@@ -1,4 +1,5 @@
 import path from "node:path";
+import {prepareLocalMedia} from '../files/media.mjs';
 
 const fail = (error, description, extra = {}) => ({
   ...extra,
@@ -180,6 +181,11 @@ export function createStickerSets({ db, telegram, filesFor, assertCurrent }) {
     let name,
       files = [];
     try {
+      if(tool==='sticker_set_create'||tool==='sticker_set_edit'){
+        const {uploads:legacy,...input}=args;
+        const prepared=prepareLocalMedia(input,legacy,{kind:'stickerSet'});
+        args={...prepared.value,...(prepared.local===undefined?{}:{uploads:prepared.local})};
+      }
       name = setName(args.name);
       if (tool === "sticker_set_get") {
         let set;
