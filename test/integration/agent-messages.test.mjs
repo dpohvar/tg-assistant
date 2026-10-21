@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ test('background failure notifies the origin of an already finished root request
   t.after(async () => { c.close(); await c.idle(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   for (const id of [1, 2]) { await c.receive('b', { message: { message_id: 1, date: 1791383000, chat: { id, type: 'private' }, from: { id }, text: 'hello' } }); await c.idle(); }
   await c.invoke(scopes.get(1), 'agent_message', { agentId: scopes.get(2).agentId, text: 'Do work in the background' });
-  await new Promise(resolve => setImmediate(resolve));
+  await waitFor(()=>!c.queue.pending(scopes.get(2).agentId)&&!c.queue.state(scopes.get(2).agentId).busy);
   fail(new Error('child failed')); await c.idle();
   assert.equal(notifications.length, 1); assert.equal(notifications[0].agentId, scopes.get(2).agentId);
 });
@@ -26,7 +27,7 @@ test('old background settlement cannot consume an origin from a restarted genera
   t.after(async () => { for (const value of Object.values(pending)) value.resolve(); c.close(); await c.idle(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   for (const id of [1, 2]) { await c.receive('b', { message: { message_id: 1, date: 1791383000, chat: { id, type: 'private' }, from: { id }, text: 'hello' } }); await c.idle(); }
   const tick = () => new Promise(resolve => setImmediate(resolve));
-  const send = async text => { await c.invoke(scopes.get(1), 'agent_message', { agentId: scopes.get(2).agentId, text }); await tick(); };
-  await send('A'); await send('B'); pending.A.reject(new Error('A failed')); await tick(); await tick(); assert.equal(notifications.length, 1);
+  const send = async text => { await c.invoke(scopes.get(1), 'agent_message', { agentId: scopes.get(2).agentId, text }); await waitFor(()=>!c.queue.pending(scopes.get(2).agentId)&&!c.queue.state(scopes.get(2).agentId).busy); };
+  await send('A'); await send('B'); pending.A.reject(new Error('A failed')); await waitFor(()=>notifications.length===1); assert.equal(notifications.length, 1);
   await send('C'); pending.B.resolve(); await tick(); pending.C.reject(new Error('C failed')); await c.idle(); assert.equal(notifications.length, 2);
 });

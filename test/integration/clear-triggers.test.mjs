@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeTriggers, matchesTrigger } from '../../src/telegram/triggers.mjs';
@@ -14,7 +15,7 @@ test('clear waits for root and background, preserves queue and identity',async t
  let finishRoot,finishChild;const root=new Promise(r=>finishRoot=r),child=new Promise(r=>finishChild=r);const batches=[],deleted=[];
  const f=setup(t,{run:async(s,e)=>{batches.push(e);if(batches.length===1){await root;return{settled:child};}},deleteSession:async(id,thread)=>deleted.push([id,thread])});
  t.after(()=>{finishRoot();finishChild();});
- await f.send(1,'hello');await new Promise(r=>setImmediate(r));await f.send(2,'/agent clear');await f.send(3,'queued');
+ await f.send(1,'hello');await waitFor(()=>batches.length===1);await f.send(2,'/agent clear');await f.send(3,'queued');
  assert.equal(deleted.length,0);finishRoot();await new Promise(r=>setImmediate(r));assert.equal(deleted.length,0);assert.equal(batches.length,1);
  finishChild();await f.c.idle();assert.equal(deleted.length,1);assert.equal(batches.length,2);assert.equal(batches[1][0].messageId,3);
  const current=f.db.agent('b',1);assert.equal(current.agentId,f.a.agentId);assert.equal(current.notes,'keep');assert.equal(current.threadId,null);

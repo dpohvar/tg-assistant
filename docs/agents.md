@@ -41,15 +41,17 @@ Incoming short events explain direct causes using optional `triggers`, such as `
 
 The ordinary queue holds at most ten chat entries, including callbacks and collected albums. Already dispatched work does not occupy a waiting slot. Scheduler, interagent, and WebSocket notifications do not count toward that limit. A full queue rejects a callback immediately; dropped messages remain available in saved history if otherwise retained.
 
+Every agent has a fixed 200 ms collection window before dispatch or steer. Events enter the queue immediately; the first pending event sets the deadline, and later events join its batch without extending it. This applies to all sources, including ordinary messages, callbacks, inline/guest requests, hidden correspondence, scheduled tasks, interagent messages and WebSocket notifications. Time spent waiting for busy work or maintenance counts toward the window: a mature batch starts as soon as processing becomes available, with no extra delay. Event order, queue capacity and admission checks still apply. Clearing the queue or removing its last pending event cancels its collection timer; the next event opens a fresh window. Shutdown cancels collection timers without replaying pending events. Agent-idle waits include active collection timers.
+
 The root agent receives a batch when idle. During a recognized root wait for subagents, the controller may steer new events into the active turn. Waiting for a shell command is not automatically the same as the recognized subagent wait. Active image generation alone does not guarantee immediate processing of new input; root availability determines it.
 
-| Observed activity | Telegram action |
+| Queue readiness and observed activity (in priority order) | Telegram action |
 |---|---|
-| Root working | `typing` |
-| Root not working, image generation active | `upload_photo` |
-| Root idle or waiting, no active image generation | None |
+| A new event can start processing immediately, including a recognized steerable root wait | None, even during background image generation |
+| A new event must wait, image generation active in the root or an owned subagent | `upload_photo` |
+| A new event must wait, no active image generation | `typing` |
 
-The controller refreshes actions every four seconds. Pending subagents still matter for task completion and context maintenance even if no action is displayed. A root turn ending with children active can free the ordinary queue before the whole work unit settles.
+The status uses the same readiness check as queue dispatch: the collection window, pauses, maintenance holds and an in-flight steer prevent immediate processing. An empty pending-event list alone does not mean the agent is ready. Queue transitions update the selected action immediately; active actions refresh every four seconds. Further events with the same action and scope keep that refresh timer without resending an action for each event. Disabled agents and expired scopes do not send actions. Stopping refreshes lets Telegram's existing indicator expire; it does not clear an already displayed action immediately. Pending subagents still matter for task completion and context maintenance even if no action is displayed. A root turn ending with children active can free the ordinary queue before the whole work unit settles.
 
 ## Models and enabled state
 

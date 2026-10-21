@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BotGate } from '../../src/service/bot-gate.mjs';
@@ -26,8 +27,8 @@ test('paused agents retain incoming events and resume them after directory repla
 test('intentional interruption of steer preserves messages received while paused', async () => {
   let finishRoot, rejectSteer;
   const queue = new AgentQueue({ dispatch: () => new Promise(resolve => { finishRoot = resolve; }), steer: () => new Promise((_resolve, reject) => { rejectSteer = reject; }) });
-  queue.enqueue('a', { messageId: 1 }, 'chat'); await new Promise(resolve => setImmediate(resolve));
-  queue.setWaiting('a', true); queue.enqueue('a', { messageId: 2 }, 'chat'); await new Promise(resolve => setImmediate(resolve));
+  queue.enqueue('a', { messageId: 1 }, 'chat'); await waitFor(()=>typeof finishRoot==='function');
+  queue.setWaiting('a', true); queue.enqueue('a', { messageId: 2 }, 'chat'); await waitFor(()=>typeof rejectSteer==='function');
   queue.setPaused('a', true); queue.enqueue('a', { messageId: 3 }, 'chat');
   rejectSteer(Object.assign(new Error('Interrupted for directory replacement'), { code: 'rules_replaced' }));
   finishRoot(); await queue.idleAgent('a');

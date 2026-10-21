@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {openDatabase} from '../../src/storage/database.mjs';
@@ -122,7 +123,7 @@ test('inline rules wait for root and subagents before queued work uses fresh con
   },telegram:{call:async()=>({})}});
   t.after(async()=>{finish();finishChild();controller.close();await controller.idle();db.close();fs.rmSync(root,{recursive:true,force:true});});
   const send=(text,id,entities=[])=>controller.receive('b',{message:{message_id:id,date:1,from:{id:1},chat:{id:1,type:'private'},text,entities}});
-  await send('first',1);await new Promise(r=>setImmediate(r));
+  await send('first',1);await waitFor(()=>order.length===1);
   await send('/rules set New rules',2,[{type:'pre',offset:11,length:9}]);await send('next',3);
   assert.deepEqual(order,['run']);assert.equal(db.agent('b',1).threadId,'old');
   finish();await new Promise(r=>setImmediate(r));assert.deepEqual(order,['run']);

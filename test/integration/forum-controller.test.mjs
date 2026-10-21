@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {openDatabase} from '../../src/storage/database.mjs';
@@ -34,7 +35,7 @@ test('loud mode and history gaps belong to topics independently',async t=>{
 });
 test('mixed queued topics receive their own gaps and forum mode transitions preserve the agent',async t=>{
  let finish;t.after(()=>finish?.());const f=fixture(t,n=>n===1?new Promise(r=>finish=r):undefined);const a=f.db.ensureAgent('b',-1);
- await f.send(1,1,true);await new Promise(r=>setImmediate(r));await f.send(2,4);await f.send(3,5);await f.send(4,4,true);await f.send(5,5,true);finish();await f.c.idle();
+ await f.send(1,1,true);await waitFor(()=>typeof finish==='function');await f.send(2,4);await f.send(3,5);await f.send(4,4,true);await f.send(5,5,true);finish();await f.c.idle();
  assert.deepEqual(f.batches[1].map(e=>[e.topicId,e.historyGap]),[[4,true],[5,true]]);
  f.advance();await f.send(6,4);
  delete f.chat.is_forum;await f.send(7,1,true);await f.c.idle();assert.equal(f.batches.at(-1)[0].historyGap,true);assert.equal(f.batches.at(-1)[0].topicId,undefined);
@@ -45,7 +46,7 @@ test('mixed queued topics receive their own gaps and forum mode transitions pres
 test('callback uses the saved message topic and the ten-event queue is shared across topics',async t=>{
  let finish;t.after(()=>finish?.());const f=fixture(t,n=>n===1?new Promise(r=>finish=r):undefined);const a=f.db.ensureAgent('b',-1);
  f.db.saveMessage('b',{message_id:100,date:1,chat:f.chat,message_thread_id:4,text:'button',reply_markup:{inline_keyboard:[[{text:'click',callback_data:'click'}]]}});
- await f.send(1,1,true);await new Promise(r=>setImmediate(r));
+ await f.send(1,1,true);await waitFor(()=>typeof finish==='function');
  await f.c.receive('b',{callback_query:{id:'x',from:{id:1},message:{message_id:100,chat:{id:-1,type:'supergroup'}},data:'click'}});
  for(let i=2;i<=10;i++)await f.send(i,5,true);
  await f.send(11,4,true);assert.equal(f.c.queue.pending(a.agentId),10);

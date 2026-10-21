@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {openDatabase} from '../../src/storage/database.mjs';import {createController} from '../../src/controller.mjs';
 function setup(t){const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'ricardo_bot',ownerId:1});db.saveChat('b',{id:-1,type:'group',title:'Friends'});db.ensureAgent('b',-1);db.sql.prepare('UPDATE chats SET triggers=? WHERE botId=? AND chatId=?').run(JSON.stringify(['Рик','рикардо']),'b',-1);const batches=[];let release;
@@ -21,7 +22,7 @@ test('album retains per-part reasons rather than treating every photo as a direc
  await new Promise(r=>setTimeout(r,1100));await f.c.idle();assert.equal(f.batches.length,1);assert.deepEqual(f.batches[0][0].triggers,['match:Рик']);assert.equal(f.batches[0][1].triggers,undefined);
 });
 test('editing a queued message retains the original cause of delivery',async t=>{
- const f=setup(t);let finish;f.block(new Promise(r=>finish=r));t.after(()=>finish());await f.send({message_id:1,text:'Рик, работай'});await new Promise(r=>setImmediate(r));await f.send({message_id:2,text:'Рик, ещё вопрос'});await f.send({message_id:2,text:'Исправленный вопрос',edit_date:1791383001},true);finish();await f.c.idle();
+ const f=setup(t);let finish;f.block(new Promise(r=>finish=r));t.after(()=>finish());await f.send({message_id:1,text:'Рик, работай'});await waitFor(()=>f.batches.length===1);await f.send({message_id:2,text:'Рик, ещё вопрос'});await f.send({message_id:2,text:'Исправленный вопрос',edit_date:1791383001},true);finish();await f.c.idle();
  assert.deepEqual(f.batches[1][0].triggers,['match:Рик']);assert.equal(f.batches[1][0].textPlain,'Исправленный вопрос');
 });
 test('foreign mentions do not activate the bot; trigger beyond shortened text still explains delivery',async t=>{

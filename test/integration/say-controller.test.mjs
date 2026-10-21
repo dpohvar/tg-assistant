@@ -17,7 +17,7 @@ test('user /say uses the chat queue, preserves formatting and full reads, and ed
   await f.receive({message_id:9,date:100,chat,from:{id:2},text:'ordinary unrelated'});await f.c.idle();assert.equal(f.batches.length,1);
 });
 test('preparation failure still reaches the agent, without a fabricated prepared address or public fallback',async t=>{
-  const f=fixture(t,{failPreparation:true});await f.receive(message());await f.c.idle();assert.equal(f.batches.length,1);assert.equal(f.batches[0][0].preparedReply,undefined);assert(f.batches[0][0].replyPreparationError);assert.equal(f.calls.length,1);
+  const f=fixture(t,{failPreparation:true});await f.receive(message());await f.c.idle();assert.equal(f.batches.length,1);assert.equal(f.batches[0][0].preparedReply,undefined);assert(f.batches[0][0].replyPreparationError);assert.equal(f.calls.filter(call=>call.method!=='sendChatAction').length,1);
 });
 test('duplicate /say update does not prepare or deliver twice',async t=>{
   const f=fixture(t);await f.receive(message());await f.c.idle();await f.receive(message());await f.c.idle();assert.equal(f.batches.length,1);assert.equal(f.calls.filter(c=>c.method==='sendMessage').length,1);

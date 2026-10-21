@@ -224,7 +224,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   };
   const completeScheduled = (id, success) => { const ids = [...(scheduled.get(id) ?? [])]; scheduled.delete(id); for (const taskId of ids) scheduler.complete(taskId, success); };
   const eventCurrent=(scope,event)=>event.eventType==='guest_message'?Boolean(guestEvents?.isCurrent(scope,event.guestRequestId)):event.eventType!=='inline'||inlineRequests.get(event.requestId)?.agentId===scope.agentId&&Boolean(resolveInlineOwner(scope.botId,scope.agentId));
-  const queue = new AgentQueue({ onDropped: (id, events, source) => { const scope = scopes.get(id); if(scope&&source==='chat')for(const event of Array.isArray(events)?events:[events])if(['message','message_edited'].includes(event.eventType))markGap(scope.botId,scope.chatId,event.topicId); }, dispatch: async (id, events) => { let scope = lifecycle.scope(scopes.get(id)); scopes.set(id, scope); const record = db.agent(scope.botId, scope.chatId); if (record.threadId && record.threadRulesVersion !== db.getBot(scope.botId).rulesVersion) { await agent.waitBackground?.(id).catch(() => {}); lifecycle.invalidate(id); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(id); await agent.deleteSession?.(id, record.threadId); scope = lifecycle.scope({ botId: scope.botId, chatId: scope.chatId, agentId: id }); scopes.set(id, scope); } events=events.filter(event=>eventCurrent(scope,event)); trackConsumed(id, events); const batch = prepare(id, events); const result = batch.length ? await agent.run(scope, batch, (name, args, threadId) => invoke({ ...scope, threadId }, name, args)) : undefined;
+  const queue = new AgentQueue({ onStateChanged: id => updateAction(id), onDropped: (id, events, source) => { const scope = scopes.get(id); if(scope&&source==='chat')for(const event of Array.isArray(events)?events:[events])if(['message','message_edited'].includes(event.eventType))markGap(scope.botId,scope.chatId,event.topicId); }, dispatch: async (id, events) => { let scope = lifecycle.scope(scopes.get(id)); scopes.set(id, scope); const record = db.agent(scope.botId, scope.chatId); if (record.threadId && record.threadRulesVersion !== db.getBot(scope.botId).rulesVersion) { await agent.waitBackground?.(id).catch(() => {}); lifecycle.invalidate(id); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(id); await agent.deleteSession?.(id, record.threadId); scope = lifecycle.scope({ botId: scope.botId, chatId: scope.chatId, agentId: id }); scopes.set(id, scope); } events=events.filter(event=>eventCurrent(scope,event)); trackConsumed(id, events); const batch = prepare(id, events); const result = batch.length ? await agent.run(scope, batch, (name, args, threadId) => invoke({ ...scope, threadId }, name, args)) : undefined;
     const batchOrigins = consumed.get(id); consumed.delete(id);
     const privateOrigin=!!activeMessages.get(id)?.private;
     if (result?.settled) {
@@ -246,7 +246,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     activeMessages.delete(id);
     if (error.code === 'rules_replaced') return;
     scheduler.failQueued(id);
-    if (actions.has(id)) clearInterval(actions.get(id)); actions.delete(id); availability.delete(id); images.delete(id);
+    if (actions.has(id)) clearInterval(actions.get(id).timer); actions.delete(id); availability.delete(id); images.delete(id);
     agent.detach?.(id);
     for (const sender of requests.get(id)?.keys() ?? []) { const a = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(sender); if (!a) continue; scopes.set(sender, lifecycle.scope({ botId: a.botId, chatId: a.chatId, agentId: sender })); queue.enqueue(sender, { eventType: 'agent_error', agentId: id, error: 'agent_failed', description: 'The target agent failed while processing messages. Your request may not have been completed.' }, 'agent'); }
     requests.delete(id); consumed.delete(id);
@@ -255,13 +255,17 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   } });
   const scheduler = new Scheduler({ db, clock, enqueue: (id, event) => { const target = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(id); if (!target || !db.getChat(target.botId,target.chatId)?.agentEnabled || isStopping(target.botId, target.chatId)) return; scopes.set(id, lifecycle.scope({ botId: target.botId, chatId: target.chatId, agentId: id })); if (gate.held.has(target.botId)) queue.setPaused(id, true); queue.enqueue(id, event, 'schedule'); }, notify: async (task, description) => { const a = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(task.agentId); if (!a) return; try { await telegram.call(a.botId, 'sendMessage', { chat_id: a.chatId, text: [`Ошибка задачи ${task.taskId}; агент ${a.agentId}.`, task.description, task.at ?? `${task.cron} (${task.timezone})`, (() => { const pending = db.sql.prepare("SELECT * FROM task_firings WHERE taskId=? AND state='pending'").get(task.taskId); return pending ? `Пропущено ${pending.count} срабатываний с ${new Date(pending.firstAt).toISOString()}` : ''; })(), description, `/task retry ${task.taskId}`, `/task delete ${task.taskId}`].filter(Boolean).join('\n').slice(0, 4000) }); } catch {} } });
   const updateAction = id => {
-    if (actions.has(id)) clearInterval(actions.get(id)); actions.delete(id);
-    const action = availability.get(id) === 'working' ? 'typing' : images.get(id)?.size ? 'upload_photo' : null;
-    const scope = scopes.get(id); if (!action || !scope) return;
+    const action = queue.canStart(id) ? null : images.get(id)?.size ? 'upload_photo' : 'typing';
+    const scope = scopes.get(id), previous = actions.get(id);
+    let current = false;
+    try { if (scope) { assertCurrent(scope); current = Boolean(db.getChat(scope.botId,scope.chatId)?.agentEnabled); } } catch {}
+    if (current && action && previous?.action === action && previous.scope.botId === scope.botId && previous.scope.chatId === scope.chatId && previous.scope.generation === scope.generation) return;
+    if (previous) clearInterval(previous.timer); actions.delete(id);
+    if (!action || !current) return;
     const sendAction = async () => { try { assertCurrent(scope); await telegram.call(scope.botId, 'sendChatAction', { chat_id: scope.chatId, action }); } catch {} };
-    sendAction(); const timer = setInterval(sendAction, 4000); timer.unref(); actions.set(id, timer);
+    sendAction(); const timer = setInterval(sendAction, 4000); timer.unref(); actions.set(id, {timer,action,scope});
   };
-  agent.onAvailability = (id, status) => { availability.set(id, status); queue.setWaiting(id, status === 'waiting'); updateAction(id); };
+  agent.onAvailability = (id, status) => { availability.set(id, status); queue.setWaiting(id, status === 'waiting'); };
   agent.onImageStatus = (id, image, active) => { if (!images.has(id)) images.set(id, new Set()); active ? images.get(id).add(image) : images.get(id).delete(image); updateAction(id); };
   agent.assertCurrent = scope => assertCurrent(scope);
   agent.filterEvents=(scope,events)=>events.filter(event=>eventCurrent(scope,event));
@@ -304,7 +308,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       websockets.deleteAgent(a.agentId);
       queue.setPaused(a.agentId, true); lifecycle.invalidate(a.agentId); queue.clear(a.agentId);
       for (const t of scheduler.list(a).tasks) scheduler.cancel(a, [t.taskId]);
-      if (actions.has(a.agentId)) clearInterval(actions.get(a.agentId)); actions.delete(a.agentId); availability.delete(a.agentId); images.delete(a.agentId);
+      if (actions.has(a.agentId)) clearInterval(actions.get(a.agentId).timer); actions.delete(a.agentId); availability.delete(a.agentId); images.delete(a.agentId);
       await agent.deleteSession?.(a.agentId, a.threadId); websockets.closeAgent(a.agentId,'context_reset');
       await gate.idleScope(a.agentId); await queue.idleAgent(a.agentId);
       db.sql.prepare('DELETE FROM agent_messages WHERE botId=? AND (fromAgentId=? OR toAgentId=?)').run(botId, a.agentId, a.agentId);
@@ -403,7 +407,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       await pauseBot(id);
       for (const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(id)) {
         queue.clear(a.agentId); scheduler.cancel(a, scheduler.list(a).tasks.map(t => t.taskId));
-        if (actions.has(a.agentId)) clearInterval(actions.get(a.agentId)); actions.delete(a.agentId);
+        if (actions.has(a.agentId)) clearInterval(actions.get(a.agentId).timer); actions.delete(a.agentId);
         scopes.delete(a.agentId); stores.delete(a.agentId); requests.delete(a.agentId); consumed.delete(a.agentId); activeMessages.delete(a.agentId); scheduled.delete(a.agentId); availability.delete(a.agentId); images.delete(a.agentId);
       }
     },
@@ -563,6 +567,6 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       else deliver(botId, [{...m,__triggers:triggers}], trigger);
     },
     idle: async () => { do { await sayEvents.idle();await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await sayEvents.idle();await gate.idle();await widgetReady;await inline.idle();await widgets?.idle();await closing; },
-    close() { sayEvents.close();commands.close();inline.close();inlineAvatars.close();unobserveChat?.();websockets.shutdown(); for (const timer of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= Promise.allSettled([mcpOAuth.close(),agent.close?.(),widgets?.close()]); },
+    close() { sayEvents.close();commands.close();inline.close();inlineAvatars.close();unobserveChat?.();websockets.shutdown(); for (const {timer} of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= Promise.allSettled([mcpOAuth.close(),agent.close?.(),widgets?.close()]); },
   };
 }

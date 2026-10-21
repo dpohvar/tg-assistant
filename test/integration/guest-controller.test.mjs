@@ -8,7 +8,7 @@ test("guest mention selects its author's existing agent and saves the full messa
   assert.equal(f.batches.length,1);assert.equal(f.batches[0].scope.agentId,f.owner.agentId);
   const event=f.batches[0].events[0];assert.equal(event.eventType,'guest_message');assert.ok(event.guestRequestId);
   assert.equal(f.db.sql.prepare('SELECT count(*) n FROM guest_requests').get().n,1);
-  assert.equal(f.db.getChat('b',-50),null);assert.equal(f.db.getMessage('b',1,7),null);assert.equal(f.calls.length,0);
+  assert.equal(f.db.getChat('b',-50),null);assert.equal(f.db.getMessage('b',1,7),null);assert.deepEqual(f.calls.map(c=>({method:c.method,...c.args})),[{method:'sendChatAction',chat_id:1,action:'typing'}]);
   await f.receive();assert.equal(f.batches.length,1);
 });
 test('guest replies never inherit the quoted owner; explicit mention selects the new author',async t=>{

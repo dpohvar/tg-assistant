@@ -24,8 +24,10 @@ test('authorized DM is stored, delivered as JSON events and answered', async t =
   await f.controller.receive('b1', { update_id: 1, message: message() });
   await f.controller.idle();
   assert.deepEqual(f.inputs, [[{ eventType: 'message', messageId: 1, date: new Date(1791383000000).toISOString(), from: { userId: 123, name: 'Андрей' }, textPlain: 'Привет' }]]);
-  assert.equal(f.calls[0].method, 'sendMessage');
-  assert.equal(f.calls[0].args.chat_id, 123);
+  const replies = f.calls.filter(call => call.method === 'sendMessage');
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].args.chat_id, 123);
+  assert.equal(replies[0].args.text, 'Ответ');
   assert.equal(f.db.getMessage('b1', 123, 1).text, 'Привет');
 });
 test('unauthorized DM including start is ignored without persistence or inference', async t => {

@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -71,7 +72,7 @@ test('ordinary loud events expire while queued; direct triggers remain eligible'
   const c = createController({ db, clock: () => now, telegram: { call: async () => ({}) }, agent: { run: async (_scope, events) => { batches.push(events); if (batches.length === 1) await busy; } } });
   t.after(async () => { finish(); c.close(); await c.idle(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   const send = (id, trigger) => c.receive('b', { message: { message_id: id, date: 1791383000, chat: { id: -1, type: 'group' }, from: { id: 1 }, text: trigger ? '@test' : 'follow-up', ...(trigger ? { entities: [{ type: 'mention', offset: 0, length: 5 }] } : {}) } });
-  await send(1, true); await new Promise(resolve => setImmediate(resolve)); await send(2, false);
+  await send(1, true); await waitFor(()=>batches.length===1); await send(2, false);
   now += 120001; finish(); await c.idle(); assert.equal(batches.length, 1); assert.ok(db.getMessage('b', -1, 2));
   await send(3, true); await c.idle(); assert.equal(batches.length, 2); assert.equal(batches[1][0].historyGap, true);
 });

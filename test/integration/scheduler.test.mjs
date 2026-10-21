@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -15,10 +16,10 @@ test('background children hold scheduler completion without blocking new chat tu
   const message = id => ({ message: { message_id: id, date: 1791383000, chat: { id: 1, type: 'private' }, from: { id: 1 }, text: 'hello' } });
   await c.receive('b', message(1)); await c.idle(); c.scheduler.timers = false;
   const a = db.agent('b', 1), { taskId } = c.scheduler.schedule(a, { at: '2027-01-01T00:00:00Z', description: 'test', text: 'work' });
-  c.scheduler.fire(taskId, Date.now()); await new Promise(resolve => setImmediate(resolve));
+  c.scheduler.fire(taskId, Date.now()); await waitFor(()=>runs.length===2&&!c.queue.state(a.agentId).busy);
   assert.equal(c.queue.state(a.agentId).busy, false);
   assert.equal(db.sql.prepare('SELECT state FROM task_firings WHERE taskId=?').get(taskId)?.state, 'processing');
-  await c.receive('b', message(2)); await new Promise(resolve => setImmediate(resolve));
+  await c.receive('b', message(2)); await waitFor(()=>runs.length===3);
   assert.equal(runs.length, 3); assert.ok(c.scheduler.task(taskId));
   finish(); await c.idle(); assert.equal(c.scheduler.task(taskId), undefined);
 });

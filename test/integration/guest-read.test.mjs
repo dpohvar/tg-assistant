@@ -25,7 +25,8 @@ test('native session preflight drops unavailable or expired guest events without
   let time=1000;const f=guestFixture(t,{clock:()=>time});await f.receive();const event=f.batches[0].events[0],ordinary={eventType:'message',messageId:9};
   f.db.sql.prepare('UPDATE chats SET agentEnabled=0 WHERE chatId=1').run();assert.deepEqual(f.agent.filterEvents(f.scope,[event,ordinary]),[ordinary]);
   f.db.sql.prepare('UPDATE chats SET agentEnabled=1 WHERE chatId=1').run();time+=30*86400000;assert.deepEqual(f.agent.filterEvents(f.scope,[event]),[]);
-  assert.equal((await f.c.invoke(f.scope,'send',{guestRequestId:event.guestRequestId,text:'Late'})).error,'guest_request_unavailable');assert.equal(f.calls.length,0);
+  const before=f.calls.length;
+  assert.equal((await f.c.invoke(f.scope,'send',{guestRequestId:event.guestRequestId,text:'Late'})).error,'guest_request_unavailable');assert.equal(f.calls.length,before);
 });
 test('a guest answer registers action buttons before publication and holds an early callback until registration',async t=>{
   let enter,release;const entered=new Promise(r=>enter=r),gate=new Promise(r=>release=r);

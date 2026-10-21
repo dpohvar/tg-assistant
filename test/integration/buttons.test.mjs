@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,7 +33,7 @@ test('full queue rejects a grouped click without consuming the choice; accepted 
   } }, agent: { run: async (_scope, events) => { batches.push(events); if (batches.length === 1) await new Promise(resolve => { finish = resolve; }); } } });
   t.after(() => { c.close(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   const message = n => ({ message: { message_id: n, date: 1000, chat, from: { id: 1 }, text: 'work' } });
-  await c.receive('b', message(1)); await new Promise(resolve => setImmediate(resolve));
+  await c.receive('b', message(1)); await waitFor(()=>typeof finish==='function');
   for (let n = 2; n <= 11; n++) await c.receive('b', message(n));
   db.saveMessage('b', stored);
   const click = id => c.receive('b', { callback_query: { id, from: { id: 1, first_name: 'Owner' }, message: stored, data: '[g]a' } });

@@ -1,3 +1,4 @@
+import {waitFor} from '../helpers/wait-for.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {openDatabase} from '../../src/storage/database.mjs';
@@ -11,7 +12,7 @@ function fixture(t, run) {
 }
 test('missed group history hints once; fresh misses during a running batch survive its completion',async t=>{
  let finish; t.after(()=>finish?.()); const f=fixture(t,n=>n===1?new Promise(r=>finish=r):undefined);
- await f.send(1);await f.send(2,true);await new Promise(r=>setImmediate(r));
+ await f.send(1);await f.send(2,true);await waitFor(()=>typeof finish==='function');
  assert.equal(f.batches[0][0].historyGap,true);
  f.advance();await f.send(3);await f.send(4,true);finish();await f.c.idle();
  assert.equal(f.batches[1][0].historyGap,true);
@@ -19,7 +20,7 @@ test('missed group history hints once; fresh misses during a running batch survi
 });
 test('queue overflow and expired queued group messages produce history gap hints',async t=>{
  let finish;t.after(()=>finish?.());const f=fixture(t,n=>n===1?new Promise(r=>finish=r):undefined);
- await f.send(1,true);await new Promise(r=>setImmediate(r));
+ await f.send(1,true);await waitFor(()=>typeof finish==='function');
  for(let i=2;i<=11;i++)await f.send(i);
  await f.send(12,true);finish();await f.c.idle();assert.equal(f.batches[1][0].historyGap,true);
  await f.send(13);await f.c.idle();assert.equal(f.batches[2][0].historyGap,undefined);
