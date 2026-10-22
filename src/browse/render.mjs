@@ -6,9 +6,9 @@ const short=text=>text.length>100?text.slice(0,97)+'…':text;
 
 // Rendering does not perform effects. The service supplies versioned callbacks and
 // prepared media, and sends the complete replacement document to Telegram.
-export function renderBrowse({info,entries=[],page=0,preview,image,attachment,clipboard,clipboardDirectory,confirmation,status,busy},button,media){
+export function renderBrowse({info,entries=[],page=0,gallery,preview,image,attachment,clipboard,clipboardDirectory,confirmation,status,busy},button,media){
   const blocks=[],parts=info.path==='.'?[]:info.path.split('/');
-  const crumbs=[{type:'button',button:button('📁 Root',{action:'open',path:'.'},'link')}];
+  const crumbs=[{type:'button',button:button('🏠 Root',{action:'open',path:'.'},'link')}];
   for(let i=0;i<parts.length;i++){
     crumbs.push(' › ');
     const last=i===parts.length-1,label=(last&&!info.directory?'📄 ':'📁 ')+short(parts[i]);
@@ -17,7 +17,7 @@ export function renderBrowse({info,entries=[],page=0,preview,image,attachment,cl
   }
   blocks.push(p(crumbs),{type:'divider'});
   const disabled=text=>({text,disabled:{}});
-  const up=(text='⬆️',style)=>info.path==='.'?disabled(text):button(text,{action:'open',path:path.posix.dirname(info.path)},style);
+  const up=(text='↩️',style='success')=>info.path==='.'?disabled(text):button(text,{action:'open',path:path.posix.dirname(info.path)},style);
   if(info.directory){
     if(info.path!=='.')blocks.push(p([{type:'button',button:up('📁 ..','link')}]));
     if(!entries.length)blocks.push(p('Directory is empty.'));
@@ -27,16 +27,23 @@ export function renderBrowse({info,entries=[],page=0,preview,image,attachment,cl
     ]));
     const from=entries.length?page*10+1:0,to=Math.min((page+1)*10,entries.length);
     blocks.push({type:'buttons',align:'center',buttons:[
-      up(),page>0?button('⬅️',{action:'page',page:page-1}):disabled('⬅️'),
+      up(),page>0?button('◀️',{action:'page',page:page-1},'success'):disabled('◀️'),
       disabled(`${from}-${to}/${entries.length}`),
-      to<entries.length?button('➡️',{action:'page',page:page+1}):disabled('➡️'),
-      button('🔄',{action:'refresh'}),
+      to<entries.length?button('▶️',{action:'page',page:page+1},'success'):disabled('▶️'),
+      button('🔄',{action:'refresh'},'success'),
     ]});
   }else{
+    blocks.push(p(['Path: ',{type:'code',text:info.path}]));
     blocks.push(p(`Size: ${formatSize(info.size)}\nModified: ${info.mtime}`));
     if(preview){blocks.push({type:'pre',text:preview.text||' ',...(preview.language?{language:preview.language}:{})});if(preview.truncated)blocks.push({type:'footer',text:'Preview truncated to 50 lines.'});}
     if(image)blocks.push({type:'photo',photo:{type:'photo',media:media(image,'photo',blocks.length)}});
-    blocks.push({type:'buttons',align:'center',buttons:[up(),button('🔄',{action:'refresh'})]});
+    blocks.push({type:'buttons',align:'center',buttons:[
+      button('↩️',{action:'open',path:path.posix.dirname(info.path),page:gallery.backPage},'success'),
+      gallery.previous?button('◀️',{action:'open',path:gallery.previous,file:true},'success'):disabled('◀️'),
+      disabled(`${gallery.index+1} / ${gallery.total}`),
+      gallery.next?button('▶️',{action:'open',path:gallery.next,file:true},'success'):disabled('▶️'),
+      button('🔄',{action:'refresh'},'success'),
+    ]});
   }
   blocks.push({type:'divider'});
   if(confirmation){

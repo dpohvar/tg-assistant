@@ -47,6 +47,13 @@ export function createBrowse({db,config,telegram,fetchDocument,now=Date.now,onEr
       let info;
       try{info=s.files.info(s.path);}catch(error){if(error.code!=='ENOENT'&&error.code!=='ENOTDIR')throw error;s.path=path.posix.dirname(s.path);s.page=0;s.attachment=null;info=s.files.info(s.path);}
       let entries=info.directory?s.files.list(s.path):[],preview=info.directory?null:s.files.preview(s.path),image;
+      let gallery;
+      if(!info.directory){
+        const siblings=s.files.list(path.posix.dirname(info.path)),files=siblings.filter(entry=>!entry.directory);
+        const index=files.findIndex(entry=>entry.path===info.path);
+        if(index<0)throw new Error('Gallery file is no longer available. Refresh the directory.');
+        gallery={index,total:files.length,previous:files[index-1]?.path,next:files[index+1]?.path,backPage:Math.floor(siblings.findIndex(entry=>entry.path===info.path)/10)};
+      }
       s.page=Math.min(s.page,Math.max(0,Math.ceil(entries.length/10)-1));
       if(!info.directory){const id=`photo:${info.path}:${info.version}`;if(!s.failedImages.has(id)){image=s.cache.get(id);if(!image){const prepared=s.files.image(info.path);if(prepared)image=cache(s,id,prepared);}}}
       let clipboardDirectory=false;try{clipboardDirectory=s.clipboard&&s.files.info(s.clipboard).directory;}catch{}
@@ -59,7 +66,7 @@ export function createBrowse({db,config,telegram,fetchDocument,now=Date.now,onEr
         manifest.push({key:entry.key,role:type,index});if(entry.fileId)return entry.fileId;
         const name='browse_media_'+uploads.length;uploads.push({name,bytes:entry.bytes,filename:entry.filename});return 'attach://'+name;
       };
-      const rich=renderBrowse({info,entries,page:s.page,preview,image,attachment:s.attachment,clipboard:s.clipboard,clipboardDirectory,confirmation:s.confirmation,status:s.status,busy:s.busy},button,media);
+      const rich=renderBrowse({info,entries,page:s.page,gallery,preview,image,attachment:s.attachment,clipboard:s.clipboard,clipboardDirectory,confirmation:s.confirmation,status:s.status,busy:s.busy},button,media);
       // Publish action ownership only after Telegram confirms the matching render.
       let result;
       try{
@@ -119,7 +126,7 @@ export function createBrowse({db,config,telegram,fetchDocument,now=Date.now,onEr
   async function action(s,entry,cb){
     const files=s.files,selected=s.path,view=s.view;
     if(['open','page','refresh','copy','cancel'].includes(entry.action)){
-      if(entry.action==='open'){files.info(entry.path);s.path=entry.path;s.page=0;s.attachment=null;s.confirmation=null;}
+      if(entry.action==='open'){const info=files.info(entry.path);if(entry.file&&info.directory)throw new Error('Gallery file is no longer available.');s.path=entry.path;s.page=entry.page??0;s.attachment=null;s.confirmation=null;}
       if(entry.action==='page')s.page=entry.page;
       if(entry.action==='copy'){files.info(s.path);s.clipboard=s.path;}
       if(entry.action==='cancel')s.confirmation=null;

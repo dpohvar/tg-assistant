@@ -80,8 +80,8 @@ test('upload invitation binds its exact destination and overwriting selected fil
 
 test('directory pagination and expiration do not accept a stale revision',async t=>{
   const f=await fixture(t);for(let i=0;i<12;i++)fs.writeFileSync(path.join(f.botRoot,'target',`file-${i}.txt`),'x');
-  await f.service.open('b',f.message(),'target');assert(f.buttons().some(b=>b.text==='➡️'));
-  const old=f.current,data=f.buttons().find(b=>b.text.includes('file-0.txt')).callback_data;await f.click('➡️');await f.click('',{data,view:old});
+  await f.service.open('b',f.message(),'target');assert(f.buttons().some(b=>b.text==='▶️'));
+  const old=f.current,data=f.buttons().find(b=>b.text.includes('file-0.txt')).callback_data;await f.click('▶️');await f.click('',{data,view:old});
   assert.equal(f.current.rich_message.blocks.some(b=>b.type==='pre'),false);
   f.advance(3600001);await f.click('🔄');assert.match(f.calls.findLast(c=>c.method==='answerCallbackQuery').args.text,/expired/i);
 });
@@ -132,20 +132,24 @@ test('directory navigation keeps five centered controls at every pagination boun
   const f=await fixture(t);for(let i=0;i<33;i++)fs.writeFileSync(path.join(f.botRoot,'target',`${String(i).padStart(2,'0')}.txt`),'x');
   const panel=()=>f.current.rich_message.blocks.find(b=>b.type==='buttons');
   await f.service.open('b',f.message(),'target');
-  assert.deepEqual(panel().buttons.map(b=>b.text),['⬆️','⬅️','1-10/33','➡️','🔄']);assert.equal(panel().align,'center');
+  assert.deepEqual(panel().buttons.map(b=>b.text),['↩️','◀️','1-10/33','▶️','🔄']);assert.equal(panel().align,'center');
+  assert(panel().buttons.filter(b=>b.callback_data).every(b=>b.style==='success'));
+  assert(panel().buttons.filter(b=>b.disabled).every(b=>b.style===undefined));
+  const actions=f.current.rich_message.blocks.filter(b=>b.type==='buttons')[1];assert(actions.buttons.every(b=>b.style!=='success'));
+  assert.equal(f.current.rich_message.blocks[0].text[0].button.style,'link');
   assert(panel().buttons[1].disabled);assert(panel().buttons[2].disabled);assert(panel().buttons[0].callback_data);assert(panel().buttons[3].callback_data);
-  await f.click('➡️');assert.deepEqual(panel().buttons.map(b=>b.text),['⬆️','⬅️','11-20/33','➡️','🔄']);assert(panel().buttons[1].callback_data);
-  await f.click('➡️');await f.click('➡️');assert.deepEqual(panel().buttons.map(b=>b.text),['⬆️','⬅️','31-33/33','➡️','🔄']);assert(panel().buttons[3].disabled);
-  await f.click('⬆️');assert.equal(panel().buttons.length,5);assert(panel().buttons[0].disabled);
+  await f.click('▶️');assert.deepEqual(panel().buttons.map(b=>b.text),['↩️','◀️','11-20/33','▶️','🔄']);assert(panel().buttons[1].callback_data);
+  await f.click('▶️');await f.click('▶️');assert.deepEqual(panel().buttons.map(b=>b.text),['↩️','◀️','31-33/33','▶️','🔄']);assert(panel().buttons[3].disabled);
+  await f.click('↩️');assert.equal(panel().buttons.length,5);assert(panel().buttons[0].disabled);
   assert(f.current.rich_message.blocks.filter(b=>b.type==='buttons').every(b=>b.align==='center'));
 });
 
-test('empty directories keep all navigation positions and file views have only up and refresh',async t=>{
+test('empty directories and file views keep five navigation positions with unavailable actions disabled',async t=>{
   const f=await fixture(t);await f.service.open('b',f.message(),'target');
-  let panel=f.current.rich_message.blocks.find(b=>b.type==='buttons');assert.deepEqual(panel.buttons.map(b=>b.text),['⬆️','⬅️','0-0/0','➡️','🔄']);assert(panel.buttons[1].disabled);assert(panel.buttons[3].disabled);
-  await f.click('⬆️');await f.click('wiki');await f.click('a.py');
-  panel=f.current.rich_message.blocks.find(b=>b.type==='buttons');assert.deepEqual(panel.buttons.map(b=>b.text),['⬆️','🔄']);assert.equal(panel.align,'center');
-  await f.click('⬆️');assert(f.buttons().some(b=>b.text.includes('a.py')));
+  let panel=f.current.rich_message.blocks.find(b=>b.type==='buttons');assert.deepEqual(panel.buttons.map(b=>b.text),['↩️','◀️','0-0/0','▶️','🔄']);assert(panel.buttons[1].disabled);assert(panel.buttons[3].disabled);
+  await f.click('↩️');await f.click('wiki');await f.click('a.py');
+  panel=f.current.rich_message.blocks.find(b=>b.type==='buttons');assert.deepEqual(panel.buttons.map(b=>b.text),['↩️','◀️','1 / 2','▶️','🔄']);assert.equal(panel.align,'center');assert(panel.buttons[1].disabled);
+  await f.click('↩️');assert(f.buttons().some(b=>b.text.includes('a.py')));
 });
 
 test('parent entry is first on every directory page and does not affect pagination totals',async t=>{
@@ -156,7 +160,7 @@ test('parent entry is first on every directory page and does not affect paginati
   const firstFile=f.current.rich_message.blocks.find(b=>b.type==='paragraph'&&Array.isArray(b.text)&&b.text[0]?.button?.text==='📄 0.txt');
   assert(firstFile,'the file icon and name must share the same callback button');
   assert(f.current.rich_message.blocks.find(b=>b.type==='buttons').buttons.some(b=>b.text==='1-10/11'));
-  await f.click('➡️');assert.equal(parent().text[0].button.text,'📁 ..');
+  await f.click('▶️');assert.equal(parent().text[0].button.text,'📁 ..');
   assert(f.current.rich_message.blocks.find(b=>b.type==='buttons').buttons.some(b=>b.text==='11-11/11'));
   await f.click('..');assert.equal(f.current.rich_message.blocks.some(b=>b.text?.[0]?.button?.text==='📁 ..'),false);
   await f.click('wiki');await f.click('a.py');assert.equal(f.buttons().some(b=>b.text.includes('..')),false);
@@ -165,8 +169,47 @@ test('parent entry is first on every directory page and does not affect paginati
 test('breadcrumbs include directory and file icons inside their own segments',async t=>{
   const f=await fixture(t);await f.service.open('b',f.message(),'wiki');
   let crumbs=f.current.rich_message.blocks[0].text;
-  assert.equal(crumbs[0].button.text,'📁 Root');assert.equal(crumbs[2],'📁 wiki');
+  assert.equal(crumbs[0].button.text,'🏠 Root');assert.equal(crumbs[2],'📁 wiki');
   await f.click('a.py');crumbs=f.current.rich_message.blocks[0].text;
-  assert.equal(crumbs[0].button.text,'📁 Root');assert.equal(crumbs[2].button.text,'📁 wiki');assert.equal(crumbs[4],'📄 a.py');
+  assert.equal(crumbs[0].button.text,'🏠 Root');assert.equal(crumbs[2].button.text,'📁 wiki');assert.equal(crumbs[4],'📄 a.py');
   await f.click('Root');assert.equal(f.current.rich_message.blocks.some(b=>b.text?.[0]?.button?.text==='📁 ..'),false);
+});
+
+test('file gallery navigates sibling files, exposes the literal code path and hides the prior download',async t=>{
+  const f=await fixture(t);fs.mkdirSync(path.join(f.botRoot,'target','00-folder'));
+  for(let i=1;i<=15;i++)fs.writeFileSync(path.join(f.botRoot,'target',`${String(i).padStart(2,'0')}.txt`),`file ${i}`);
+  const panel=()=>f.current.rich_message.blocks.find(b=>b.type==='buttons');
+  const preview=()=>f.current.rich_message.blocks.find(b=>b.type==='pre')?.text;
+  await f.service.open('b',f.message(),'target');await f.click('07.txt');
+  assert.deepEqual(panel().buttons.map(b=>b.text),['↩️','◀️','7 / 15','▶️','🔄']);assert.equal(panel().align,'center');assert(panel().buttons[2].disabled);
+  assert(panel().buttons.filter(b=>b.callback_data).every(b=>b.style==='success'));assert.equal(panel().buttons[2].style,undefined);
+  assert(f.current.rich_message.blocks.some(b=>Array.isArray(b.text)&&b.text[0]==='Path: '&&b.text[1]?.type==='code'&&b.text[1].text==='target/07.txt'));
+  await f.click('Download');assert(f.current.rich_message.blocks.some(b=>b.type==='document'));
+  await f.click('▶️');assert.equal(preview(),'file 8');assert.equal(panel().buttons[2].text,'8 / 15');assert.equal(f.current.rich_message.blocks.some(b=>b.type==='document'),false);
+  await f.click('◀️');assert.equal(preview(),'file 7');await f.click('↩️');assert.equal(panel().buttons[2].text,'1-10/16');
+});
+
+test('gallery ends are disabled and back returns to the directory page containing the current file',async t=>{
+  const f=await fixture(t);for(let i=1;i<=15;i++)fs.writeFileSync(path.join(f.botRoot,'target',`${String(i).padStart(2,'0')}.txt`),`file ${i}`);
+  const panel=()=>f.current.rich_message.blocks.find(b=>b.type==='buttons');
+  await f.service.open('b',f.message(),'target');await f.click('▶️');await f.click('15.txt');
+  assert.equal(panel().buttons[2].text,'15 / 15');assert(panel().buttons[3].disabled);
+  await f.click('◀️');assert.equal(panel().buttons[2].text,'14 / 15');await f.click('↩️');assert.equal(panel().buttons[2].text,'11-15/15');
+  await f.click('◀️');await f.click('01.txt');assert.equal(panel().buttons[2].text,'1 / 15');assert(panel().buttons[1].disabled);
+});
+
+test('a root-level file gallery has one file and refresh recalculates changed siblings',async t=>{
+  const f=await fixture(t);fs.writeFileSync(path.join(f.botRoot,'top.txt'),'root file');
+  const panel=()=>f.current.rich_message.blocks.find(b=>b.type==='buttons');
+  await f.service.open('b',f.message(),'.');await f.click('top.txt');
+  assert.deepEqual(panel().buttons.map(b=>b.text),['↩️','◀️','1 / 1','▶️','🔄']);assert(panel().buttons[1].disabled);assert(panel().buttons[3].disabled);
+  assert.equal(f.current.rich_message.blocks[0].text[0].button.text,'🏠 Root');
+  fs.writeFileSync(path.join(f.botRoot,'zzz.txt'),'new file');await f.click('🔄');assert.equal(panel().buttons[2].text,'1 / 2');await f.click('▶️');assert.equal(f.current.rich_message.blocks.find(b=>b.type==='pre').text,'new file');
+});
+
+test('a gallery callback cannot open a sibling that changed from file to directory',async t=>{
+  const f=await fixture(t);await f.service.open('b',f.message(),'wiki');await f.click('a.py');
+  fs.unlinkSync(path.join(f.botRoot,'wiki/b.txt'));fs.mkdirSync(path.join(f.botRoot,'wiki/b.txt'));
+  await f.click('▶️');assert.equal(f.current.rich_message.blocks.find(b=>b.type==='pre').text,'print("hello")');
+  assert.match(f.calls.findLast(c=>c.method==='answerCallbackQuery').args.text,/file.*available|directory/i);
 });

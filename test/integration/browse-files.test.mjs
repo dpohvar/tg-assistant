@@ -102,3 +102,19 @@ test('a source file replaced after delete preparation is preserved',async t=>{
   files.at=(input,fn)=>{const result=at(input,fn);if(input==='wiki/b.txt'&&!mutated&&!fs.existsSync(path.join(root,'wiki/b.txt'))){mutated=true;write('wiki/a.txt','new unrelated content');}return result;};
   await assert.rejects(files.apply(plan),/changed/i);assert.equal(fs.readFileSync(path.join(root,'wiki/a.txt'),'utf8'),'new unrelated content');
 });
+
+test('distinct large filesystem identities are not mistaken for copying a file into itself',async t=>{
+  const {files,write,root}=await fixture(t);write('a.txt','source');write('b.txt','target');
+  const lstat=fs.lstatSync;
+  fs.lstatSync=(filename,options)=>{
+    const stat=lstat(filename,options),name=path.basename(String(filename));
+    if(!['a.txt','b.txt'].includes(name))return stat;
+    const exact=name==='a.txt'?9007199254740992n:9007199254740993n;
+    return new Proxy(stat,{get(target,key,receiver){return key==='ino'?(options?.bigint?exact:Number(exact)):Reflect.get(target,key,receiver);}});
+  };
+  try{
+    const plan=await files.planCopy('a.txt','b.txt');assert.equal(plan.conflict,true);await files.apply(plan);
+    assert.equal(fs.readFileSync(path.join(root,'b.txt'),'utf8'),'source');
+    await assert.rejects(files.planCopy('a.txt','a.txt'),/itself/);
+  }finally{fs.lstatSync=lstat;}
+});

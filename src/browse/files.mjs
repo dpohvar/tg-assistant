@@ -8,7 +8,7 @@ import {zip} from './zip.mjs';
 export const MAX_BYTES=32*1024*1024,MAX_ENTRIES=2000;
 const fail=text=>{throw new Error(text);};
 const languages={js:'javascript',mjs:'javascript',cjs:'javascript',jsx:'javascript',ts:'typescript',tsx:'typescript',py:'python',json:'json',yml:'yaml',yaml:'yaml',toml:'toml',sh:'bash',bash:'bash',ps1:'powershell',html:'html',htm:'html',css:'css',sql:'sql',xml:'xml',java:'java',kt:'kotlin',c:'c',h:'c',cpp:'cpp',hpp:'cpp',cs:'csharp',go:'go',rs:'rust',rb:'ruby',php:'php',md:'markdown',ini:'ini'};
-const version=st=>[st.dev,st.ino,st.mode,st.size,st.mtimeMs,st.ctimeMs].join(':');
+const version=st=>[st.dev,st.ino,st.mode,st.size,st.mtimeNs,st.ctimeNs].join(':');
 const nodeIdentity=st=>[st.dev,st.ino,st.mode].join(':');
 const fileKey=p=>process.platform==='win32'?p.toLowerCase():p;
 const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -32,7 +32,7 @@ export class BrowseFiles {
   }
   info(input){
     const relative=this.normalize(input);
-    return this.at(relative,p=>{const st=fs.lstatSync(p);if(!st.isFile()&&!st.isDirectory())fail('Not a regular file or directory.');return {path:relative,name:relative==='.'?'Root':path.posix.basename(relative),directory:st.isDirectory(),size:st.size,mtime:st.mtime.toISOString(),version:version(st),identity:nodeIdentity(st)};});
+    return this.at(relative,p=>{const st=fs.lstatSync(p,{bigint:true});if(!st.isFile()&&!st.isDirectory())fail('Not a regular file or directory.');return {path:relative,name:relative==='.'?'Root':path.posix.basename(relative),directory:st.isDirectory(),size:Number(st.size),mtime:st.mtime.toISOString(),version:version(st),identity:nodeIdentity(st)};});
   }
   initial(input='.'){
     const relative=this.normalize(input);
@@ -47,7 +47,7 @@ export class BrowseFiles {
       const name=entry.name;
       try{this.filename(name);}catch{continue;}
       const child=join(relative,name);
-      const item=this.at(child,p=>{const st=fs.lstatSync(p);if(st.isSymbolicLink()||!st.isFile()&&!st.isDirectory())return null;return {path:child,name,directory:st.isDirectory(),size:st.size,mtime:st.mtime.toISOString(),version:version(st),identity:nodeIdentity(st)};});
+      const item=this.at(child,p=>{const st=fs.lstatSync(p,{bigint:true});if(st.isSymbolicLink()||!st.isFile()&&!st.isDirectory())return null;return {path:child,name,directory:st.isDirectory(),size:Number(st.size),mtime:st.mtime.toISOString(),version:version(st),identity:nodeIdentity(st)};});
       if(item)entries.push(item);
     }
     return entries.sort((a,b)=>Number(b.directory)-Number(a.directory)||(a.name<b.name?-1:a.name>b.name?1:0));
