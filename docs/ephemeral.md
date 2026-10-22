@@ -24,6 +24,10 @@ The controller immediately sends `Request received.` privately. This differs fro
 
 The outer ID identifies incoming user content; `preparedReply` identifies a different outgoing bot message. Neither becomes an ordinary `messageId:0`. Normal short-message date, author, topic, formatting and truncation fields apply. Failed or uncertain preparation still delivers the event, with `replyPreparationError:{error,description}` instead of a fabricated prepared address.
 
+## Controller file browsing
+
+The [`/browse`](commands.md#interactive-file-browser) interface supports controller-owned ephemeral rich buttons and fixed-destination upload invitations for admin/owner users. These callbacks are independent of agent/widget delivery. Agent-tool limitations below still apply.
+
 ## Agent tools
 
 ```javascript

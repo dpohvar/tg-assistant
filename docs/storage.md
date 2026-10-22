@@ -27,6 +27,10 @@ Topic registry entries survive retention/mode changes; chat deletion cascades th
 
 Creation saves an uncertain intent before calling Telegram and confirms it after success. A lost confirmation remains visible separately in `sticker_sets().uncertain`; it is not automatically retried or promoted by a read. Confirmed Telegram rejection removes the intent. Confirmed set deletion removes the catalog entry; failed or unknown deletion retains it. Confirmed title edits and live reads refresh cached metadata. Telegram has no Bot API method to enumerate all sets a bot created, so old/external sets remain accessible through `sticker_set_get` by name/link but are not imported into this catalog. See the [tool contract](agent-contract.md#sticker-sets-and-custom-emoji-sets).
 
+## Browse session cache
+
+[`/browse`](commands.md#interactive-file-browser) sessions, clipboard paths, confirmations, invitations and media buffers are RAM-only, separate from history/widgets. One session per bot/user expires after an idle hour or restart. A replacement message retains cache and active work. The media cache stores up to 64 MiB of prepared bytes and observed Telegram file IDs. No cache files enter bot directories/archives. Unknown delivery disables affected controls until a new browse; no effects are replayed on restart.
+
 ## Message history
 
 See [usage accounting](#usage-accounting) for separate numerical monitoring data.

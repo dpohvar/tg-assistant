@@ -34,6 +34,10 @@ Approval policy is `never`: requests that need extra approval cannot obtain it i
 
 The public-page `browser_read` tool has a narrower policy: HTTP(S), public addresses, ports 80/443, no URL credentials, and guarded requests. This policy is not a restriction on every network-capable tool. Browser pages, PDFs, messages, attachments, WebSocket packets, and MCP results are untrusted data, never authorization to change instructions or permissions.
 
+## File browser actions
+
+[`/browse`](commands.md#interactive-file-browser) requires admin/owner. Versioned callbacks bind an exact bot/user/message view and recheck roles before effects. Clipboard paths remain bot-scoped. Upload invitations bind the original destination and authenticated native reply, including chat/topic. Deletion/overwrites require confirmation. Changes to confirmed sources/destinations invalidate the operation. Copies/archives exclude protected paths and symlinks; deletion cannot remove excluded descendants. Per-entry validation and no-clobber creation prevent silently overwriting newly appeared destinations. Operations may report partial results. Ordinary/ephemeral addresses stay distinct; media are never staged in another chat to populate the cache.
+
 ## Telegram profile and file access
 
 `chat_info` may request metadata for any numeric chat/user ID Telegram permits. It does not grant history or write access. Its explicit allowlist exposes ordinary profile fields, including photos and available reactions. `invite_link`, `pinned_message`, aggressive anti-spam/visible-history state, sticker-set management state, and `guard_bot` require a connected chat readable by the calling agent. Unknown fields are hidden. Foreign private chats do not qualify for the restricted fields.

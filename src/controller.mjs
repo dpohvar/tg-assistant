@@ -52,7 +52,9 @@ import {createGuestService} from './guest/service.mjs';
 import {createEphemeralStore} from './ephemeral/store.mjs';
 import {createEphemeralMessages} from './ephemeral/messages.mjs';
 import {createSayEvents} from './ephemeral/events.mjs';
-export function createController({ db, telegram, agent, onError = () => {}, cursorKey, clock = Date.now, config,widgetService }) {
+import {createBrowse} from './browse/service.mjs';
+import {createDocumentFetcher} from './files/document.mjs';
+export function createController({ db, telegram, agent, onError = () => {}, cursorKey, clock = Date.now, config,widgetService,fileSignal }) {
   let widgets,widgetEvents;
   const inlineStore=createInlineStore(db,{now:clock}),inlineRequests=createInlineRequests({now:clock,policy:inlinePolicy(config?.inline)});
   const inlineAvatars=createInlineAvatars({telegram,getBot:id=>db.getBot(id),getMasterId:()=>config?.masterTelegramId,now:clock});
@@ -383,7 +385,9 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if(a){db.sql.prepare('UPDATE agents SET stopPending=1,contextResetPending=1 WHERE agentId=?').run(a.agentId);queue.setHeld(a.agentId,'disabled',true);scheduler.disable(a.agentId);queue.clear(a.agentId);const busy=Boolean(queue.agentJobs.get(a.agentId)?.size || agent.hasBackground?.(a.agentId));const work=finishStop(a);if(!busy)await work;}
     return a && db.agent(botId,chatId)?.stopPending ? 'Agent is stopping' : 'Agent disabled';
   };
-  const fetchDocument = async (botId, document) => { const f = await telegram.call(botId, 'getFile', { file_id: document.file_id }); const response = await fetch(`https://api.telegram.org/file/bot${await telegram.getToken(botId)}/${f.file_path}`); if (!response.ok) throw new Error('Download failed'); return Buffer.from(await response.arrayBuffer()); };
+  const fileAbort=new AbortController();
+  const fetchDocument=createDocumentFetcher({telegram,signal:fileSignal?AbortSignal.any([fileSignal,fileAbort.signal]):fileAbort.signal});
+  const browse=createBrowse({db,config,telegram,fetchDocument,now:clock,onError,run:(botId,fn)=>gate.run(botId,fn)});
   const updateRules = async (botId, document, force) => {
     const bytes = typeof document.text === 'string' ? Buffer.from(document.text, 'utf8') : await fetchDocument(botId, document); new TextDecoder('utf8', { fatal: true }).decode(bytes);
     const rulesDir = path.join(config.dataDir, 'rules', botId); fs.mkdirSync(rulesDir, { recursive: true }); fs.writeFileSync(path.join(rulesDir, 'AGENTS.md'), bytes);
@@ -397,6 +401,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     onBotAdded: id => { deleting.delete(id); mcpOAuth.allowBot(id); gate.held.delete(id); config.onBotAdded?.(id); },
     onBotRemoved: async id => {
       commands.close(id);
+      browse.close(id);
       inlineAvatars.forget(id);
       for(const a of db.sql.prepare('SELECT agentId FROM agents WHERE botId=?').all(id))inline?.disableOwner(id,a.agentId,'bot_removed');
       for(const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(id))await widgets?.removeOwner(a);
@@ -469,7 +474,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     enqueue:(scope,event,admit)=>{scopes.set(scope.agentId,lifecycle.scope(scope));if(gate.held.has(scope.botId))queue.setPaused(scope.agentId,true);return queue.enqueue(scope.agentId,event,'guest',admit);}});
   const widgetReady=guest.recover().catch(onError).then(()=>widgets?.recover().catch(onError)).then(()=>inlineEvents.drain());
   sayEvents=createSayEvents({db,store:ephemeralStore,messages:ephemeralMessages,telegram,queue,assertCurrent,onError,isUnavailable:(botId,chatId)=>lifecycle.closed||deleting.has(botId)||isStopping(botId,chatId),resolveScope:record=>{const scope=lifecycle.scope(record);scopes.set(record.agentId,scope);if(gate.held.has(record.botId))queue.setPaused(record.agentId,true);return scope;}});
-  const commands = createCommands({ db, config: config ?? {}, telegram, clock, onError, say:(botId,message)=>sayEvents.receive(botId,message), scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'stopping' : availability.get(id) ?? 'idle',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets,widgets,mcpOAuth, requestMcpRefresh, testMcp:(botId,entry)=>agent.testMcp(botId,entry), masterCommands, fileCommands });
+  const commands = createCommands({ db, config: config ?? {}, telegram, clock, onError, browse, say:(botId,message)=>sayEvents.receive(botId,message), scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'stopping' : availability.get(id) ?? 'idle',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets,widgets,mcpOAuth, requestMcpRefresh, testMcp:(botId,entry)=>agent.testMcp(botId,entry), masterCommands, fileCommands });
   for (const record of db.sql.prepare('SELECT * FROM agents').all()) {if(!db.getChat(record.botId,record.chatId).agentEnabled)queue.setHeld(record.agentId,'disabled',true);if(record.stopPending)finishStop(record);else if(record.contextResetPending)resetContext(record);}
   return {
     queue, lifecycle, invoke, scheduler, stopAgent, websockets,widgets,inline:{service:inline,requests:inlineRequests,store:inlineStore,events:inlineEvents},guest:{service:guest,store:guestStore,events:guestEvents},ready:widgetReady,
@@ -487,6 +492,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if(privateRoute(update.edited_message)||privateRoute(update.edited_channel_post))return;
       if(update.edited_message&&isMcpAuthReply(update.edited_message,mcpOAuth,botId)){await commands.handle(botId,update.edited_message);return;}
       if (commandMessage && await commands.handle(botId, commandMessage)) return;
+      if(update.callback_query&&await browse.callback(botId,update.callback_query))return;
       if(privateRoute(commandMessage)||privateRoute(update.channel_post))return;
       if(privateRoute(update.callback_query?.message)){await telegram.call(botId,'answerCallbackQuery',{callback_query_id:update.callback_query.id,text:'Ephemeral agent and widget callbacks are not supported yet.'}).catch(()=>{});return;}
       if (botId === 'master') return;
@@ -566,7 +572,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${topicIdOf(m)??0}:${m.media_group_id}`, { ...m, __botId: botId, __triggers:triggers }, trigger);
       else deliver(botId, [{...m,__triggers:triggers}], trigger);
     },
-    idle: async () => { do { await sayEvents.idle();await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await sayEvents.idle();await gate.idle();await widgetReady;await inline.idle();await widgets?.idle();await closing; },
-    close() { sayEvents.close();commands.close();inline.close();inlineAvatars.close();unobserveChat?.();websockets.shutdown(); for (const {timer} of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= Promise.allSettled([mcpOAuth.close(),agent.close?.(),widgets?.close()]); },
+    idle: async () => { do { await sayEvents.idle();await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await sayEvents.idle();await browse.idle();await gate.idle();await widgetReady;await inline.idle();await widgets?.idle();await closing; },
+    close() { fileAbort.abort();browse.close();sayEvents.close();commands.close();inline.close();inlineAvatars.close();unobserveChat?.();websockets.shutdown(); for (const {timer} of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= Promise.allSettled([mcpOAuth.close(),agent.close?.(),widgets?.close()]); },
   };
 }

@@ -39,7 +39,7 @@ function availableCommands({ master = false, role, group = false }) {
   }
   if(admin){
     result.rules='/rules\n/rules set\n/rules set PRE_BLOCK';
-    result.file='/ls [PATH]\n/cat PATH\n/download PATH\n/upload PATH\n/edit PATH PRE_BLOCK\n/mv FROM TO\n/rm PATH';
+    result.file='/browse [DIR]\n/ls [PATH]\n/cat PATH\n/download PATH\n/upload PATH\n/edit PATH PRE_BLOCK\n/mv FROM TO\n/rm PATH';
   }
   return result;
 }
@@ -140,6 +140,7 @@ const details = {
   '/git setup BRANCH [REMOTE_URL [TOKEN]]': 'Clone the selected remote branch and replace local wiki/Git, discarding changes, ignored files and unpushed commits; .temp remains. Omitted remote/token reuse stored values; first setup needs a remote. Clone failure preserves current files. Token-bearing commands are deleted where possible.',
   '/git changes': 'Show staged, unstaged and untracked files plus commits not yet pushed to the configured remote branch. Does not fetch. Returns an error if Git is not configured.',
   '/git sync MESSAGE': 'Stage all changes including deletions, commit if needed, then push. Supply ordinary words or one multiline pre block as the commit message. Push still runs if no commit is needed. Does not fetch/pull; push conflicts require manual resolution.',
+  '/browse [DIR]': 'Open an interactive rich file browser; missing directories open the root. One session per user/bot replaces its previous message and retains clipboard/cache for one idle hour. Inspect file size, modification time, text up to 2048 bytes/50 lines and image previews. Upload targets the selected file or folder. Download embeds a fresh file or ZIP. Delete and overwrites require confirmation; directory copies merge. Copy stores a path; Paste reads current contents. No model turn or enabled agent is required. Group responses retain command visibility.',
   '/ls [PATH]': 'List a directory’s entries. Without PATH, list the bot root. Use code or spoiler for a path containing spaces. Service directories may appear but protected paths cannot be manipulated.',
   '/cat PATH': 'Send the UTF-8 file contents as a pre block with its name. Content is truncated after 3,000 characters; use /download for the complete file.',
   '/download PATH': 'Send an existing local file as a Telegram document. This command differs from the agent’s download tool, which retrieves Telegram files.',

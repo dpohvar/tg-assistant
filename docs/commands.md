@@ -27,7 +27,7 @@ At child-bot startup, the controller registers supported slash commands with Tel
 
 Fast commands send their result directly. After five seconds without a response, a delayed command displays `Processing…` and edits that message on completion. Commands issuing an attachment invitation never schedule processing; invitations are fresh messages and are never edited. Non-administrator bots have a 15-second native window for a new reply, so delayed completion uses an existing private acknowledgement. Already-expired private commands are acknowledged without executing their operation. A failed private response is logged and acknowledged without replaying the command or falling back to a public group reply. Shutdown and bot removal cancel pending response sessions. Ordinary incoming commands keep their ordinary response route.
 
-In addition to controller commands and upload invitations, `/say` delivers hidden correspondence to the enabled group agent. It requires `user` or higher, uses free-form text/formatting instead of the administrative argument grammar, and exposes a prepared private response for agent editing/deletion. It grants no extra priority or permissions and does not open public listening. Other unmatched ephemeral messages, edits and callbacks remain excluded from ordinary history and agent/widget delivery. Ephemeral widgets and interactive buttons are deferred. See [hidden correspondence](ephemeral.md) and [verification](dev/ephemeral-command-verification.md).
+In addition to controller commands and upload invitations, `/say` delivers hidden correspondence to the enabled group agent. It requires `user` or higher, uses free-form text/formatting instead of the administrative argument grammar, and exposes a prepared private response for agent editing/deletion. It grants no extra priority or permissions and does not open public listening. Other unmatched ephemeral messages, edits and callbacks remain excluded from ordinary history and agent/widget delivery. Controller-owned `/browse` callbacks and upload invitations are supported separately without agent/widget delivery. Agent-authored ephemeral interactive buttons and widgets remain deferred. See [hidden correspondence](ephemeral.md) and [verification](dev/ephemeral-command-verification.md).
 
 ## Agent lifecycle
 
@@ -136,6 +136,7 @@ All commands below require Admin. File commands `/ls`, `/cat`, `/download`, `/up
 
 | Command | Result |
 |---|---|
+| `/browse [DIR]` | Open an interactive rich file browser; missing directories open the bot root |
 | `/ls [PATH]` | List a directory; default is the bot root |
 | `/cat PATH` | File name and UTF-8 text as pre, truncated after 3,000 content characters |
 | `/download PATH` | Send a file as a Telegram document |
@@ -155,6 +156,30 @@ For `/upload` and `/rules set`, send the command replying to your own unedited d
 The legacy ordinary-message form of replying with a document to your own unedited command remains supported. Ephemeral commands cannot be replied to as your own sent message in the tested Desktop client; use the bot invitation. For a spaced path, format the path as one inline-code argument, for example `wiki/Project notes.md`.
 
 Git setup requires an HTTPS remote without embedded credentials. Omitted remote/token reuse configured values; first setup needs a remote. Setup first clones into staging; a clone failure preserves the wiki. Successful replacement discards local modifications, ignored files and unpushed commits, preserving `.temp`; remote branches containing `.temp` are rejected. Git changes/sync do not fetch or pull. Sync still pushes when no new commit is necessary. The commit message may be ordinary words or a multiline pre block. Token-bearing setup messages are excluded from agent history and deletion is attempted even on failure. Cleanup retains fresh files and reports removed files/bytes and failures.
+
+### Interactive file browser
+
+`/browse [DIR]` opens one rich message with clickable breadcrumbs, directory/file information, and actions. It runs in the controller without a model turn or enabled agent. An omitted/missing directory or file argument opens the root; forbidden paths and read errors remain errors. Format a spaced directory as one code/spoiler argument. `/ls` retains its plain-list behavior.
+
+Directories show a `📁 ..` parent entry first on every page, with the folder icon and label inside one clickable button, followed by folders first and ten entries per page. The parent entry is omitted at the root and is excluded from pagination totals. Breadcrumb segments include folder icons for directories and a file icon for the selected file; clickable segments include their icon in the same button. Their centered navigation row always contains five positions: up (`⬆️`), previous (`⬅️`), disabled entry range (`1-10/33`, or `0-0/0` when empty), next (`➡️`), and refresh (`🔄`). Unavailable controls remain visible and disabled; the row never changes shape. File views have a centered two-button row: up and refresh. Action and confirmation rows are centered too. Files show size and modification time. Valid UTF-8 text no larger than 2048 bytes shows up to its first 50 lines in a pre block with a known language when available. Truncation is marked outside the block. PNG/JPEG/WebP images up to 10 MiB use native photo previews; a confirmed Telegram preview rejection falls back to file information and document access.
+
+| Action | Directory | File |
+|---|---|---|
+| `Upload` | Reply to an invitation with a document; preserve its name inside this directory | Replace this exact file regardless of the uploaded document's name |
+| `Download` | Embed a fresh ZIP archive | Embed the original file as a document |
+| `Delete` | Confirm recursive deletion | Confirm file deletion |
+| `Copy` | Store this directory's path | Store this file's path |
+| `Paste` | Copy the clipboard source inside this directory with its original name | Replace this file with the clipboard file |
+
+Clipboard stores a path, not a snapshot: Paste reads its current contents. A directory cannot replace a file. Overwrites require confirmation; directory copies merge recursively, replace conflicting files and preserve other destination entries. Type conflicts, self/descendant copies and changed confirmation targets are rejected. Root deletion/copying is disabled. Deletion refuses directories with protected/unsupported descendants and never recursively removes hidden contents as a side effect.
+
+One browse session exists per user per bot across chats. Another `/browse` deletes the old message and transfers clipboard, prepared cache and in-flight work. Old controls, confirmations and unused invitations become inactive. Upload invitations bind the exact user, bot, chat/topic, native message and fixed destination; navigation does not retarget them. An upload already admitted before another `/browse` continues to its original destination. Expired or restarted invitations cannot authorize writes.
+
+Long operations disable controls and display status. A reopened browse carries the active operation without retargeting it. A failed merge may leave explicitly reported partial results; related prepared media are invalidated even after partial failure.
+
+`Download` removes the previous visible attachment, rereads or rearchives the source and uploads a fresh document. Other redraws reuse prepared data and confirmed Telegram file IDs when available. Ephemeral edit responses alone provide no new IDs; the controller learns them from later callbacks. Switching objects hides the previous attachment. Refresh updates information/preview but leaves a download as its last requested snapshot. Mutations invalidate media.
+
+Sessions expire after one idle hour or restart. Trees are limited to 2000 entries and 32 MiB of source bytes; individual files/uploads have a 32 MiB browser limit, subject to Telegram limits. Prepared media use at most 64 MiB per session. Unsafe paths, upload names, symlinks and non-regular files are unavailable. Each effect checks current admin/owner access. Ephemeral interfaces/invitations stay private; unknown delivery is not automatically replayed or retried publicly. Send a new `/browse` after an unknown-delivery error.
 
 ## Vault, WebSocket and MCP
 

@@ -36,7 +36,7 @@ test('an admin can replace rules using an inline pre block in a group',async t=>
 });
 test('group admin help exposes the complete file and rules sections',()=>{
   const sections=helpSections({role:'admin',group:true});
-  assert.deepEqual(sections.file.commands.map(c=>c.syntax),['/ls [PATH]','/cat PATH','/download PATH','/upload PATH','/edit PATH PRE_BLOCK','/mv FROM TO','/rm PATH']);
+  assert.deepEqual(sections.file.commands.map(c=>c.syntax),['/browse [DIR]','/ls [PATH]','/cat PATH','/download PATH','/upload PATH','/edit PATH PRE_BLOCK','/mv FROM TO','/rm PATH']);
   assert.deepEqual(sections.rules.commands.map(c=>c.syntax),['/rules','/rules set','/rules set PRE_BLOCK']);
   assert.equal(helpSections({role:'manager',group:true}).file,undefined);
 });

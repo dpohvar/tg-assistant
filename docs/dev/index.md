@@ -30,6 +30,8 @@ The original documentation was preserved under `archive/` during the wiki reorga
 
 New development documents may be written in any language. Preserve historical evidence rather than rewriting it to claim newer behavior. Keep executable tests in `test/`; untracked local runtime files and credentials do not belong in this archive.
 
+- [Interactive file browser design](browse-design.md): agreed `/browse` behavior, clipboard, uploads, confirmations, session replacement and proposed implementation details.
+
 The legacy standalone probes were copied from the original development checkout so they are preserved in the repository. Its local originals were left intact. Personal bot-rule files remain excluded; the Minion template is a separately adapted, reusable example. Active application tests remain in `test/`; legacy probe copies are archival artifacts, not required service dependencies.
 
 - [Unknown-destination inline reply/reaction control](inline-unknown-events-verification.md)
@@ -39,3 +41,6 @@ The legacy standalone probes were copied from the original development checkout 
 - Group file commands and help aliases: [scope and implementation plan](plans/2026-10-20-group-files-help.md), [verification](group-files-help-verification.md).
 
 - [Widget callback diagnostics](widget-callback-diagnostics.md): standalone read-only comparison of working and failing registrations, queue admission and saved handlers.
+
+- [Browse implementation plan](plans/2026-10-22-browse.md): scoped files, rich sessions, controller integration and bounded acceptance.
+- [Browse verification](browse-verification.md): automated evidence, independent review, bounded test runner and live acceptance limits.
