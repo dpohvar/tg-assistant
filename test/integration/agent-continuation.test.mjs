@@ -1,0 +1,8 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {openDatabase} from '../../src/storage/database.mjs';import {createController} from '../../src/controller.mjs';
+test('a scheduled work unit survives compaction and finishes only after its continuation',async t=>{
+ const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const a=db.ensureAgent('b',1);db.sql.prepare('UPDATE agents SET threadId=?,threadRulesVersion=(SELECT rulesVersion FROM bots WHERE botId=agents.botId) WHERE agentId=?').run('saved',a.agentId);const batches=[];let taskId;
+ const agent={run:async(scope,events,invoke)=>{batches.push(events);assert.ok(db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='processing'").get(taskId));if(batches.length===1){const result=await invoke('compact_context',{continuation:'finish scheduled task'});assert.equal(result.status,'accepted');}else{assert.equal(events[0].continuation,'finish scheduled task');assert.equal(scope.workId,agent.firstWork);}agent.firstWork??=scope.workId;},compact:async()=>({state:'completed'})};
+ const c=createController({db,agent,telegram:{call:async()=>true}});t.after(async()=>{c.close();await c.idle();db.close();});await c.ready;
+ taskId=c.scheduler.schedule(a,{description:'test',text:'work',at:new Date(Date.now()+60000).toISOString()}).taskId;c.scheduler.fire(taskId,Date.now());
+ await c.idle();assert.equal(batches.length,2);assert.equal(c.scheduler.task(taskId),undefined);assert.equal(c.control.work.open(a.agentId).length,0);
+});

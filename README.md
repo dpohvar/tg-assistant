@@ -1,5 +1,7 @@
 # Telegram Assistant
 
+[Agent control](docs/agent-control.md) supports cancellation with a retained queue, root-context estimates, manual compaction and agent-requested compaction with a durable continuation. Context policy is configured through the bot rules.
+
 A Telegram assistant service powered by Codex CLI. Register separate bots through a master bot, enable agents in private chats or groups, and let them work with shared files, scheduled tasks, channels, and external tools.
 
 - Per-bot ownership, roles, rules, model settings, and isolated workspaces.
@@ -8,7 +10,7 @@ A Telegram assistant service powered by Codex CLI. Register separate bots throug
 - Durable one-time/cron tasks, channel publishing, and comment searches.
 - Browser/PDF readers, secret vault, active WebSocket connections, and HTTP MCP.
 
-The deployment target is Alpine Linux; Windows is used for development. Node.js **24.18.1 or newer** and an authenticated Codex CLI are required. Codex **0.159.3** is the validation baseline; other versions are allowed with a warning. Selected integrations were also checked with **0.161.0**.
+The deployment target is Alpine Linux; Windows is used for development. Node.js **24.18.1 or newer** and an authenticated Codex CLI are required. Linux also requires Python 3 and `/proc` for native process supervision. Codex **0.159.3** is the validation baseline; other versions are allowed with a warning. Selected integrations were also checked with **0.161.0**.
 
 ## Getting started
 

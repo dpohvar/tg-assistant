@@ -54,6 +54,10 @@ import {createEphemeralMessages} from './ephemeral/messages.mjs';
 import {createSayEvents} from './ephemeral/events.mjs';
 import {createBrowse} from './browse/service.mjs';
 import {createDocumentFetcher} from './files/document.mjs';
+import {createAgentControl} from './agents/control.mjs';
+import {updateControlReply} from './commands/replies.mjs';
+import {createMessageSerial} from './messages/serial.mjs';
+import {createButtonRollback} from './messages/button-rollback.mjs';
 export function createController({ db, telegram, agent, onError = () => {}, cursorKey, clock = Date.now, config,widgetService,fileSignal }) {
   let widgets,widgetEvents;
   const inlineStore=createInlineStore(db,{now:clock}),inlineRequests=createInlineRequests({now:clock,policy:inlinePolicy(config?.inline)});
@@ -61,18 +65,20 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   let inline,inlineEvents,inlineMessages,guestEvents,guest;
   const guestStore=createGuestStore(db,{now:clock});
   const ephemeralStore=createEphemeralStore(db,{now:clock});
-  let sayEvents;
+  let sayEvents,control;
   const lifecycle = new Lifecycle(), scopes = new Map(), gate = new BotGate(), deleting = new Set(), stopping = new Set();
   const isStopping = (botId, chatId) => stopping.has(`${botId}:${chatId}`);
-  const assertCurrent = scope => { if(scope.widgetRef)widgets.authorize(scope.widgetRef);else lifecycle.assertCurrent(scope); if (isStopping(scope.botId, scope.chatId)) throw new Error("Chat is stopping."); };
+  const assertCurrent = scope => { if(scope.widgetRef)widgets.authorize(scope.widgetRef);else lifecycle.assertCurrent(scope);if(scope.workId){const unit=control?.work.get(scope.workId),state=control?.store.read(scope.agentId);if(unit?.state==='cancelled'||state?.notice?.workIds?.includes(scope.workId))throw Object.assign(new Error('Work was cancelled.'),{code:'agent_cancelled'});} if (isStopping(scope.botId, scope.chatId)) throw new Error("Chat is stopping."); };
   let closing;
+  const messageSerial=createMessageSerial();
+  const buttonRollback=createButtonRollback({db,telegram,serial:messageSerial,assertCurrent});buttonRollback.recover();
   const mcpOAuth=new McpOAuth({...createOAuthRuntime({config}),onChanged:botId=>requestMcpRefresh(botId),notify:async(scope,text)=>{
     if(!lifecycle.closed&&!deleting.has(scope.botId)&&['admin','owner'].includes(db.role(scope.botId,scope.userId)))await telegram.call(scope.botId,'sendMessage',{chat_id:scope.chatId,text,reply_parameters:{message_id:scope.messageId}});
   },notifyOwner:async(botId,text)=>{const bot=db.getBot(botId);if(bot&&!lifecycle.closed&&!deleting.has(botId))await telegram.call(botId,'sendMessage',{chat_id:bot.ownerId,text});}});
   agent.onMcpStatus=(botId,rows)=>mcpOAuth.reportStatus(botId,createMcpStore(db).list(botId),rows);
   const loud = new Map(), historyGaps = new Set();
   const gapKey = (botId, chatId, topicId) => `${botId}:${chatId}:${topicId??0}`;
-  const markGap = (botId, chatId, topicId) => { const chat=db.getChat(botId,chatId);if(chat&&['group','supergroup'].includes(chat.chatType))historyGaps.add(gapKey(botId,chatId,JSON.parse(chat.json).is_forum?(topicId??1):null)); };
+  const markGap = (botId, chatId, topicId) => { const chat=db.getChat(botId,chatId);if(chat)historyGaps.add(gapKey(botId,chatId,JSON.parse(chat.json).is_forum?(topicId??1):null)); };
   const clearChatActivity=(botId,chatId)=>{const prefix=`${botId}:${chatId}:`;for(const key of loud.keys())if(key.startsWith(prefix))loud.delete(key);for(const key of historyGaps)if(key.startsWith(prefix))historyGaps.delete(key);};
   const observeMode=(botId,chat)=>{
     const old=db.getChat(botId,chat.id);if(!old)return;
@@ -81,7 +87,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if(after){if(loud.has(ordinary)){loud.set(general,loud.get(ordinary));loud.delete(ordinary);}if(historyGaps.delete(ordinary))historyGaps.add(general);}
     else{const gap=[...historyGaps].some(key=>key.startsWith(prefix));clearChatActivity(botId,chat.id);if(gap)historyGaps.add(ordinary);}
   };
-  const addGapHint = (id, events) => { const scope=scopes.get(id);return events.map(event=>{if(!scope||!['message','message_edited','button'].includes(event.eventType))return event;const chat=db.getChat(scope.botId,scope.chatId),topic=chat&&JSON.parse(chat.json).is_forum?(event.topicId??1):null;return historyGaps.delete(gapKey(scope.botId,scope.chatId,topic))?{...event,historyGap:true}:event;}); };
+  const addGapHint = (id, events) => { const scope=scopes.get(id);return events.map(event=>{if(!scope||event.ephemeralMessageId!==undefined||!['message','message_edited','button'].includes(event.eventType))return event;const chat=db.getChat(scope.botId,scope.chatId),topic=chat&&JSON.parse(chat.json).is_forum?(event.topicId??1):null;return historyGaps.delete(gapKey(scope.botId,scope.chatId,topic))?{...event,historyGap:true}:event;}); };
   const activeMessages = new Map();
   const unobserveChat=db.onChatObserved?.(observeMode);
   const requests = new Map(), consumed = new Map();
@@ -128,6 +134,9 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     return result;
   };
   const invokeTool = async (scope, name, args) => {
+    if(name==='context_status'){assertCurrent(scope);if(Object.keys(args??{}).length)throw new Error('No arguments allowed.');return agent.context?.snapshot(scope.agentId)??{usedTokens:null,maxTokens:null,measuredAt:null};}
+    if(name==='compact_context'){assertCurrent(scope);if(Object.keys(args??{}).some(k=>k!=='continuation'))throw new Error('Invalid compact arguments.');return control.requestCompact(scope,{kind:'agent',...args});}
+    if(control?.suspended(scope)&&!['time','read','history','search','context_status'].includes(name))throw Object.assign(new Error('Compaction accepted. Finish this turn.'),{code:'finish_turn'});
     assertCurrent(scope);
     if (deleting.has(scope.botId)) throw new Error('Bot is being deleted.');
     if (db.getChat(scope.botId, scope.chatId)?.chatType === 'private' && !db.role(scope.botId, scope.chatId)) throw new Error('Private user is no longer authorized');
@@ -199,7 +208,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       queue.enqueue(target.agentId, { eventType: 'agent_message', from: { agentId: scope.agentId, ...(db.getChat(scope.botId, scope.chatId).chatType !== 'private' ? { chatId: scope.chatId } : {}) }, text: args.text }, 'agent');
       return { status: 'queued' };
     }
-    if (name === 'send' || name === 'edit') {const owned=name==='edit'&&widgets?.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageId);if(owned)throw Object.assign(new Error('Use widget_event, update_widget or set_widget_view for an owned widget message.'),{code:'widget_owned',ownerAgentId:owned.agentId,widgetId:owned.widgetId,viewId:owned.view.id});return messages[name](scope, args);}
+    if (name === 'send' || name === 'edit') {const owned=name==='edit'&&widgets?.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageId);if(owned)throw Object.assign(new Error('Use widget_event, update_widget or set_widget_view for an owned widget message.'),{code:'widget_owned',ownerAgentId:owned.agentId,widgetId:owned.widgetId,viewId:owned.view.id});return name==='edit'?messageSerial.run({botId:scope.botId,chatId:args.chatId??scope.chatId,messageId:args.messageId},async()=>{const result=await messages.edit(scope,args);if(result.unknown?.length)buttonRollback.invalidate({botId:scope.botId,chatId:args.chatId??scope.chatId,messageId:args.messageId});return result;}):messages.send(scope,args);}
     if (name === 'forward' || name === 'copy') return messages.transfer(scope, name, args);
     if (['delete', 'pin', 'unpin', 'react'].includes(name)) {
       const target = args.chatId ?? scope.chatId; if (name === 'delete' && target !== scope.chatId) throw new Error('Deletion is allowed only in the current chat.'); if (isStopping(scope.botId, target)) throw new Error('Target chat is stopping.'); access.assertWrite(scope, target); assertCurrent(scope);
@@ -216,7 +225,13 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     }
     throw new Error('Unknown or invalid tool');
   };
-  const invoke = (scope, name, args) => ['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget'].includes(name)?invokeTool(scope,name,args):gate.run(scope.botId, () => invokeTool(scope, name, args), scope.agentId);
+  const invokeRaw = (scope, name, args) => ['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget'].includes(name)?invokeTool(scope,name,args):gate.run(scope.botId, () => invokeTool(scope, name, args), scope.agentId).finally(()=>{control?.kick(scope.agentId);});
+  const invoke=(scope,name,args)=>{
+    const target=name==='set_widget_view'?args.target:name==='delete'&&args.messageId!==undefined?{chatId:args.chatId??scope.chatId,messageId:args.messageId}:null;
+    if(!target?.messageId)return invokeRaw(scope,name,args);
+    const address={botId:scope.botId,chatId:target.chatId??scope.chatId,messageId:target.messageId};
+    return messageSerial.run(address,async()=>{try{const result=await invokeRaw(scope,name,args);if(name==='set_widget_view')buttonRollback.invalidate(address);return result;}catch(e){if(name==='set_widget_view'&&!e.noEffect)buttonRollback.invalidate(address);throw e;}});
+  };
   const scheduled = new Map();
   const trackConsumed = (id, events) => { if (!consumed.has(id)) consumed.set(id, new Map()); const count = consumed.get(id); for (const e of events) if (e.eventType === 'agent_message') count.set(e.from.agentId, (count.get(e.from.agentId) ?? 0) + 1); };
   const prepare = (id, events) => addGapHint(id, events.map(e => { if (e.eventType !== 'scheduled') { if (e.eventType === 'message' || e.eventType === 'message_edited') { if (!activeMessages.has(id)) activeMessages.set(id, { messages: new Set(), edits: new Set() }); if(e.ephemeralMessageId!==undefined)activeMessages.get(id).private=true;else activeMessages.get(id).messages.add(e.messageId); if (e.eventType === 'message_edited') activeMessages.get(id).edits.add(e.messageId); } return e; } const full = scheduler.take(e.taskId); if (full) { if (!scheduled.has(id)) scheduled.set(id, new Set()); scheduled.get(id).add(e.taskId); } return full; }).filter(Boolean));
@@ -226,41 +241,63 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   };
   const completeScheduled = (id, success) => { const ids = [...(scheduled.get(id) ?? [])]; scheduled.delete(id); for (const taskId of ids) scheduler.complete(taskId, success); };
   const eventCurrent=(scope,event)=>event.eventType==='guest_message'?Boolean(guestEvents?.isCurrent(scope,event.guestRequestId)):event.eventType!=='inline'||inlineRequests.get(event.requestId)?.agentId===scope.agentId&&Boolean(resolveInlineOwner(scope.botId,scope.agentId));
-  const queue = new AgentQueue({ onStateChanged: id => updateAction(id), onDropped: (id, events, source) => { const scope = scopes.get(id); if(scope&&source==='chat')for(const event of Array.isArray(events)?events:[events])if(['message','message_edited'].includes(event.eventType))markGap(scope.botId,scope.chatId,event.topicId); }, dispatch: async (id, events) => { let scope = lifecycle.scope(scopes.get(id)); scopes.set(id, scope); const record = db.agent(scope.botId, scope.chatId); if (record.threadId && record.threadRulesVersion !== db.getBot(scope.botId).rulesVersion) { await agent.waitBackground?.(id).catch(() => {}); lifecycle.invalidate(id); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(id); await agent.deleteSession?.(id, record.threadId); scope = lifecycle.scope({ botId: scope.botId, chatId: scope.chatId, agentId: id }); scopes.set(id, scope); } events=events.filter(event=>eventCurrent(scope,event)); trackConsumed(id, events); const batch = prepare(id, events); const result = batch.length ? await agent.run(scope, batch, (name, args, threadId) => invoke({ ...scope, threadId }, name, args)) : undefined;
-    const batchOrigins = consumed.get(id); consumed.delete(id);
-    const privateOrigin=!!activeMessages.get(id)?.private;
-    if (result?.settled) {
-      const ids = [...(scheduled.get(id) ?? [])]; scheduled.delete(id);
-      queue.track(result.settled.then(() => {
-        if (lifecycle.closed) return;
-        let current = true; try { assertCurrent(scope); } catch { current = false; }
-        for (const taskId of ids) scheduler.complete(taskId, current); if (current) releaseOrigins(id, batchOrigins);
-      }).catch(async error => {
-        if (lifecycle.closed) return;
-        for (const taskId of ids) scheduler.complete(taskId, false);
-        try { assertCurrent(scope); } catch { return; }
-        queue.clear(id); await queue.onError(id, error, privateOrigin);
-      }), id);
-    } else { completeScheduled(id, true); releaseOrigins(id, batchOrigins); } activeMessages.delete(id); }, steer: (id, events) => { if (agent.canSteer && !agent.canSteer(id)) throw Object.assign(new Error('The root turn has already finished.'), { code: 'steer_expired' }); trackConsumed(id, events); return agent.steer(id, prepare(id, events)); }, onError: async (id, error, privateOrigin=false) => {
-    if (lifecycle.closed || deleting.has(scopes.get(id)?.botId) || isStopping(scopes.get(id)?.botId, scopes.get(id)?.chatId)) return;
-    completeScheduled(id, false);
-    const privateFailure=privateOrigin||!!activeMessages.get(id)?.private;
-    activeMessages.delete(id);
-    if (error.code === 'rules_replaced') return;
-    scheduler.failQueued(id);
-    if (actions.has(id)) clearInterval(actions.get(id).timer); actions.delete(id); availability.delete(id); images.delete(id);
-    agent.detach?.(id);
-    for (const sender of requests.get(id)?.keys() ?? []) { const a = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(sender); if (!a) continue; scopes.set(sender, lifecycle.scope({ botId: a.botId, chatId: a.chatId, agentId: sender })); queue.enqueue(sender, { eventType: 'agent_error', agentId: id, error: 'agent_failed', description: 'The target agent failed while processing messages. Your request may not have been completed.' }, 'agent'); }
-    requests.delete(id); consumed.delete(id);
-    const scope = scopes.get(id); lifecycle.invalidate(id); onError(error);
-    if(!privateFailure)try { await telegram.call(scope.botId, 'sendMessage', { chat_id: scope.chatId, text: `Ошибка агента ${id}. Очередь очищена.` }); } catch {}
-  } });
-  const scheduler = new Scheduler({ db, clock, enqueue: (id, event) => { const target = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(id); if (!target || !db.getChat(target.botId,target.chatId)?.agentEnabled || isStopping(target.botId, target.chatId)) return; scopes.set(id, lifecycle.scope({ botId: target.botId, chatId: target.chatId, agentId: id })); if (gate.held.has(target.botId)) queue.setPaused(id, true); queue.enqueue(id, event, 'schedule'); }, notify: async (task, description) => { const a = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(task.agentId); if (!a) return; try { await telegram.call(a.botId, 'sendMessage', { chat_id: a.chatId, text: [`Ошибка задачи ${task.taskId}; агент ${a.agentId}.`, task.description, task.at ?? `${task.cron} (${task.timezone})`, (() => { const pending = db.sql.prepare("SELECT * FROM task_firings WHERE taskId=? AND state='pending'").get(task.taskId); return pending ? `Пропущено ${pending.count} срабатываний с ${new Date(pending.firstAt).toISOString()}` : ''; })(), description, `/task retry ${task.taskId}`, `/task delete ${task.taskId}`].filter(Boolean).join('\n').slice(0, 4000) }); } catch {} } });
+  const queue = new AgentQueue({
+    onStateChanged:id=>{updateAction(id);control?.kick(id);},
+    onAdmitted:(id,item)=>control?.admitted(id,item),
+    onDropped:(id,events,source)=>{const scope=scopes.get(id);if(scope&&source==='chat')for(const event of [events].flat())if(['message','message_edited'].includes(event.eventType)&&event.ephemeralMessageId===undefined)markGap(scope.botId,scope.chatId,event.topicId);},
+    onEvicted:(id,events,source,meta)=>{const scope=scopes.get(id);if(!scope)return;for(const event of [events].flat()){
+      if(event.ephemeralMessageId!==undefined&&sayEvents)queue.track(sayEvents.evicted(lifecycle.scope(scope),event),id);
+      else if(['message','message_edited'].includes(event.eventType))markGap(scope.botId,scope.chatId,event.topicId);
+      else if(event.eventType==='button')queue.track(buttonRollback.restore(meta.id),id);
+    }},
+    onDispatched:(_id,item)=>buttonRollback.handled(item.id),
+    dispatch:async(id,events)=>{
+      let scope=lifecycle.scope(scopes.get(id));scopes.set(id,scope);
+      const record=db.agent(scope.botId,scope.chatId);
+      if(record.threadId&&record.threadRulesVersion!==db.getBot(scope.botId).rulesVersion){await agent.waitBackground?.(id).catch(()=>{});control.invalidate(id,'rules');lifecycle.invalidate(id);db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(id);await agent.deleteSession?.(id,record.threadId);scope=lifecycle.scope(record);scopes.set(id,scope);}
+      events=events.filter(e=>eventCurrent(scope,e));const batch=prepare(id,events);if(!batch.length)return;
+      const unit=control.beforeWork(scope,batch);scope={...scope,workId:unit.workId};
+      try{
+        const result=await agent.run(scope,unit.events,(name,args,threadId)=>invoke({...scope,threadId},name,args),{workId:unit.workId});
+        const privateOrigin=!!activeMessages.get(id)?.private;
+        const settlement=control.afterWork(unit.workId,{settled:Promise.resolve(result?.settled).then(()=>{try{assertCurrent(scope);}catch{throw Object.assign(new Error('Work scope retired.'),{code:'rules_replaced'});}})});
+        queue.track(settlement.catch(error=>queue.onError(id,error,privateOrigin)),id);
+      }catch(error){
+        const cancelled=['cancelling','paused','unknown'].includes(control.status(id).phase)||error.code==='agent_cancelled';
+        await control.afterWork(unit.workId,{outcome:cancelled?'cancelled':'failed'});
+        if(cancelled)throw Object.assign(new Error('Work cancelled.'),{code:'agent_cancelled'});error.privateOrigin=!!activeMessages.get(id)?.private;throw error;
+      }finally{scheduled.delete(id);consumed.delete(id);activeMessages.delete(id);}
+    },
+    steer:(id,events)=>{if(agent.canSteer&&!agent.canSteer(id))throw Object.assign(new Error('The root turn has already finished.'),{code:'steer_expired'});const scope=scopes.get(id),batch=prepare(id,events);if(!batch.length)return;control.beforeWork(scope,batch,{activeWorkId:control.activeWork(id)});return agent.steer(id,batch);},
+    onError:async(id,error,privateOrigin=false)=>{
+      privateOrigin ||= !!error.privateOrigin;
+      if(error.code==='agent_cancelled'||['cancelling','paused','unknown'].includes(control?.status(id).phase))return;
+      if(lifecycle.closed||deleting.has(scopes.get(id)?.botId)||isStopping(scopes.get(id)?.botId,scopes.get(id)?.chatId))return;
+      completeScheduled(id,false);const privateFailure=privateOrigin||!!activeMessages.get(id)?.private;activeMessages.delete(id);
+      if(error.code==='rules_replaced')return;scheduler.failQueued(id);
+      if(actions.has(id))clearInterval(actions.get(id).timer);actions.delete(id);availability.delete(id);images.delete(id);agent.detach?.(id);
+      for(const sender of requests.get(id)?.keys()??[]){const a=db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(sender);if(!a)continue;scopes.set(sender,lifecycle.scope(a));queue.enqueue(sender,{eventType:'agent_error',agentId:id,error:'agent_failed',description:'The target agent failed while processing messages. Your request may not have been completed.'},'agent');}
+      requests.delete(id);consumed.delete(id);const scope=scopes.get(id);lifecycle.invalidate(id);onError(error);
+      if(!privateFailure)try{await telegram.call(scope.botId,'sendMessage',{chat_id:scope.chatId,text:`Agent ${id} failed. Queue cleared.`});}catch{}
+    }
+  });
+  const scheduler = new Scheduler({ db, clock, enqueue: (id, event) => { const target = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(id); if (!target || !db.getChat(target.botId,target.chatId)?.agentEnabled || isStopping(target.botId, target.chatId)) return; scopes.set(id, lifecycle.scope({ botId: target.botId, chatId: target.chatId, agentId: id })); if (gate.held.has(target.botId)) queue.setPaused(id, true); queue.enqueue(id,event,'schedule',undefined,{recovery:scheduler.recovering}); }, notify: async (task, description) => { const a = db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(task.agentId); if (!a) return; try { await telegram.call(a.botId, 'sendMessage', { chat_id: a.chatId, text: [`Ошибка задачи ${task.taskId}; агент ${a.agentId}.`, task.description, task.at ?? `${task.cron} (${task.timezone})`, (() => { const pending = db.sql.prepare("SELECT * FROM task_firings WHERE taskId=? AND state='pending'").get(task.taskId); return pending ? `Пропущено ${pending.count} срабатываний с ${new Date(pending.firstAt).toISOString()}` : ''; })(), description, `/task retry ${task.taskId}`, `/task delete ${task.taskId}`].filter(Boolean).join('\n').slice(0, 4000) }); } catch {} } });
+  // Cancel fences compute work; queued admissions and persistent resources retain their lifecycle.
+  control=createAgentControl({db,queue,agent,clock,idleEffects:id=>gate.idleScope(id),effectsActive:id=>!!gate.scoped.get(id)?.size,
+    notify:async(op,text)=>{if(op.replyTarget){const replyId=op.replyTarget.replyId,prior=replyId&&control.store.reply(replyId);if(prior&&prior.phase!=='prepared')return;if(replyId)control.store.updateReply(replyId,'updating');try{await updateControlReply({telegram,db},op.replyTarget,text);if(replyId)control.store.updateReply(replyId,'done');}catch{if(replyId)control.store.updateReply(replyId,'unknown');}}},
+    onResume:(id,op)=>{const a=db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(id);if(!a)return;scopes.set(id,lifecycle.scope(a));queue.enqueue(id,{eventType:'context_status',_compactOperation:op.operationId},'control',()=>control.store.operation(op.operationId)?.continuationPhase==='pending');},
+    settle:(unit,outcome)=>{
+      const counts=new Map();for(const origin of unit.origins){if(origin.taskId){if(outcome==='cancelled')scheduler.interrupt(origin.taskId);else scheduler.complete(origin.taskId,outcome==='completed');}if(origin.senderId)counts.set(origin.senderId,(counts.get(origin.senderId)??0)+1);}
+      if(outcome!=='failed')releaseOrigins(unit.agentId,counts);
+      if(outcome==='cancelled')for(const sender of counts.keys()){const a=db.sql.prepare('SELECT * FROM agents WHERE agentId=?').get(sender);if(a){scopes.set(sender,lifecycle.scope(a));queue.enqueue(sender,{eventType:'agent_error',agentId:unit.agentId,error:'agent_cancelled',description:'The target work was cancelled. Earlier effects may have completed.'},'agent');}}
+    }
+  });
+  agent.onTurnBound=(id,workId,identity)=>control.bound(id,workId,identity);
   const updateAction = id => {
     const action = queue.canStart(id) ? null : images.get(id)?.size ? 'upload_photo' : 'typing';
     const scope = scopes.get(id), previous = actions.get(id);
     let current = false;
-    try { if (scope) { assertCurrent(scope); current = Boolean(db.getChat(scope.botId,scope.chatId)?.agentEnabled); } } catch {}
+    try { if (scope) { assertCurrent(scope); current = Boolean(db.getChat(scope.botId,scope.chatId)?.agentEnabled)&&!['paused','unknown'].includes(control?.status(id).phase); } } catch {}
     if (current && action && previous?.action === action && previous.scope.botId === scope.botId && previous.scope.chatId === scope.chatId && previous.scope.generation === scope.generation) return;
     if (previous) clearInterval(previous.timer); actions.delete(id);
     if (!action || !current) return;
@@ -301,7 +338,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   const stopAgent = async (botId, chatId, { leave = true } = {}) => {
     const key = `${botId}:${chatId}`; if (stopping.has(key)) throw new Error("Chat is already stopping.");
     const a = db.agent(botId, chatId), chat = db.getChat(botId, chatId); if (!chat) return;
-    if(a)inline?.disableOwner(botId,a.agentId,'agent_removed');
+    if(a){control.invalidate(a.agentId,'delete');}if(a)inline?.disableOwner(botId,a.agentId,'agent_removed');
     stopping.add(key); albums.clearChat(botId,chatId);
     try {
     await widgets?.removeChat(botId,chatId);
@@ -328,7 +365,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (resets.has(id)) return resets.get(id);
     queue.setHeld(id, 'context-reset', true);
     const work = Promise.resolve().then(async () => {
-      await queue.idleAgent(id);
+      await queue.idleAgent(id);await control.idleAgent(id);
       await agent.waitBackground?.(id).catch(() => {});
       await gate.idleScope(id);
       if (lifecycle.closed || isStopping(record.botId, record.chatId) || deleting.has(record.botId)) return;
@@ -337,7 +374,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         if (!current?.contextResetPending || lifecycle.closed || isStopping(record.botId, record.chatId)) return;
         lifecycle.invalidate(id);
         websockets.closeAgent(id,'context_reset');
-        await agent.deleteSession?.(id, current.threadId);
+        await agent.deleteSession?.(id, current.threadId);control.retired(id);
         db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL,contextResetPending=0,stopPending=0 WHERE agentId=?').run(id);
         activeMessages.delete(id);
       }, id);
@@ -356,7 +393,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (gate.held.has(botId) || deleting.has(botId) || records.some(a => isStopping(botId,a.chatId))) throw Object.assign(new Error('Bot maintenance or agent shutdown is in progress. Try again later.'), {safe:true});
     const items = records.map(a => {
       const busy = Boolean(queue.agentJobs.get(a.agentId)?.size || agent.hasBackground?.(a.agentId) || resets.has(a.agentId));
-      db.sql.prepare('UPDATE agents SET contextResetPending=1 WHERE agentId=?').run(a.agentId);
+      control.invalidate(a.agentId,'clear');db.sql.prepare('UPDATE agents SET contextResetPending=1 WHERE agentId=?').run(a.agentId);
       return {a,busy,work:resetContext(a)};
     });
     await Promise.all(items.filter(x=>!x.busy).map(x=>x.work));
@@ -378,9 +415,9 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     const chat=db.getChat(botId,chatId);if(!chat)throw new Error('Chat is not connected.');
     if(enabled && chat.chatType==='channel')throw new Error('This chat does not support an agent.');
     let a=db.agent(botId,chatId);
-    if(enabled){if(a?.stopPending)throw new Error('Agent is stopping. Retry after completion.');if(chat.agentEnabled)return 'Already enabled';db.sql.prepare('UPDATE chats SET agentEnabled=1 WHERE botId=? AND chatId=?').run(botId,chatId);a=db.ensureAgent(botId,chatId);scopes.set(a.agentId,lifecycle.scope({botId,chatId,agentId:a.agentId}));queue.setHeld(a.agentId,'disabled',false);return `Agent enabled. Missed tasks: ${scheduler.resume(a.agentId)}`;}
+    if(enabled){if(a?.stopPending)throw new Error('Agent is stopping. Retry after completion.');if(chat.agentEnabled){return a&&control.start(a)?'Queue resumed':'Already enabled';}db.sql.prepare('UPDATE chats SET agentEnabled=1 WHERE botId=? AND chatId=?').run(botId,chatId);a=db.ensureAgent(botId,chatId);control.start(a);scopes.set(a.agentId,lifecycle.scope({botId,chatId,agentId:a.agentId}));queue.setHeld(a.agentId,'disabled',false);return `Agent enabled. Missed tasks: ${scheduler.resume(a.agentId)}`;}
     if(!chat.agentEnabled && !a?.stopPending)return 'Already disabled';
-    if(a){inline?.disableOwner(botId,a.agentId,'agent_disabled');await widgets?.disableOwner(a,'agent_disabled');}
+    if(a){control.invalidate(a.agentId,'stop');inline?.disableOwner(botId,a.agentId,'agent_disabled');await widgets?.disableOwner(a,'agent_disabled');}
     db.sql.prepare('UPDATE chats SET agentEnabled=0 WHERE botId=? AND chatId=?').run(botId,chatId);clearChatActivity(botId,chatId);albums.clearChat(botId,chatId);
     if(a){db.sql.prepare('UPDATE agents SET stopPending=1,contextResetPending=1 WHERE agentId=?').run(a.agentId);queue.setHeld(a.agentId,'disabled',true);scheduler.disable(a.agentId);queue.clear(a.agentId);const busy=Boolean(queue.agentJobs.get(a.agentId)?.size || agent.hasBackground?.(a.agentId));const work=finishStop(a);if(!busy)await work;}
     return a && db.agent(botId,chatId)?.stopPending ? 'Agent is stopping' : 'Agent disabled';
@@ -393,8 +430,9 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     const rulesDir = path.join(config.dataDir, 'rules', botId); fs.mkdirSync(rulesDir, { recursive: true }); fs.writeFileSync(path.join(rulesDir, 'AGENTS.md'), bytes);
     db.sql.prepare('UPDATE bots SET rulesVersion=rulesVersion+1 WHERE botId=?').run(botId);
     for (const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(botId)) {
+      control.invalidate(a.agentId,'rules');
       if (!force && (queue.state(a.agentId).busy || agent.hasBackground?.(a.agentId))) continue;
-      lifecycle.invalidate(a.agentId); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(a.agentId); await agent.deleteSession?.(a.agentId, a.threadId); websockets.closeAgent(a.agentId,'context_reset');
+      await control.idleAgent(a.agentId);lifecycle.invalidate(a.agentId); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(a.agentId); await agent.deleteSession?.(a.agentId, a.threadId);control.retired(a.agentId);websockets.closeAgent(a.agentId,'context_reset');
     }
   };
   const masterCommands = config ? createMaster({ db, config,
@@ -407,7 +445,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       for(const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(id))await widgets?.removeOwner(a);
       await mcpOAuth.deleteBot(id,()=>createMcpStore(db).list(id));
       deleting.add(id); websockets.deleteBot(id);
-      for (const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(id)) { queue.setPaused(a.agentId, true); lifecycle.invalidate(a.agentId); agent.detach?.(a.agentId); }
+      for (const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(id)) { control.invalidate(a.agentId,'delete');queue.setPaused(a.agentId, true); lifecycle.invalidate(a.agentId); agent.detach?.(a.agentId); }
       await config.onBotRemoved?.(id);
       await pauseBot(id);
       for (const a of db.sql.prepare('SELECT * FROM agents WHERE botId=?').all(id)) {
@@ -474,12 +512,13 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     enqueue:(scope,event,admit)=>{scopes.set(scope.agentId,lifecycle.scope(scope));if(gate.held.has(scope.botId))queue.setPaused(scope.agentId,true);return queue.enqueue(scope.agentId,event,'guest',admit);}});
   const widgetReady=guest.recover().catch(onError).then(()=>widgets?.recover().catch(onError)).then(()=>inlineEvents.drain());
   sayEvents=createSayEvents({db,store:ephemeralStore,messages:ephemeralMessages,telegram,queue,assertCurrent,onError,isUnavailable:(botId,chatId)=>lifecycle.closed||deleting.has(botId)||isStopping(botId,chatId),resolveScope:record=>{const scope=lifecycle.scope(record);scopes.set(record.agentId,scope);if(gate.held.has(record.botId))queue.setPaused(record.agentId,true);return scope;}});
-  const commands = createCommands({ db, config: config ?? {}, telegram, clock, onError, browse, say:(botId,message)=>sayEvents.receive(botId,message), scheduler, stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'stopping' : availability.get(id) ?? 'idle',queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets,widgets,mcpOAuth, requestMcpRefresh, testMcp:(botId,entry)=>agent.testMcp(botId,entry), masterCommands, fileCommands });
+  const commands = createCommands({ db, config: config ?? {}, telegram, clock, onError, browse, say:(botId,message)=>sayEvents.receive(botId,message), scheduler, agentControl:control,controlReply:(target,text)=>control.reply(target,text),contextStatus:id=>agent.context?.snapshot(id)??{usedTokens:null,maxTokens:null,measuredAt:null},stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'stopping' : (control.status(id).phase!=='running'&&control.status(id).phase?control.status(id).phase:availability.get(id)??'idle'),queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets,widgets,mcpOAuth, requestMcpRefresh, testMcp:(botId,entry)=>agent.testMcp(botId,entry), masterCommands, fileCommands });
   for (const record of db.sql.prepare('SELECT * FROM agents').all()) {if(!db.getChat(record.botId,record.chatId).agentEnabled)queue.setHeld(record.agentId,'disabled',true);if(record.stopPending)finishStop(record);else if(record.contextResetPending)resetContext(record);}
+  const ready=control.recover().then(()=>widgetReady);
   return {
-    queue, lifecycle, invoke, scheduler, stopAgent, websockets,widgets,inline:{service:inline,requests:inlineRequests,store:inlineStore,events:inlineEvents},guest:{service:guest,store:guestStore,events:guestEvents},ready:widgetReady,
+    control,queue, lifecycle, invoke, scheduler, stopAgent, websockets,widgets,inline:{service:inline,requests:inlineRequests,store:inlineStore,events:inlineEvents},guest:{service:guest,store:guestStore,events:guestEvents},ready,
     async receive(botId, update) {
-      await widgetReady;
+      await ready;
       if(update.guest_message){guestEvents.receive(botId,update);return;}
       if(update.inline_query){if(botId!=='master')inline.receive(botId,update.inline_query);return;}
       const route = update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? update.my_chat_member?.chat?.id;
@@ -520,21 +559,17 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         const closed = JSON.parse(state?.closed ?? '[]');
         if (parsed.group && closed.includes(parsed.group)) { await ack('Выбор уже сделан'); return; }
         if (!queue.canAccept(a.agentId)) { await ack('Бот занят, попробуйте позже'); return; }
-        if (parsed.group) db.sql.prepare('INSERT INTO button_state(botId,chatId,messageId,closed) VALUES(?,?,?,?) ON CONFLICT(botId,chatId,messageId) DO UPDATE SET closed=excluded.closed').run(botId, m.chat.id, m.message_id, JSON.stringify([...closed, parsed.group]));
-        scopes.set(a.agentId, lifecycle.scope({ botId, agentId: a.agentId, chatId: m.chat.id }));
-        const busy = queue.state(a.agentId).busy;
-        if (['group','supergroup'].includes(m.chat.type)) loud.set(gapKey(botId,m.chat.id,isForum?buttonTopic:null), { until: clock() + 120000, remaining: 10 });
-        await ack(busy ? 'Принято, ожидает обработки' : undefined);
-        if (parsed.group) {
-          const changed = closeButtons(stored, parsed.group, cb.data);
-          try {
-            const result = changed.rich_message
-              ? await telegram.call(botId, 'editMessageText', { chat_id: m.chat.id, message_id: m.message_id, rich_message: richInput(changed.rich_message), ...(changed.reply_markup ? { reply_markup: changed.reply_markup } : {}) })
-              : await telegram.call(botId, 'editMessageReplyMarkup', { chat_id: m.chat.id, message_id: m.message_id, reply_markup: changed.reply_markup });
-            db.saveMessage(botId, typeof result === 'object' ? result : changed,undefined,{observeChat:false});
-          } catch (error) { onError(error); }
-        }
-        queue.enqueue(a.agentId, { eventType: 'button', messageId: m.message_id, ...(buttonTopic===null?{}:{topicId:buttonTopic}), from: { userId: cb.from.id, name: [cb.from.first_name, cb.from.last_name].filter(Boolean).join(' '), ...(cb.from.username ? { username: cb.from.username } : {}) }, key: parsed.key, ...(parsed.group ? { btnGroup: parsed.group } : {}), text: buttonText(button.text).replace(/^(⬜️?|⬛️?|✅)\s*/u, '') }, 'chat');
+        const scope=lifecycle.scope({botId,agentId:a.agentId,chatId:m.chat.id});scopes.set(a.agentId,scope);
+        const event={eventType:'button',messageId:m.message_id,...(buttonTopic===null?{}:{topicId:buttonTopic}),from:{userId:cb.from.id,name:[cb.from.first_name,cb.from.last_name].filter(Boolean).join(' '),...(cb.from.username?{username:cb.from.username}:{})},key:parsed.key,...(parsed.group?{btnGroup:parsed.group}:{}),text:buttonText(button.text).replace(/^(⬜️?|⬛️?|✅)\s*/u,'')};
+        let eventId;const receipt=parsed.group?buttonRollback.prepare(scope,stored,parsed.group,cb.data):null;
+        const holdKey=`button:${cb.id}`;if(receipt)queue.setHeld(a.agentId,holdKey,true);
+        try{
+          const accepted=queue.enqueueCommitted(a.agentId,event,'chat',()=>!!db.getChat(botId,m.chat.id)?.agentEnabled,meta=>{eventId=meta.id;if(receipt)db.transaction(()=>buttonRollback.commit(receipt,eventId));});
+          if(accepted!=='accepted'){await ack('Button unavailable.');return;}
+          if(['group','supergroup'].includes(m.chat.type))loud.set(gapKey(botId,m.chat.id,isForum?buttonTopic:null),{until:clock()+120000,remaining:10});
+          await ack(queue.state(a.agentId).busy?'Accepted, waiting for processing.':undefined);
+          if(receipt)await buttonRollback.close(eventId);
+        }finally{if(receipt)queue.setHeld(a.agentId,holdKey,false);}
         return;
       }
       if (update.my_chat_member) {
@@ -562,6 +597,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         const a = db.agent(botId, m.chat.id); if (!a || !db.getChat(botId,m.chat.id)?.agentEnabled || m.location?.live_period) return;
         const state = queue.state(a.agentId), active = activeMessages.get(a.agentId), pending = state.events.find(e => Array.isArray(e.event) ? e.event.some(item => item.messageId === m.message_id) : e.event.messageId === m.message_id);
         const replacement=item=>({...shortMessage(m,item.eventType),...(item.triggers?{triggers:item.triggers}:{})});
+        if(pending)control.admitted(a.agentId,{source:'chat'});
         if (pending) pending.event = Array.isArray(pending.event) ? pending.event.map(item => item.messageId === m.message_id ? replacement(item) : item) : replacement(pending.event);
         else if (active?.messages.has(m.message_id) && !active.edits.has(m.message_id)) queue.enqueue(a.agentId, shortMessage(m, 'message_edited'), 'chat');
         return;
@@ -572,7 +608,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${topicIdOf(m)??0}:${m.media_group_id}`, { ...m, __botId: botId, __triggers:triggers }, trigger);
       else deliver(botId, [{...m,__triggers:triggers}], trigger);
     },
-    idle: async () => { do { await sayEvents.idle();await queue.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await sayEvents.idle();await browse.idle();await gate.idle();await widgetReady;await inline.idle();await widgets?.idle();await closing; },
-    close() { fileAbort.abort();browse.close();sayEvents.close();commands.close();inline.close();inlineAvatars.close();unobserveChat?.();websockets.shutdown(); for (const {timer} of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= Promise.allSettled([mcpOAuth.close(),agent.close?.(),widgets?.close()]); },
+    idle: async () => { do { await sayEvents.idle();await queue.idle();await control.idle(); await Promise.allSettled([...resets.values(),...stateStops.values(),...mcpRefreshes.values()]); } while (queue.jobs.size || resets.size || stateStops.size || mcpRefreshes.size); await sayEvents.idle();await browse.idle();await messageSerial.idle();await gate.idle();await widgetReady;await inline.idle();await widgets?.idle();await closing; },
+    close() { fileAbort.abort();browse.close();sayEvents.close();commands.close();inline.close();inlineAvatars.close();unobserveChat?.();websockets.shutdown(); for (const {timer} of actions.values()) clearInterval(timer); actions.clear(); albums.close(); scheduler.close(); queue.close(); lifecycle.close(); closing ??= Promise.allSettled([mcpOAuth.close(),agent.close?.(),widgets?.close(),control.close()]); },
   };
 }

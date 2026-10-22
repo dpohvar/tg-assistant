@@ -6,6 +6,7 @@ The original documentation was preserved under `archive/` during the wiki reorga
 
 | Material | Location |
 |---|---|
+| Agent cancellation and context management | [Cancellation and queue eviction design](agent-cancel-design.md), [context management design](context-management-design.md), [combined implementation plan](plans/2026-10-23-agent-control.md), [test-environment preflight](agent-control-preflight.md), [automated verification and review](agent-control-verification.md), [native and Telegram acceptance](agent-control-native-verification.md) |
 | Hidden /say correspondence | [Accepted design and verification](ephemeral-command-verification.md#say-accepted-next-iteration-design), [execution plan](plans/2026-10-20-say-ephemeral-agent.md); [current interface](../ephemeral.md) |
 | Sticker-set management | [Accepted specification](sticker-sets-spec.md), [implementation plan](sticker-sets-plan.md), [live verification](sticker-sets-verification.md); [current tool contract](../agent-contract.md#sticker-sets-and-custom-emoji-sets) |
 | Sticker and custom emoji investigation | [Original proposal and final scope](sticker-custom-emoji-plan.md): custom emoji downloading and on-demand inspection using system renderers; [current contract](../agent-contract.md#inspecting-stickers-and-custom-emoji) |

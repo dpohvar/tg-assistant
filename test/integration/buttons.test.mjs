@@ -21,7 +21,7 @@ test('ordinary rich callbacks deliver readable labels and close a group without 
   const rendered=edits[0].rich_message.blocks[0].buttons[0];assert.deepEqual(rendered.text,['✅ ',emoji,dateTime]);assert.deepEqual(rendered.disabled,{});
 });
 
-test('full queue rejects a grouped click without consuming the choice; accepted choice is one-shot', async t => {
+test('full queue accepts a grouped click, eviction reopens it, and accepted choice is one-shot', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-buttons-')), db = openDatabase(path.join(root, 'db.sqlite'));
   db.registerBot({ botId: 'b', telegramId: 42, username: 'bot', ownerId: 1 });
   const chat = { id: 1, type: 'private' }, batches = [], acknowledgements = []; let finish;
@@ -37,9 +37,10 @@ test('full queue rejects a grouped click without consuming the choice; accepted 
   for (let n = 2; n <= 11; n++) await c.receive('b', message(n));
   db.saveMessage('b', stored);
   const click = id => c.receive('b', { callback_query: { id, from: { id: 1, first_name: 'Owner' }, message: stored, data: '[g]a' } });
-  await click('full'); assert.match(acknowledgements.at(-1).text, /занят/);
-  assert.equal(db.sql.prepare('SELECT 1 FROM button_state WHERE botId=?').get('b'), undefined);
-  const a = db.agent('b', 1); c.queue.clear(a.agentId);
+  await click('full');assert.match(acknowledgements.at(-1).text,/Accepted/);
+  const a=db.agent('b',1);for(let n=12;n<22;n++)await c.receive('b',message(n));
+  await waitFor(()=>db.getMessage('b',1,100).reply_markup.inline_keyboard[0][0].callback_data==='[g]a');
+  c.queue.clear(a.agentId);
   await click('accepted'); await click('duplicate');
   assert.equal(c.queue.pending(a.agentId), 1);
   assert.match(acknowledgements.at(-1).text, /Кнопка недоступна|Выбор уже сделан/);

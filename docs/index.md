@@ -10,6 +10,7 @@ This wiki describes the current implementation. Start with [installation and ope
 | [Master bot](master-bot.md) | Registering bots, assigning owners, and removing bots |
 | [Child-bot commands](commands.md) | Command syntax, roles, chat administration, and file commands |
 | [Agents](agents.md) | Instructions, models, context, triggers, queues, and lifecycle |
+| [Agent control](agent-control.md) | Cancellation, context estimates, compaction, continuation, overflow and recovery |
 | [Agent contract](agent-contract.md) | Controller tools, arguments, results, and errors |
 | [Message events](message-events.md) | Event batches, short messages, detailed reads, and examples |
 | [Hidden correspondence](ephemeral.md) | `/say`, prepared private replies, tool addresses and retention |

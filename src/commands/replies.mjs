@@ -1,3 +1,4 @@
+import {roles} from '../access/scope.mjs';
 export const isEphemeral = message => message?.ephemeral_message_id!==undefined||message?.receiver_user!==undefined;
 const safeError=text=>Object.assign(new Error(text),{safe:true,commandReplyFailed:true});
 export function createCommandReply({telegram,botId,message,now=Date.now,timers={setTimeout,clearTimeout}}){
@@ -38,6 +39,14 @@ export function createCommandReply({telegram,botId,message,now=Date.now,timers={
       return fresh(body);
     },
     async finish(){cancel();completed=true;await ackJob;if(ephemeral&&status&&!used)try{await telegram.call(botId,'deleteEphemeralMessage',target());}catch{}},
+    async detachStatus(text){
+      assertOpen();await settle();completed=true;
+      let result;if(ephemeral){if(status){used=true;await privateCall('editEphemeralMessageText',{...target(),text});result=status;}else{result=await fresh({text});used=true;}}
+      else result=await telegram.call(botId,'sendMessage',{chat_id:chatId,text,reply_parameters:{message_id:message.message_id}});
+      const common={botId,chatId,requesterUserId:userId};
+      if(ephemeral){if(!Number.isSafeInteger(result?.ephemeral_message_id))throw safeError('Telegram did not confirm the private acknowledgement.');return {...common,ephemeralMessageId:result.ephemeral_message_id,receiverUserId:userId};}
+      if(!Number.isSafeInteger(result?.message_id))throw safeError('Telegram did not confirm the acknowledgement.');return {...common,messageId:result.message_id};
+    },
     close(){closed=true;completed=true;cancel();abort.abort();},
   };
   session.telegram={...telegram,call:async(id,method,args={},options)=>{
@@ -62,4 +71,10 @@ export function createCommandReply({telegram,botId,message,now=Date.now,timers={
     throw safeError('This command response cannot be sent privately.');
   }};
   return session;
+}
+export async function updateControlReply({telegram,db},target,text){
+  if(!target||!db.getBot(target.botId)||!db.getChat(target.botId,target.chatId)||(roles[db.role(target.botId,target.requesterUserId)]??0)<(roles[target.requiredRole??'user']))return;
+  const args={chat_id:target.chatId,text};
+  if(target.ephemeralMessageId!==undefined){Object.assign(args,{ephemeral_message_id:target.ephemeralMessageId,receiver_user_id:target.receiverUserId});await telegram.call(target.botId,'editEphemeralMessageText',args);}
+  else {args.message_id=target.messageId;await telegram.call(target.botId,'editMessageText',args);}
 }

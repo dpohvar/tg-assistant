@@ -43,6 +43,7 @@ export function createEphemeralStore(db,{now=Date.now}={}){
     markDeleted(scope,address){modify(scope,address,{deleted:1});},
     setEventState(scope,address,state){modify(scope,address,{eventState:JSON.stringify(state)});},
     markQueued(scope,address){modify(scope,address,{queued:1});},
+    markEvicted(scope,address){const row=get(scope,address);modify(scope,address,{queued:1,eventState:JSON.stringify({...row.eventState,evicted:true})});},
     cleanup(at=now()){sql.prepare('DELETE FROM ephemeral_messages WHERE expiresAt<=?').run(at);},
   };
 }

@@ -1,5 +1,7 @@
 # Sending, editing and interactive messages
 
+Ordinary grouped callbacks retain event-owned snapshots for overflow restoration. Restoration edits only a still-owned unchanged group under the same ordinary-message serialization as model edits/deletes and widget takeover; it preserves current text, other groups and permits. Unknown edits stay closed without blind retry. See [queue eviction](agent-control.md#overflow-and-recovery).
+
 Agents publish through controller tools; their final Codex text is internal. The tool schemas in [agent-contract.md](agent-contract.md) define accepted top-level fields. Nested Telegram objects use native field names. A connected public chat is readable, but another enabled chat agent owns publication in its chat: use `agent_message` to delegate. Direct cross-chat writes are available only to connected passive supergroups/channels; deletion is limited to the current chat. Telegram bot permissions remain necessary. See [security.md](security.md) and [channels-and-discussions.md](channels-and-discussions.md).
 
 ## Send a message

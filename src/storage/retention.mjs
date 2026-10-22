@@ -7,8 +7,12 @@ import {createInlineStore} from '../inline/store.mjs';
 import {createGuestStore} from '../guest/store.mjs';
 import {createGuestReceipts} from '../guest/receipts.mjs';
 import {createEphemeralStore} from '../ephemeral/store.mjs';
+import {createControlStore} from '../agents/control-store.mjs';
+import {createWorkStore} from '../agents/work.mjs';
 export async function retention({ db, config, telegram, now = Date.now() }) {
   createEphemeralStore(db).cleanup(now);
+  createControlStore(db).cleanup(now);createWorkStore(db).cleanup(now);
+  db.sql.prepare("DELETE FROM button_rollbacks WHERE updatedAt<? AND state IN ('handled','restored','superseded')").run(now-30*86400000);
   createUsageStore(db).cleanup(now);
   createInlineStore(db).cleanup(now);
   createGuestStore(db).cleanup(now);

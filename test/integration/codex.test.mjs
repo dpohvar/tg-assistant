@@ -119,13 +119,13 @@ test('intentional session deletion classifies rejected root and steer RPC as rul
   for (const kind of ['root', 'steer']) {
     let rejectRequest, rejectDone;
     const agent = new CodexAgent({ db: { agent: () => ({ model: 'test' }) }, config: {} });
-    const s = { threadId: 'saved', persisted:true, turnId: kind === 'steer' ? 'active' : null, pendingChildren: new Set(), rpc: {
-      request(method) { return ['turn/start', 'turn/steer'].includes(method) ? new Promise((_resolve, reject) => { rejectRequest = reject; }) : Promise.resolve({}); },
+    const s = {bindings:new Map(),workSettlements:new Set(),childFailures:new Map(),threadId: 'saved', persisted:true, turnId: kind === 'steer' ? 'active' : null, pendingChildren: new Set(), rpc: {
+      on(){},off(){},request(method) { return ['turn/start', 'turn/steer'].includes(method) ? new Promise((_resolve, reject) => { rejectRequest = reject; }) : Promise.resolve({}); },
       waitFor() { return new Promise((_resolve, reject) => { rejectDone = reject; }); },
       close() { rejectRequest?.(new Error('Connection closed')); rejectDone?.(new Error('Connection closed')); },
     } };
     agent.sessions.set('a', s); agent.session = async () => s;
-    const work = kind === 'root' ? agent.run({ agentId: 'a', botId: 'b', chatId: 1 }, [], async () => {}) : agent.steer('a', []);
+    const work = kind === 'root' ? agent.run({ agentId: 'a', botId: 'b', chatId: 1 }, [], async () => {}) : agent.steer('a', [{eventType:'message',textPlain:'correction'}]);
     const rejected = assert.rejects(work, error => error.code === 'rules_replaced');
     await new Promise(resolve => setImmediate(resolve));
     await agent.deleteSession('a'); await rejected;

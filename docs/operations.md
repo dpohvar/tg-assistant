@@ -1,5 +1,7 @@
 # Operations
 
+Agent cancellation/compaction state is recovered before scheduler offers and polling. Unknown native outcomes retain holds. Windows requires its existing .NET Framework compiler to build the small per-server Job Object owner; failed ownership prevents native model startup. The ordinary queue remains RAM-only. See [agent control](agent-control.md).
+
 [Wiki home](index.md) · [Architecture](architecture.md) · [Commands](commands.md) · [Master bot](master-bot.md)
 
 Run the controller as a dedicated ordinary Linux user. The supported deployment workflow uses Alpine over SSH. Node.js must be at least **24.18.1**; the validated Codex CLI is **0.159.3**, with a native executable for the host architecture and musl. Startup executes `codex --version`: a different version produces a warning and continues with an unvalidated runtime; a failed version command prevents startup. Upgrading Codex requires fresh runtime and filesystem isolation checks.
@@ -9,14 +11,17 @@ Run the controller as a dedicated ordinary Linux user. The supported deployment 
 An administrator installs system dependencies. Ensure the Alpine repositories supply the required Node version; do not assume the distribution default satisfies the engine requirement.
 
 ```sh
-apk add --no-cache git nodejs npm ripgrep tzdata ca-certificates curl chromium poppler-utils font-dejavu ffmpeg
+apk add --no-cache git nodejs npm python3 ripgrep tzdata ca-certificates curl chromium poppler-utils font-dejavu ffmpeg
 ```
+
+Native agent control on Linux requires `python3` and readable `/proc` for the private child-subreaper supervisor. Native Codex sandboxing additionally needs working user/mount namespaces; container deployments must provide them. See [agent control](agent-control.md).
 
 `nohup` must also be available (BusyBox or coreutils). Install Codex separately, for example under `/opt/codex/bin`, and verify:
 
 ```sh
 node --version
 npm --version
+python3 --version
 /opt/codex/bin/codex --version
 command -v nohup
 chromium --version

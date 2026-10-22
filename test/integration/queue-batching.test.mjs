@@ -92,14 +92,14 @@ test('commits happen immediately, with admission rechecked at the batch deadline
   await q.idle(); assert.equal(q.pending('a'),0);
 });
 
-test('a full collecting batch rejects excess chat events without delaying other sources', async t => {
+test('a full collecting batch evicts oldest chat events without delaying other sources', async t => {
   const {queue:q,batches,advance} = fixture(t);
   for(let n=0;n<10;n++)assert.equal(q.enqueue('a',{n},'chat'),'accepted');
-  assert.equal(q.enqueue('a',{n:10},'chat'),'full');
+  assert.equal(q.enqueue('a',{n:10},'chat'),'accepted');
   assert.equal(q.enqueue('a',{n:11},'schedule'),'accepted');
   await advance(200);
   assert.equal(batches.length,1);
-  assert.deepEqual(batches[0].events.map(event=>event.n),[0,1,2,3,4,5,6,7,8,9,11]);
+  assert.deepEqual(batches[0].events.map(event=>event.n),[1,2,3,4,5,6,7,8,9,10,11]);
 });
 
 test('a Telegram burst reaches the controller agent in one batch with edits applied', async t => {

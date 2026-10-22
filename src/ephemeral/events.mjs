@@ -43,6 +43,9 @@ export function createSayEvents({db,store,messages,telegram,queue,resolveScope,a
     return true;
   }
   return {
+    async evicted(scope,event){
+      try{store.markEvicted(scope,{ephemeralMessageId:event.ephemeralMessageId});if(event.preparedReply)await messages.edit(scope,{...event.preparedReply,text:'Request was removed from the queue because newer messages arrived. Please send it again.'});}catch(error){onError(Object.assign(new Error('Evicted private request notification was not confirmed.'),{code:error.code??'private_notification_failed'}));}
+    },
     receive(botId,message){const key=`${botId}:${message.chat.id}:${message.ephemeral_message_id??message.message_id}`;if(jobs.has(key))return jobs.get(key);const work=receive(botId,message).finally(()=>jobs.delete(key));jobs.set(key,work);return work;},
     close(){closed=true;},
     async idle(){while(jobs.size)await Promise.allSettled([...jobs.values()]);},

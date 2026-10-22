@@ -22,6 +22,20 @@ export async function handleAgent({
   taskDetails,
 }) {
   const action = parts.shift() ?? "status";
+  if(['cancel','context','compact'].includes(action)){
+    if(parts.length>1||parts.some(p=>['*','in','default'].includes(p)))throw syntaxError(`Use /agent ${action} [AGENT_ID].`);
+    if(action!=='cancel'||parts.length)requireAdmin();else requireLocal();
+    const a=parts.length?db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(botId,parts[0]):db.agent(botId,m.chat.id);
+    if(!a)throw syntaxError('Agent not found.');
+    if(action==='context'){const snapshot=deps.contextStatus(a.agentId),state=deps.agentControl.status(a.agentId);await send(`Context: ${snapshot.usedTokens??'unknown'} / ${snapshot.maxTokens??'unknown'} tokens\nMeasured: ${snapshot.measuredAt??'unknown'}\nControl: ${state.compact??state.phase??'running'}`);return true;}
+    if(!db.getChat(botId,a.chatId)?.agentEnabled){await send('Agent is disabled.');return true;}
+    const replyId=JSON.stringify([botId,m.chat.id,m.ephemeral_message_id===undefined?'ordinary':'ephemeral',m.ephemeral_message_id??m.message_id,m.from.id,action]);
+    if(!deps.agentControl.store.prepareReply(a.agentId,replyId,{action,requesterUserId:m.from.id}))return true;
+    let replyTarget;try{replyTarget={...await deps.detachStatus(action==='cancel'?'Cancelling current work…':'Compaction queued.'),replyId,requiredRole:action!=='cancel'||parts.length?'admin':group?'manager':'user'};deps.agentControl.store.updateReply(replyId,'prepared',{target:replyTarget});}catch(e){deps.agentControl.store.updateReply(replyId,'unknown');throw e;}
+    const result=action==='cancel'?deps.agentControl.cancel(a,{replyTarget}):deps.agentControl.requestCompact(a,{kind:'manual',replyTarget});
+    if(result.status!=='accepted')await deps.controlReply?.(replyTarget,`Control request: ${result.status}.`);
+    return true;
+  }
   if (["status", "start", "stop", "clear"].includes(action)) {
     const t = parseTarget(parts, { star: ["stop", "clear"].includes(action) }),
       v = target(t);

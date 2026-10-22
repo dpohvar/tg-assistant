@@ -51,8 +51,8 @@ test('callback uses the saved message topic and the ten-event queue is shared ac
  for(let i=2;i<=10;i++)await f.send(i,5,true);
  await f.send(11,4,true);assert.equal(f.c.queue.pending(a.agentId),10);
  await f.c.receive('b',{callback_query:{id:'full',from:{id:1},message:{message_id:100,chat:f.chat},data:'click'}});
- assert.match(f.calls.at(-1).args.text,/занят/);finish();await f.c.idle();
- assert.equal(f.batches[1][0].eventType,'button');assert.equal(f.batches[1][0].topicId,4);
+ assert.match(f.calls.at(-1).args.text,/Accepted/);finish();await f.c.idle();
+ assert.equal(f.batches[1].find(e=>e.eventType==='button').topicId,4);
  assert.equal(f.batches[1].filter(e=>e.eventType==='message').length,9);
 });
 test('albums stay in their topic and consume one loud allowance after assembly',async t=>{

@@ -29,6 +29,7 @@ export class Scheduler {
   disable(agentId) { for(const t of this.db.sql.prepare('SELECT taskId FROM tasks WHERE agentId=?').all(agentId)) { this.queued.delete(t.taskId); this.retries.delete(t.taskId); this.db.sql.prepare("UPDATE task_firings SET missedReason='agent_disabled' WHERE taskId=? AND state='pending'").run(t.taskId); } }
   resume(agentId) { const ids=this.db.sql.prepare("SELECT tasks.taskId FROM tasks JOIN task_firings USING(taskId) WHERE agentId=? AND state='pending'").all(agentId); for(const t of ids)this.offer(t.taskId); return ids.length; }
   offer(taskId) {
+    if(!this.retries.has(taskId)&&this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='pending' AND missedReason='agent_cancelled'").get(taskId))return;
     if (this.queued.has(taskId) || this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='processing'").get(taskId)) return;
     const t = this.task(taskId); if (t && !this.enabled(t.agentId)) { this.disable(t.agentId); return; } if (!t || !this.db.sql.prepare("SELECT 1 FROM task_firings WHERE taskId=? AND state='pending'").get(taskId)) return;
     this.queued.add(taskId); this.enqueue(t.agentId, { eventType: 'scheduled', taskId });
@@ -51,9 +52,19 @@ export class Scheduler {
     if (success) this.offer(taskId);
   }
   recover() {
+    this.recovering=true;
+    try{
     this.queued.clear(); this.retries.clear();
-    for (const r of this.db.sql.prepare("SELECT taskId FROM task_firings WHERE state='processing'").all()) this.complete(r.taskId, false);
+    const protectedTasks=new Set(this.db.sql.prepare("SELECT data FROM agent_work WHERE state='suspended' OR (state='running' AND json_extract(data,'$.operationId') IS NOT NULL)").all().flatMap(r=>JSON.parse(r.data).origins??[]).map(o=>o.taskId).filter(Boolean));
+    for (const r of this.db.sql.prepare("SELECT taskId FROM task_firings WHERE state='processing'").all()) if(!protectedTasks.has(r.taskId))this.complete(r.taskId, false);
     for (const t of this.db.sql.prepare('SELECT * FROM tasks').all()) { if (!this.db.sql.prepare('SELECT 1 FROM task_firings WHERE taskId=?').get(t.taskId)) this.arm(t); else { this.offer(t.taskId); if (t.cron) this.arm(t); } }
+    }finally{this.recovering=false;}
+  }
+  interrupt(taskId){
+    const t=this.task(taskId);if(!t)return;
+    this.db.sql.prepare("UPDATE task_firings SET missedReason='agent_cancelled' WHERE taskId=? AND state='processing'").run(taskId);
+    const old=t.notified;this.db.sql.prepare('UPDATE tasks SET notified=1 WHERE taskId=?').run(taskId);this.complete(taskId,false);this.db.sql.prepare('UPDATE tasks SET notified=? WHERE taskId=?').run(old,taskId);
+    this.db.sql.prepare("UPDATE task_firings SET missedReason='agent_cancelled' WHERE taskId=? AND state='pending'").run(taskId);this.queued.delete(taskId);
   }
   retry(taskId) {
     if (!this.enabled(this.task(taskId)?.agentId)) throw new Error('Agent is disabled. Use /agent start first.');

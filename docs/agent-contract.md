@@ -10,6 +10,8 @@ All top-level argument objects reject additional properties. Required fields are
 
 ## Scope and execution
 
+Context tools: `context_status` takes no arguments and returns `{usedTokens,maxTokens,measuredAt}` with nulls for unknown values. `compact_context` accepts only optional `continuation:string` (nonempty, at most 4096 Unicode code points), root thread only. Acceptance returns `{status:"accepted",operationId,finishTurn:true}` and requires ending this compute turn. See [context management and continuation](agent-control.md).
+
 Tools are fenced by the bot and current agent lifecycle. Removed authorization, deletion, stopping or a replaced session can reject a call. Read access covers the current private chat and connected public chats of the same bot; another private chat is inaccessible. Write access covers the current chat and another connected **supergroup or channel** without an enabled agent. To publish in another active chat, delegate through `agent_message`. Foreign ordinary groups are not writable through these tools. See [security.md](security.md) and [channels-and-discussions.md](channels-and-discussions.md).
 
 Common scope errors are `invalid_argument`, `chat_not_accessible`, `chat_not_writable` and lifecycle failures reported as `tool_failed`. Telegram permission requirements still apply after controller access checks.

@@ -16,8 +16,8 @@ export function openDatabase(filename) {
     sql.exec('BEGIN IMMEDIATE');
     sql.exec('CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY)');
     const version = sql.prepare('SELECT COALESCE(MAX(version),0) AS version FROM schema_migrations').get().version;
-    if (version > 18) throw new Error('Database uses a newer schema than this controller supports.');
-    for (let n = 1; n <= 18; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
+    if (version > 20) throw new Error('Database uses a newer schema than this controller supports.');
+    for (let n = 1; n <= 20; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
       sql.exec(fs.readFileSync(new URL(`./migrations/${String(n).padStart(3, '0')}.sql`, import.meta.url), 'utf8'));
     }
     if(version<15)migrateWidgets(sql);
@@ -63,7 +63,12 @@ export function openDatabase(filename) {
         if(existing && (this.agent(botId,chat.id)||sql.prepare('SELECT 1 FROM messages WHERE botId=? AND chatId=?').get(botId,chat.id)||sql.prepare('SELECT 1 FROM topics WHERE botId=? AND chatId=?').get(botId,chat.id)))throw new Error('Migration target already contains dialog data.');
         this.saveChat(botId,chat,{observeTopics:false});
         sql.prepare('UPDATE chats SET agentEnabled=?,triggers=? WHERE botId=? AND chatId=?').run(old.agentEnabled,old.triggers,botId,chat.id);
-        for(const table of ['agents','messages','button_state','topics'])sql.prepare(`UPDATE ${table} SET chatId=? WHERE botId=? AND chatId=?`).run(chat.id,botId,oldId);
+        for(const table of ['agents','messages','button_state','topics','button_rollbacks'])sql.prepare(`UPDATE ${table} SET chatId=? WHERE botId=? AND chatId=?`).run(chat.id,botId,oldId);
+        const rewriteControlRoute=value=>{if(!value||typeof value!=='object')return;if(value.botId===botId&&value.chatId===oldId)value.chatId=chat.id;for(const child of Object.values(value))rewriteControlRoute(child);};
+        for(const table of ['button_rollbacks','agent_control_replies','agent_compactions','agent_work']){
+          const key={button_rollbacks:'eventId',agent_control_replies:'replyId',agent_compactions:'operationId',agent_work:'workId'}[table];
+          for(const row of sql.prepare(`SELECT t.${key},t.data FROM ${table} t JOIN agents a ON a.agentId=t.agentId WHERE a.botId=?`).all(botId)){const data=JSON.parse(row.data);rewriteControlRoute(data);sql.prepare(`UPDATE ${table} SET data=? WHERE ${key}=?`).run(JSON.stringify(data),row[key]);}
+        }
         for(const row of sql.prepare('SELECT viewId,message FROM widget_views WHERE botId=? AND chatId=?').all(botId,oldId)){
           const message=row.message?JSON.parse(row.message):null;if(message?.chat)message.chat={...message.chat,...chat};
           sql.prepare('UPDATE widget_views SET chatId=?,chatType=?,message=? WHERE viewId=?').run(chat.id,chat.type,message?JSON.stringify(message):null,row.viewId);

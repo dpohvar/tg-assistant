@@ -1,5 +1,7 @@
 # Hidden correspondence with a chat agent
 
+Queued `/say` participates in [oldest-chat eviction](agent-control.md#overflow-and-recovery). Eviction edits only its confirmed prepared private response to a queue-removal error; there is no public fallback or ordinary `historyGap`. Duplicate delivery stays terminal. Cancel retains admitted waiting private requests; fencing applies to cancelled compute work rather than those queued source receipts.
+
 [Wiki home](index.md) · [Commands](commands.md) · [Message events](message-events.md) · [Messaging](messaging.md)
 
 ## `/say`

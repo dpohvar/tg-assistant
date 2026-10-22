@@ -1,5 +1,7 @@
 # Security and access boundaries
 
+Agent control is bot-scoped: context/compact always require admin/owner; explicit cancel IDs also require admin/owner. Cancellation fences the interrupted work and native turn bindings while preserving queued admissions and persistent-resource ownership. Continuation/private reply targets are controller-owned data excluded from general logs and admin context output. See [agent control](agent-control.md).
+
 Hidden `/say` content is user-level chat input, without elevated trust or tool permissions. It requires application role `user` or higher and uses the common chat agent context. Ephemeral snapshots are excluded from ordinary history/search and cross-agent reads; private addresses are bound to the originating bot/chat/agent and recipient. Only recorded bot-authored outgoing responses can be edited/deleted. Known reused addresses are quarantined, operations on one private address are serialized, and uncertain edits prevent automatic repeat edits. Nested contact/location/venue fields cannot override private routing. Private-response failures never trigger public retries or public controller failure notices. See [hidden correspondence](ephemeral.md) for local retention and content limits.
 
 The application is designed for an operator-managed service with trusted bot administrators and sandboxed agents. It protects bot-to-bot filesystem and controller boundaries; it does not promise that an LLM will never mishandle information supplied to it.

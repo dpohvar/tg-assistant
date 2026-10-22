@@ -37,7 +37,7 @@ export function createCommands(deps) {
     if(match?.[1].toLowerCase()==='say'&&deps.say&&(!match[2]||match[2].toLowerCase()===deps.db.getBot(botId)?.username?.toLowerCase()))return deps.say(botId,m);
     const response=createCommandReply({telegram:deps.telegram,botId,message:m,now:deps.clock??Date.now});
     active.set(response,botId);
-    const scoped={...deps,telegram:response.telegram,uploadSucceeded:()=>lease?.succeed?.(),inviteUpload:async({name,args,message})=>{
+    const scoped={...deps,telegram:response.telegram,detachStatus:text=>response.detachStatus(text),uploadSucceeded:()=>lease?.succeed?.(),inviteUpload:async({name,args,message})=>{
       const text=name==='upload'?`Attach a document as a reply to THIS message to upload to ${args[0].value}.`:'Attach a document as a reply to THIS message to replace the bot rules.';
       const sent=await response.invite({text});uploads.register(botId,message,sent,{name,args});
     }};

@@ -1,0 +1,23 @@
+import {closeButtons,parseCallback,richInput} from './callbacks.mjs';
+const at=(object,path)=>path.reduce((v,k)=>v?.[k],object);
+function paths(value,group,path=[],out=[]){if(!value||typeof value!=='object')return out;if(typeof value.callback_data==='string'&&parseCallback(value.callback_data).group===group)out.push(path);for(const [key,child]of Object.entries(value))if(child&&typeof child==='object')paths(child,group,[...path,key],out);return out;}
+export function createButtonRollback({db,telegram,serial,assertCurrent=()=>{}}){
+ const sql=db.sql,read=id=>{const r=sql.prepare('SELECT * FROM button_rollbacks WHERE eventId=?').get(id);return r?{...JSON.parse(r.data),...r}:null;};
+ const state=(id,value)=>sql.prepare('UPDATE button_rollbacks SET state=?,updatedAt=? WHERE eventId=?').run(value,Date.now(),id);
+ const saveClosed=(r,close)=>{const row=sql.prepare('SELECT closed FROM button_state WHERE botId=? AND chatId=? AND messageId=?').get(r.botId,r.chatId,r.messageId);const groups=new Set(JSON.parse(row?.closed??'[]'));close?groups.add(r.group):groups.delete(r.group);sql.prepare('INSERT INTO button_state(botId,chatId,messageId,closed) VALUES(?,?,?,?) ON CONFLICT(botId,chatId,messageId) DO UPDATE SET closed=excluded.closed').run(r.botId,r.chatId,r.messageId,JSON.stringify([...groups]));};
+ const edit=async(r,m)=>{const result=await telegram.call(r.botId,m.rich_message?'editMessageText':'editMessageReplyMarkup',{chat_id:r.chatId,message_id:r.messageId,...(m.rich_message?{rich_message:richInput(m.rich_message)}:{}),...(m.reply_markup?{reply_markup:m.reply_markup}:{})});db.saveMessage(r.botId,result&&typeof result==='object'&&result.chat?{...m,...result}:m,undefined,{observeChat:false});};
+ return {
+  prepare(scope,message,group,selected){const changed=closeButtons(message,group,selected),parts=paths({rich_message:message.rich_message,reply_markup:message.reply_markup},group).map(path=>({path,original:at(message,path),closed:at(changed,path)}));return {botId:scope.botId,chatId:scope.chatId,messageId:message.message_id,agentId:scope.agentId,group,parts,scope:{...scope}};},
+  commit(receipt,eventId){sql.prepare('INSERT INTO button_rollbacks VALUES(?,?,?,?,?,?,?,?)').run(eventId,receipt.agentId,receipt.botId,receipt.chatId,receipt.messageId,'prepared',JSON.stringify(receipt),Date.now());saveClosed(receipt,true);},
+  close(id){const receipt=read(id);if(!receipt)return Promise.resolve();return serial.run(receipt,async()=>{const r=read(id);if(!r||!['prepared','handled_prepared'].includes(r.state))return;try{assertCurrent(r.scope);const m=db.getMessage(r.botId,r.chatId,r.messageId);if(!m){state(id,'superseded');return;}for(const part of r.parts){const parent=at(m,part.path.slice(0,-1));if(!parent||JSON.stringify(at(m,part.path))!==JSON.stringify(part.original)){state(id,'superseded');return;}parent[part.path.at(-1)]=structuredClone(part.closed);}state(id,r.state==='handled_prepared'?'handled_closing':'closing');await edit(r,m);state(id,read(id)?.state==='handled_closing'?'handled':'closed');}catch{state(id,'unknown');}});},
+  handled(id){const r=read(id),next={prepared:'handled_prepared',closing:'handled_closing',closed:'handled'}[r?.state];if(next)state(id,next);},
+  restore(id){const receipt=read(id);if(!receipt)return Promise.resolve({status:'superseded'});return serial.run(receipt,async()=>{const r=read(id);if(!r||!['closed','prepared'].includes(r.state))return {status:r?.state==='unknown'?'unknown':'superseded'};const m=db.getMessage(r.botId,r.chatId,r.messageId);if(!m){state(id,'superseded');return {status:'superseded'};}
+   if(r.state==='prepared'&&r.parts.every(part=>JSON.stringify(at(m,part.path))===JSON.stringify(part.original))){saveClosed(r,false);state(id,'restored');return {status:'restored'};}
+   for(const part of r.parts){if(JSON.stringify(at(m,part.path))!==JSON.stringify(part.closed)){state(id,'superseded');return {status:'superseded'};}}
+   for(const part of r.parts)at(m,part.path.slice(0,-1))[part.path.at(-1)]=structuredClone(part.original);
+   state(id,'restoring');try{await edit(r,m);saveClosed(r,false);state(id,'restored');return {status:'restored'};}catch{state(id,'unknown');return {status:'unknown'};}
+  });},
+  invalidate(target){sql.prepare("UPDATE button_rollbacks SET state='superseded',updatedAt=? WHERE botId=? AND chatId=? AND messageId=? AND state NOT IN ('handled','restored')").run(Date.now(),target.botId,target.chatId,target.messageId);},
+  recover(){sql.prepare("UPDATE button_rollbacks SET state='unknown' WHERE state IN ('prepared','closing','handled_prepared','handled_closing','restoring')").run();}
+ };
+}

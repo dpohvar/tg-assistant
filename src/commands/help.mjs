@@ -10,7 +10,7 @@ function availableCommands({ master = false, role, group = false }) {
   const result = {};
   if(group&&role)result.say='/say MESSAGE';
   if (local) {
-    result.agent = "/agent status\n/agent start\n/agent stop\n/agent clear";
+    result.agent = "/agent status\n/agent start\n/agent stop\n/agent clear\n/agent cancel";
     result.task =
       "/task list [RANGE]\n/task show TASK_ID\n/task retry TASK_ID|*\n/task delete TASK_ID|*";
     result.chat = "/chat info" + (group ? "\n/chat leave" : "");
@@ -21,7 +21,7 @@ function availableCommands({ master = false, role, group = false }) {
     result.widget='/widget list [RANGE]\n/widget list [RANGE] agent AGENT_ID\n/widget list [RANGE] in CHAT_ID\n/widget list [RANGE] all\n/widget show WIDGET_ID\n/widget delete WIDGET_ID\n/widget delete *\n/widget delete * agent AGENT_ID\n/widget delete * in CHAT_ID';
     result.ws = "/ws list [AGENT_ID|in CHAT_ID]\n/ws close CONNECTION_ID\n/ws delete CONNECTION_ID";
     result.agent +=
-      "\n/agent status|stop|clear [AGENT_ID|in CHAT_ID]\n/agent stop|clear *\n/agent start in CHAT_ID\n/agent list [RANGE]\n/agent messages [RANGE] [(from|to) agent AGENT_ID|chat CHAT_ID]\n/agent model [AGENT_ID|in CHAT_ID|default]\n/agent model set [AGENT_ID|in CHAT_ID|*|default] MODEL_NAME\n/agent models";
+      "\n/agent context [AGENT_ID]\n/agent compact [AGENT_ID]\n/agent cancel AGENT_ID\n/agent status|stop|clear [AGENT_ID|in CHAT_ID]\n/agent stop|clear *\n/agent start in CHAT_ID\n/agent list [RANGE]\n/agent messages [RANGE] [(from|to) agent AGENT_ID|chat CHAT_ID]\n/agent model [AGENT_ID|in CHAT_ID|default]\n/agent model set [AGENT_ID|in CHAT_ID|*|default] MODEL_NAME\n/agent models";
     result.task +=
       "\n/task list [RANGE] [agent AGENT_ID|in CHAT_ID]\n/task retry|delete * in CHAT_ID";
     result.chat +=
@@ -79,6 +79,10 @@ const details = {
   '/usage all': 'Show lifetime usage summed across all child bots, including removed ones. No period option is accepted. Total from is the service collection start. Reply /usage to this report for the combined increase.',
   '/usage @BOT': 'Show lifetime input/output tokens, native image generation starts and generated file bytes for one bot. Total from is its collection start, not registration history before this feature. This bot is resolved by username; reports include the stable Telegram ID.',
   '/usage @BOT hours|days|months|years': 'Show lifetime totals and nonzero UTC calendar buckets, newest first: current hour plus 23 previous hours, current day plus 29 previous days, current month plus 11 previous months, or all recorded years. The open bucket is marked in progress. Truncation keeps complete blocks. This option requires one bot, not all.',
+  '/agent cancel': 'Interrupt current work and owned children, preserving context and pending events. Pause until the next accepted event or /agent start. Completed external effects are retained.',
+  '/agent cancel AGENT_ID': 'Cancel an agent of this bot. An explicit target requires admin or owner. Unknown interruption keeps the queue held.',
+  '/agent context [AGENT_ID]': 'Show the last root-context estimate, measurement time and control phase. Unknown values are explicit. Admin or owner only; does not create a thread or wake the queue.',
+  '/agent compact [AGENT_ID]': 'Queue native context compaction after current work and the admitted event prefix. Later events wait. Admin or owner only; no extra parameters and no preparation turn.',
   '/agent status': 'Show the current chat’s agent ID, enabled/disabled mode, execution status and pending queue size. Admins also see the model. This does not start the agent; /agent is an alias.',
   '/agent start': 'Enable the current chat’s agent. New groups and supergroups initially record history without an agent. Starting restores operation and exposes accumulated missed scheduled actions. It does not interrupt a stop still in progress.',
   '/agent stop': 'Disable the current agent, stop triggers and loud mode, and discard its pending operational queue. Active work, including subagents, finishes before context removal. Agent ID, model, notes, history, schedules and shared files remain. Use /agent start to resume.',

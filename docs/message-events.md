@@ -1,6 +1,6 @@
 # Message events and saved history
 
-The controller sends a JSON **array of event objects** as the text input to a Codex turn. Multiple queued events, including album members, can arrive in one batch. When an agent is waiting and its root turn is still active, the controller can steer that turn with a new batch. Otherwise events wait for the next turn. This is distinct from the saved Telegram history: saved messages can exist without ever being delivered to the agent. See [agents.md](agents.md) for lifecycle and [agent-contract.md](agent-contract.md) for tools.
+The controller sends a JSON **array of event objects** as the text input to a Codex turn. Each actual submitted batch starts with one `context_status` snapshot; after successful requested compaction, its optional `continuation` appears once. An `agent_cancelled` notice can follow it before ordinary input. These service events do not enter Telegram history. See [agent control](agent-control.md). Multiple queued events, including album members, can arrive in one batch. When an agent is waiting and its root turn is still active, the controller can steer that turn with a new batch. Otherwise events wait for the next turn. This is distinct from the saved Telegram history: saved messages can exist without ever being delivered to the agent. See [agents.md](agents.md) for lifecycle and [agent-contract.md](agent-contract.md) for tools.
 
 ## Short Telegram messages
 
@@ -70,7 +70,7 @@ Private messages from authorized users need no group trigger. In groups/supergro
 
 Reasons are deduplicated case-insensitively. A trigger opens or refreshes a two-minute listening window allowing ten subsequent nontrigger delivery units. A batch of album members consumes one unit. A message without `triggers` may address someone else; delivery does not mean it is a request to the bot. A successful group button callback also opens this window. See [commands.md](commands.md) for configuring triggers.
 
-`historyGap:true` means saved group conversation was omitted from the agent's inputs, for example outside the listening window, while disabled, after a full queue or after queued input expired/was cleared. In forums it is tracked independently per topic and only consumed by an event in that topic; a mixed-topic batch can have several hints. It is attached once to the first suitable next `message`, `message_edited` or `button` event. The marker does not claim deletion from storage, identify a missing interval or guarantee every missing message can still be read. If a request depends on prior conversation, inspect `history`/`read`. The marker is in-memory lifecycle state, not a durable backlog cursor.
+`historyGap:true` means saved conversation was omitted from the agent's inputs, for example outside the listening window, while disabled, after queue eviction or after queued input expired/was cleared. In forums it is tracked independently per topic and only consumed by an event in that topic; a mixed-topic batch can have several hints. It is attached once to the first suitable next `message`, `message_edited` or `button` event. The marker does not claim deletion from storage, identify a missing interval or guarantee every missing message can still be read. If a request depends on prior conversation, inspect `history`/`read`. The marker is in-memory lifecycle state, not a durable backlog cursor.
 
 Channel posts are saved but do not directly trigger a channel agent. Connected discussion messages are separate group history; see [channels-and-discussions.md](channels-and-discussions.md).
 
@@ -120,7 +120,7 @@ For `replyTo:75`, first read **outer message 81** and inspect its one-level `rep
 [{"eventType":"button","messageId":102,"from":{"userId":123,"name":"Alex"},"key":"yes","btnGroup":"choice","text":"Choose","historyGap":true}]
 ```
 
-A callback must match a saved, enabled button, a permitted participant, an enabled agent and queue capacity. The controller acknowledges Telegram, closes grouped choices and queues this event. `key` is the parsed callback key; `btnGroup` exists only for `[group]key`. `text` strips a leading checkbox/selected/closed icon and following whitespace. It contains no native callback-query ID. Group closure is enforced locally even if the visible keyboard edit fails. See [messaging.md](messaging.md) for permits, icons and disabled buttons.
+A callback must match a saved, enabled button, a permitted participant, an enabled agent and successful queue admission. A full chat queue evicts the oldest waiting chat entry. The controller acknowledges Telegram, closes grouped choices and queues this event. `key` is the parsed callback key; `btnGroup` exists only for `[group]key`. `text` strips a leading checkbox/selected/closed icon and following whitespace. It contains no native callback-query ID. Group closure is enforced locally even if the visible keyboard edit fails. See [messaging.md](messaging.md) for permits, icons and disabled buttons.
 
 ## Scheduled and inter-agent events
 

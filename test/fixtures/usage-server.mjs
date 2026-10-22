@@ -17,6 +17,6 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   usage(child,50);usage(child,50);
   fs.writeFileSync(file,'generated test bytes');
   for(let j=0;j<2;j++){send({method:'item/started',params:{threadId:child,item:{type:'imageGeneration',id:'image',status:'in_progress'}}});send({method:'item/completed',params:{threadId:child,item:{type:'imageGeneration',id:'image',status:'completed',savedPath:file}}});}
-  for(const id of [child,root])send({method:'turn/completed',params:{threadId:id,turn:{status:'completed'}}});
+  for(const id of [child,root])send({method:'turn/completed',params:{threadId:id,turn:{id:id===root?'t'+turn:'child-turn',status:'completed'}}});
  }
 });

@@ -1,11 +1,15 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { EventEmitter } from 'node:events';
+import {fileURLToPath} from 'node:url';
+import {linuxOwner} from './linux-owner.mjs';
 export class RpcProcess extends EventEmitter {
   serial = 0; pending = new Map(); waiters = new Set(); failure = null;
-  constructor({ executable, args, cwd, env, handleRequest = async () => { throw new Error('Unattended permissions are not granted.'); } }) {
+  constructor({ executable, args, cwd, env, owned=false, handleRequest = async () => { throw new Error('Unattended permissions are not granted.'); } }) {
     super(); this.handleRequest = handleRequest;
-    this.child = spawn(executable, args, { cwd, env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const supervised=owned&&process.platform==='linux';
+    this.child=spawn(supervised?'python3':executable,supervised?[fileURLToPath(new URL('./linux-owner.py',import.meta.url)),executable,...args]:args,{cwd,env,windowsHide:true,stdio:supervised?['pipe','pipe','pipe','pipe','pipe']:['pipe','pipe','pipe']});
+    if(supervised)this.owner=linuxOwner(this.child);
     this.exited = new Promise(resolve => this.child.once('close', resolve));
     let stderr=''; // Memory only, bounded; diagnostics classify it without logging text.
     this.child.stderr.on('data', chunk => { stderr=(stderr+chunk.toString()).slice(-16384); });
@@ -32,7 +36,7 @@ export class RpcProcess extends EventEmitter {
       catch { response = { id: m.id, error: { code: -32000, message: 'Controller rejected this request.' } }; }
       try { this.write(response); } catch {}
     } else if (m.id !== undefined) {
-      const p = this.pending.get(m.id); if (!p) return;
+      const p = this.pending.get(m.id); if (!p) { this.emit('lateResponse',{id:m.id,ok:!m.error});return; }
       this.pending.delete(m.id); m.error ? p.reject(Object.assign(new Error(`Codex RPC rejected request (${m.error.code ?? 'unknown'}).`),{code:'codex_rpc_rejected',diagnostic:{rpcMethod:p.method,rpcCode:m.error.code},cause:m.error})) : p.resolve(m.result);
     } else {
       try { this.emit('notification', m); } catch { return this.fail(new Error('Controller could not process a Codex notification.')); }
@@ -49,7 +53,9 @@ export class RpcProcess extends EventEmitter {
   fail(error) { if (this.failure) return; this.failure = error; for (const p of this.pending.values()) p.reject(error); for (const w of this.waiters) w.reject(error); this.pending.clear(); this.waiters.clear(); this.emit('closed'); }
   close(graceMs = 1000) {
     if (this.closing) return this.closing;
-    this.fail(new Error('Codex connection closed.')); this.child.stdin.end(); this.child.kill();
+    this.fail(new Error('Codex connection closed.')); this.child.stdin.end();
+    if(this.owner){this.closing=(async()=>{const result=await this.owner.stop();if(result.state!=='interrupted')throw Error('Owned Codex processes could not be stopped.');await this.exited;})();this.closing.catch(()=>{});return this.closing;}
+    this.child.kill();
     const wait = async () => { let timer; try { return await Promise.race([this.exited.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), graceMs); })]); } finally { clearTimeout(timer); } };
     this.closing = (async () => { if (await wait()) return; this.child.kill('SIGKILL'); if (!await wait()) throw new Error('Codex process could not be stopped.'); })();
     // Some callers close from an event callback; awaiting callers still receive failures.

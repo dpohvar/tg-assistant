@@ -9,10 +9,11 @@ test('ten waiting chat events, schedule outside limit, order and batching', asyn
   const q = new AgentQueue({ dispatch: async (_, events) => { batches.push(events); if (batches.length === 1) await new Promise(r => { release = r; }); } });
   assert.equal(q.enqueue('a1', { n: 0 }, 'chat'), 'accepted'); await tick(t);
   for (let n = 1; n <= 10; n++) assert.equal(q.enqueue('a1', { n }, 'chat'), 'accepted');
-  assert.equal(q.enqueue('a1', { n: 11 }, 'chat'), 'full');
+  assert.equal(q.enqueue('a1', { n: 11 }, 'chat'), 'accepted');
   assert.equal(q.enqueue('a1', { taskId: 't1' }, 'schedule'), 'accepted');
   await tick(t); release(); await q.idle();
   assert.equal(batches.length, 2); assert.equal(batches[1].length, 11);
+  assert.equal(batches[1][0].n,2);assert.equal(batches[1][9].n,11);
 });
 test('waiting root accepts steer, failure discards pending events', async t => {
   t.mock.timers.enable({apis:['Date','setTimeout'],now:1000});

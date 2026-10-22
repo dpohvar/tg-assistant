@@ -1,5 +1,7 @@
 # Scheduler
 
+Logical work can span context compaction and continuation. Intermediate compute completion does not acknowledge its task. Cancelled processing is retained as retryable `missedReason:"agent_cancelled"` and is not automatically re-offered; an explicit retry may repeat completed effects. Old startup offers do not release a cancel-pause. See [agent control](agent-control.md).
+
 Tasks belong to an agent's chat and are stored in SQLite. Their events enter the same agent queue as messages but do not consume its ten chat-entry slots. Administrator task commands are documented in [commands](commands.md); agent tools are documented in the [agent contract](agent-contract.md).
 
 ## Creating tasks
