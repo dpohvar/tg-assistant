@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const run = promisify(execFile);
 const missing = () => ({ error: 'git_not_configured', description: 'Git is not configured for this bot. Ask the owner to run /git setup.' });
@@ -14,12 +16,24 @@ export async function gitChanges({ root, configured, branch }) {
     return { files: status ? status.split('\n') : [], commits: commits ? commits.split('\n') : [] };
   } catch { return { error: 'git_failed', description: 'Local Git status could not be read. Check the repository and configured remote branch.' }; }
 }
+async function stageChanges(root) {
+  await gitRun(root, ['rm', '-r', '-f', '--cached', '--ignore-unmatch', '--', '.temp']);
+  // An excluded pathspec pointing at ignored .temp makes `git add` fail.
+  // Enumerate eligible paths first, then stage their literal, NUL-delimited names.
+  const paths = await gitRun(root, ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '.', ':(exclude).temp']);
+  if (!paths) return;
+  const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-git-stage-'));
+  try {
+    const pathspecFile = path.join(stageDir, 'paths');
+    fs.writeFileSync(pathspecFile, paths, { mode: 0o600 });
+    await gitRun(root, ['--literal-pathspecs', 'add', '-A', '--pathspec-from-file=' + pathspecFile, '--pathspec-file-nul']);
+  } finally { fs.rmSync(stageDir, { recursive: true, force: true }); }
+}
 export async function gitSync(options, message) {
   if (!options.configured) return missing();
   let commit = null;
   try {
-    await gitRun(options.root, ['rm', '-r', '-f', '--cached', '--ignore-unmatch', '--', '.temp']);
-    await gitRun(options.root, ['add', '-A', '--', '.', ':(exclude).temp']);
+    await stageChanges(options.root);
     const staged = await gitRun(options.root, ['diff', '--cached', '--name-only']);
     if (staged) { if (!message?.trim()) return { error: 'invalid_argument', description: 'A commit message is required for modified files.' }; await gitRun(options.root, ['-c', 'user.name=Telegram Assistant', '-c', 'user.email=assistant@localhost', 'commit', '-m', message]); commit = await gitRun(options.root, ['rev-parse', '--short', 'HEAD']); }
     await gitRun(options.root, ['push', 'origin', `HEAD:refs/heads/${options.branch}`], options.env);

@@ -83,7 +83,7 @@ WebSocket binary files have additional [connection lifecycle limits](websocket.m
 
 ## Git
 
-`git_changes` reports staged, unstaged, and untracked files plus commits outside the locally known remote branch. It does not fetch, so the remote-tracking reference can be stale. `git_sync` stages changes including deletions, commits if needed, and pushes; it never pulls or fetches. `.temp` is forcibly excluded and removed from the index if necessary.
+`git_changes` reports staged, unstaged, and untracked files plus commits outside the locally known remote branch. It does not fetch, so the remote-tracking reference can be stale. `git_sync` stages changes including deletions, commits if needed, and pushes; it never pulls or fetches. `.temp` is forcibly excluded and removed from the index if necessary, including when it is already ignored by `.gitignore`. Other ignore rules remain effective for untracked files. Paths are staged literally, so spaces and pattern characters in file names do not change which files are selected.
 
 Administrator `/git setup BRANCH [REMOTE_URL [TOKEN]]` is a destructive workspace replacement, not routine synchronization. It clones the requested remote branch into staging, then replaces the bot's workspace except `.temp`. Local changes and unpushed commits are lost. An unsuccessful clone leaves the previous workspace intact. A remote containing `.temp` is rejected. Missing URL/token reuse saved settings.
 

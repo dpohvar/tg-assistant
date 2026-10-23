@@ -30,6 +30,41 @@ test('agent git tools report missing configuration as an error', async () => {
   assert.equal(result.error, 'git_not_configured'); assert.match(result.description, /git setup/);
 });
 
+test('sync succeeds with ignored temp files and preserves other ignore rules', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-git-ignored-'));
+  const repo = path.join(root, 'wiki'), remote = path.join(root, 'remote');
+  fs.mkdirSync(repo); fs.mkdirSync(remote);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  await gitRun(remote, ['init', '--bare']);
+  await gitRun(repo, ['init', '-b', 'game/joan-moreno']);
+  fs.writeFileSync(path.join(repo, '.gitignore'), '/.temp/\n/TeletaleRuntime.json\n');
+  fs.writeFileSync(path.join(repo, 'state.md'), 'chapter 553');
+  fs.writeFileSync(path.join(repo, 'obsolete.md'), 'remove me');
+  await gitRun(repo, ['add', '.']);
+  await gitRun(repo, ['-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'initial']);
+  await gitRun(repo, ['remote', 'add', 'origin', remote]);
+  await gitRun(repo, ['push', '-u', 'origin', 'game/joan-moreno']);
+  fs.mkdirSync(path.join(repo, '.temp'));
+  fs.writeFileSync(path.join(repo, '.temp', 'private.txt'), 'do not publish');
+  fs.writeFileSync(path.join(repo, 'TeletaleRuntime.json'), '{"pendingGit":true}');
+  fs.writeFileSync(path.join(repo, 'state.md'), 'chapter 554');
+  await gitRun(repo, ['add', '-A', '--', '.']); // State left by the earlier failed sync.
+  fs.unlinkSync(path.join(repo, 'obsolete.md'));
+  fs.writeFileSync(path.join(repo, 'scene [draft].md'), 'literal filename');
+  const options = { root: repo, configured: true, branch: 'game/joan-moreno' };
+
+  const result = await gitSync(options, 'Save chapter 554');
+  assert.equal(result.push, 'ok', JSON.stringify(result));
+  assert.ok(result.commit);
+  assert.equal(await gitRun(remote, ['ls-tree', '-r', '--name-only', 'game/joan-moreno']), '.gitignore\nscene [draft].md\nstate.md');
+  assert.equal(await gitRun(remote, ['show', 'game/joan-moreno:state.md']), 'chapter 554');
+  assert.equal(await gitRun(remote, ['show', 'game/joan-moreno:scene [draft].md']), 'literal filename');
+  assert.equal(fs.readFileSync(path.join(repo, '.temp', 'private.txt'), 'utf8'), 'do not publish');
+  assert.equal(fs.readFileSync(path.join(repo, 'TeletaleRuntime.json'), 'utf8'), '{"pendingGit":true}');
+  assert.deepEqual(await gitChanges(options), { files: [], commits: [] });
+  assert.deepEqual(await gitSync(options, 'No new changes'), { commit: null, push: 'ok' });
+});
+
 test('git authentication helper supplies credentials to an HTTP challenge', async t => {
   const http = await import('node:http');
   const { gitAuth } = await import('../../src/git/operations.mjs');
