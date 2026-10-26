@@ -4,6 +4,7 @@ import {createMcpStore} from './mcp/store.mjs';
 import {isMcpAuthReply} from './commands/mcp-auth-reply.mjs';
 import {WebSocketManager} from './websocket/manager.mjs';
 import { messageTriggers } from './telegram/triggers.mjs';
+import {activeBotUsernames} from './telegram/bot-profile.mjs';
 import { browserRead } from './readers/browser.mjs';
 import { pdfRead } from './readers/pdf.mjs';
 import { filterChatInfo } from './telegram/chat-info.mjs';
@@ -510,7 +511,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     answer:(botId,body)=>telegram.call(botId,'answerInlineQuery',body)});
   inlineMessages=createInlineMessages({db,store:inlineStore,access,telegram,assertCurrent,withTarget:widgets?widgets.withTarget:undefined});
   inlineEvents=createInlineEvents({store:inlineStore,widgets,queue,resolveOwner:resolveInlineOwner,telegram,onError});
-  guestEvents=createGuestEvents({store:guestStore,getBot:id=>db.getBot(id),
+  guestEvents=createGuestEvents({store:guestStore,getBot:id=>db.getBot(id),getActiveUsernames:id=>activeBotUsernames({db,telegram,botId:id}),onError,
     resolveActor:(botId,userId)=>{const a=db.agent(botId,userId);return a?resolveInlineOwner(botId,a.agentId):null;},
     isKnownMember:(botId,chat)=>chat.type!=='private'&&Boolean(db.getChat(botId,chat.id)),
     enqueue:(scope,event,admit)=>{scopes.set(scope.agentId,lifecycle.scope(scope));if(gate.held.has(scope.botId))queue.setPaused(scope.agentId,true);return queue.enqueue(scope.agentId,event,'guest',admit);}});
@@ -523,7 +524,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     control,queue, lifecycle, invoke, scheduler, stopAgent, websockets,widgets,inline:{service:inline,requests:inlineRequests,store:inlineStore,events:inlineEvents},guest:{service:guest,store:guestStore,events:guestEvents},ready,
     async receive(botId, update) {
       await ready;
-      if(update.guest_message){guestEvents.receive(botId,update);return;}
+      if(update.guest_message){await guestEvents.receive(botId,update);return;}
       if(update.inline_query){if(botId!=='master')inline.receive(botId,update.inline_query);return;}
       const route = update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? update.my_chat_member?.chat?.id;
       if (isStopping(botId, route)) { if (update.callback_query) await telegram.call(botId, "answerCallbackQuery", { callback_query_id: update.callback_query.id, text: "Бот занят" }); return; }
@@ -614,7 +615,12 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       }
       if (m.chat.type === 'channel') return;
       if(!db.getChat(botId,m.chat.id)?.agentEnabled){markGap(botId,m.chat.id,topicIdOf(m));return;}
-      const triggers=messageTriggers(m,db.getBot(botId),JSON.parse(db.getChat(botId,m.chat.id).triggers)),trigger=triggers.length>0;
+      let activeUsernames;
+      if((m.entities??m.caption_entities??[]).some(entity=>entity.type==='mention')){
+        try{activeUsernames=await activeBotUsernames({db,telegram,botId});}
+        catch(error){activeUsernames=new Set();try{onError(error);}catch{}}
+      }
+      const triggers=messageTriggers(m,db.getBot(botId),JSON.parse(db.getChat(botId,m.chat.id).triggers),activeUsernames),trigger=triggers.length>0;
       if (m.media_group_id) albums.add(`${botId}:${m.chat.id}:${topicIdOf(m)??0}:${m.media_group_id}`, { ...m, __botId: botId, __triggers:triggers }, trigger);
       else deliver(botId, [{...m,__triggers:triggers}], trigger);
     },

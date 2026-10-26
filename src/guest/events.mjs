@@ -1,16 +1,26 @@
 import {shortMessage} from '../telegram/short-message.mjs';
 
-export function explicitGuestMention(message,bot) {
-  if(!bot?.username)return false;
-  const username=bot.username.toLowerCase().replace(/^@/,'');
+export function guestMentionNames(message) {
+  const names=[];
   const text=message.text??message.caption??'';
-  if((message.entities??message.caption_entities??[]).some(entity=>entity.type==='mention'&&text.slice(entity.offset,entity.offset+entity.length).toLowerCase()==='@'+username))return true;
+  for(const entity of message.entities??message.caption_entities??[])
+    if(entity.type==='mention'){
+      const value=text.slice(entity.offset,entity.offset+entity.length);
+      if(value.startsWith('@'))names.push(value.slice(1).toLowerCase());
+    }
   function rich(value) {
-    if(!value||typeof value!=='object')return false;
-    if(value.type==='mention'&&typeof value.username==='string'&&value.username.replace(/^@/,'').toLowerCase()===username)return true;
-    return Object.entries(value).some(([key,item])=>!['reply_to_message','external_reply','quote','reference_messages','message','user'].includes(key)&&rich(item));
+    if(!value||typeof value!=='object')return;
+    if(value.type==='mention'&&typeof value.username==='string')names.push(value.username.replace(/^@/,'').toLowerCase());
+    for(const [key,item] of Object.entries(value))if(!['reply_to_message','external_reply','quote','reference_messages','message','user'].includes(key))rich(item);
   }
-  return rich(message.rich_message);
+  rich(message.rich_message);
+  return names;
+}
+
+export function explicitGuestMention(message,bot,activeUsernames) {
+  if(!bot?.username)return false;
+  const active=activeUsernames??new Set([bot.username.toLowerCase().replace(/^@/,'')]);
+  return guestMentionNames(message).some(name=>active.has(name));
 }
 
 export function shortGuestMessage(message,guestRequestId) {
@@ -19,7 +29,7 @@ export function shortGuestMessage(message,guestRequestId) {
   return {...event,guestRequestId,chatType:message.chat.type,...(message.chat.title?{chatTitle:message.chat.title}:{})};
 }
 
-export function createGuestEvents({store,getBot,resolveActor,enqueue,isKnownMember=()=>false}) {
+export function createGuestEvents({store,getBot,getActiveUsernames,resolveActor,enqueue,isKnownMember=()=>false,onError=()=>{}}) {
   function isCurrent(scope,id) {
     try {
       const req=store.get(scope,id),actor=resolveActor(scope.botId,req.callerUserId);
@@ -27,11 +37,16 @@ export function createGuestEvents({store,getBot,resolveActor,enqueue,isKnownMemb
     }catch{return false;}
   }
   return {isCurrent,
-    receive(botId,update) {
+    async receive(botId,update) {
       const message=update.guest_message;
       if(!message)return false;
-      if(botId==='master'||!Number.isSafeInteger(message.from?.id)||message.from.id<=0||message.sender_chat||typeof message.guest_query_id!=='string'||!message.guest_query_id||!['private','group','supergroup'].includes(message.chat?.type)||!explicitGuestMention(message,getBot(botId))||isKnownMember(botId,message.chat))return true;
+      if(botId==='master'||!Number.isSafeInteger(message.from?.id)||message.from.id<=0||message.sender_chat||typeof message.guest_query_id!=='string'||!message.guest_query_id||!['private','group','supergroup'].includes(message.chat?.type)||isKnownMember(botId,message.chat))return true;
       const scope=resolveActor(botId,message.from.id);if(!scope)return true;
+      if(!guestMentionNames(message).length)return true;
+      let active;
+      try{active=await getActiveUsernames(botId);}
+      catch(error){try{onError(error);}catch{}return true;}
+      if(!explicitGuestMention(message,getBot(botId),active))return true;
       const {request,created}=store.record({botId,agentId:scope.agentId,callerUserId:message.from.id,updateId:update.update_id,message});
       if(created)enqueue(scope,shortGuestMessage(message,request.guestRequestId),()=>isCurrent(scope,request.guestRequestId));
       return true;

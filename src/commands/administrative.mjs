@@ -25,6 +25,7 @@ export function createAdministrativeCommands({
   fileCommands,
   inviteUpload,
   uploadSucceeded,
+  isBotAddress,
 }) {
   const access = createAccess(db);
   const privateCommands = new Set([
@@ -63,10 +64,7 @@ export function createAdministrativeCommands({
         name = (
           match?.[1] ?? m.reply_to_message.text.slice(1).split(/\s/)[0]
         ).toLowerCase();
-      if (
-        match?.[2] &&
-        match[2].toLowerCase() !== db.getBot(botId)?.username.toLowerCase()
-      )
+      if (match?.[2] && !await isBotAddress(match[2]))
         return false;
       const sensitive = false;
       if (m.chat.type === "channel") return Boolean(sensitive);

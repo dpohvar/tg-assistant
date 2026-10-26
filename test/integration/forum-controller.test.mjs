@@ -11,7 +11,7 @@ function fixture(t,run,respond){
  const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'test',ownerId:1});
  const chat={id:-1,type:'supergroup',is_forum:true};db.saveChat('b',chat);
  let now=1000;const batches=[],calls=[];
- const c=createController({db,clock:()=>now,telegram:{call:async(_b,method,args)=>{calls.push({method,args});return respond?.(method,args)??{};}},agent:{run:async(s,e)=>{batches.push(e);await run?.(batches.length,s,e);}}});
+ const c=createController({db,clock:()=>now,telegram:{call:async(_b,method,args)=>{calls.push({method,args});return method==='getChat'?{id:42,username:'test',active_usernames:['test']}:respond?.(method,args)??{};}},agent:{run:async(s,e)=>{batches.push(e);await run?.(batches.length,s,e);}}});
  t.after(async()=>{c.close();await c.idle();db.close();});
  const send=(id,topic=1,trigger=false,extra={})=>c.receive('b',{message:{message_id:id,date:100+id,chat,from:{id:1},...(topic>1?{message_thread_id:topic}:{}),text:trigger?'@test':'question',...(trigger?{entities:[{type:'mention',offset:0,length:5}]}:{}),...extra}});
  return {db,c,chat,batches,calls,send,advance:()=>now+=120001};

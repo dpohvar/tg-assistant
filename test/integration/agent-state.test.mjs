@@ -8,7 +8,7 @@ test('stop discards collected albums and disabled album parts cannot trigger aft
 });
 test('passive supergroup records history; manager starts and stops without losing notes or tasks',async t=>{
  const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.setRole('b',2,'manager');db.saveChat('b',{id:-1,type:'supergroup',title:'Friends'});
- const runs=[],replies=[];const c=createController({db,agent:{run:async(s,e)=>runs.push(e),deleteSession:async()=>{}},telegram:{call:async(b,m,a)=>{if(m==='sendMessage')replies.push(a.text);return{};}}});t.after(async()=>{c.close();await c.idle();db.close();});
+ const runs=[],replies=[];const c=createController({db,agent:{run:async(s,e)=>runs.push(e),deleteSession:async()=>{}},telegram:{call:async(b,m,a)=>{if(m==='sendMessage')replies.push(a.text);return m==='getChat'?{id:42,username:'bot',active_usernames:['bot']}:{};}}});t.after(async()=>{c.close();await c.idle();db.close();});
  const send=(id,text)=>c.receive('b',{message:{message_id:id,date:1,chat:{id:-1,type:'supergroup'},from:{id:2},text,entities:text.startsWith('@')?[{type:'mention',offset:0,length:4}]:[]}});
  await send(1,'@bot hello');await c.idle();assert.equal(runs.length,0);assert.ok(db.getMessage('b',-1,1));
  await send(2,'/agent start');await send(3,'@bot hello');await c.idle();assert.equal(runs.length,1);

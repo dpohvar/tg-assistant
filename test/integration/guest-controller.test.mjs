@@ -11,6 +11,13 @@ test("guest mention selects its author's existing agent and saves the full messa
   assert.equal(f.db.getChat('b',-50),null);assert.equal(f.db.getMessage('b',1,7),null);assert.deepEqual(f.calls.map(c=>({method:c.method,...c.args})),[{method:'sendChatAction',chat_id:1,action:'typing'}]);
   await f.receive();assert.equal(f.batches.length,1);
 });
+test('guest invocation accepts an additional active username and rejects a retired stored username',async t=>{
+  const f=guestFixture(t,{profile:{id:42,username:'new_primary',active_usernames:['new_primary','alias_bot']}});
+  await f.receive(guestMessage({id:'alias',text:'@alias_bot hello',entities:[{type:'mention',offset:0,length:10}]}));
+  assert.equal(f.batches.length,1);
+  await f.receive(guestMessage({id:'retired',text:'@bot hello'}));
+  assert.equal(f.batches.length,1);
+});
 test('guest replies never inherit the quoted owner; explicit mention selects the new author',async t=>{
   const f=guestFixture(t);f.db.saveChat('b',{id:2,type:'private'});f.db.setRole('b',2,'user');const other=f.db.ensureAgent('b',2);
   await f.receive(guestMessage({userId:2,text:'tomorrow?',entities:[],reply_to_message:{from:{id:42},guest_bot_caller_user:{id:1}}}));assert.equal(f.batches.length,0);

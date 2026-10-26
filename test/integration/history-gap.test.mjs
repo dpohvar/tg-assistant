@@ -6,7 +6,7 @@ import {createController} from '../../src/controller.mjs';
 function fixture(t, run) {
  const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'test',ownerId:1});db.saveChat('b',{id:-1,type:'group'});db.ensureAgent('b',-1);
  let now=1000; const batches=[];
- const c=createController({db,clock:()=>now,telegram:{call:async()=>({})},agent:{run:async(s,e)=>{batches.push(e);await run?.(batches.length,s,e);}}});
+ const c=createController({db,clock:()=>now,telegram:{call:async(_bot,method)=>method==='getChat'?{id:42,username:'test',active_usernames:['test']}:{}} ,agent:{run:async(s,e)=>{batches.push(e);await run?.(batches.length,s,e);}}});
  t.after(async()=>{c.close();await c.idle();db.close();});
  return {c,batches,advance:()=>now+=120001,send:(id,trigger=false)=>c.receive('b',{message:{message_id:id,date:1791383000,chat:{id:-1,type:'group'},from:{id:1},text:trigger?'@test':'question',...(trigger?{entities:[{type:'mention',offset:0,length:5}]}:{})}})};
 }

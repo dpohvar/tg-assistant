@@ -24,7 +24,7 @@ A newly prepared native thread stays in memory until the first actual turn is su
 
 An enabled group agent is directly triggered by:
 
-- A Telegram mention entity for this bot's username.
+- A Telegram mention entity for any active username of this bot, including additional usernames. The controller checks Telegram's current profile when the message arrives.
 - A reply to a message whose sender is this bot.
 - A configured literal trigger phrase matched in text or caption.
 - An accepted callback button press.

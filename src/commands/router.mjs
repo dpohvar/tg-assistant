@@ -4,6 +4,7 @@ import {createUploadInvitations} from './uploads.mjs';
 import {usageReport} from './usage.mjs';
 import {handleMcpCommand} from './mcp.mjs';
 import {isMcpAuthReply,handleMcpAuthReply} from './mcp-auth-reply.mjs';
+import {createBotAddressMatcher} from '../telegram/bot-profile.mjs';
 import {handleWebSocketCommand} from './websocket.mjs';
 import {handleWidgetCommand} from './widget.mjs';
 import {createVault} from '../storage/vault.mjs';
@@ -33,11 +34,13 @@ export function createCommands(deps) {
     if(await deps.browse?.upload(botId,m))return true;
     const lease=uploads.acquire(botId,m);
     const match=/^\/([a-z_]+)(?:@([\w]+))?(?:\s|$)/i.exec(m.text??'');
-    if(isEphemeral(m)&&(!lease&&!match||m.edit_date!==undefined||m.sender_chat||match?.[2]&&match[2].toLowerCase()!==deps.db.getBot(botId)?.username?.toLowerCase()))return false;
-    if(match?.[1].toLowerCase()==='say'&&deps.say&&(!match[2]||match[2].toLowerCase()===deps.db.getBot(botId)?.username?.toLowerCase()))return deps.say(botId,m);
+    const isBotAddress=createBotAddressMatcher({db:deps.db,telegram:deps.telegram,botId});
+    if(match?.[2]&&!await isBotAddress(match[2]))return false;
+    if(isEphemeral(m)&&(!lease&&!match||m.edit_date!==undefined||m.sender_chat))return false;
+    if(match?.[1].toLowerCase()==='say'&&deps.say)return deps.say(botId,m);
     const response=createCommandReply({telegram:deps.telegram,botId,message:m,now:deps.clock??Date.now});
     active.set(response,botId);
-    const scoped={...deps,telegram:response.telegram,detachStatus:text=>response.detachStatus(text),uploadSucceeded:()=>lease?.succeed?.(),inviteUpload:async({name,args,message})=>{
+    const scoped={...deps,telegram:response.telegram,isBotAddress,detachStatus:text=>response.detachStatus(text),uploadSucceeded:()=>lease?.succeed?.(),inviteUpload:async({name,args,message})=>{
       const text=name==='upload'?`Attach a document as a reply to THIS message to upload to ${args[0].value}.`:'Attach a document as a reply to THIS message to replace the bot rules.';
       const sent=await response.invite({text});uploads.register(botId,message,sent,{name,args});
     }};
@@ -90,7 +93,7 @@ function createCommandRouter(deps) {
   };
   return {
     async handle(botId, m) {
-      if(isMcpAuthReply(m,deps.mcpOAuth,botId))return handleMcpAuthReply({botId,message:m,db,telegram,mcpOAuth:deps.mcpOAuth});
+      if(isMcpAuthReply(m,deps.mcpOAuth,botId))return handleMcpAuthReply({botId,message:m,db,telegram,mcpOAuth:deps.mcpOAuth,isBotAddress:deps.isBotAddress});
       const quoted = m.document && m.reply_to_message;
       const source = quoted || m,
         match = /^\/([a-z_]+)(?:@([\w]+))?(?:\s|$)/i.exec(source.text ?? "");
@@ -99,10 +102,7 @@ function createCommandRouter(deps) {
       if (quoted && !["rules", "upload"].includes(section)) return false;
       // Only the argument-free rules invitation accepts a document reply.
       if (quoted && section === 'rules' && !/^\/rules(?:@[\w]+)?\s+set\s*$/i.test(source.text ?? '')) return false;
-      if (
-        match[2] &&
-        match[2].toLowerCase() !== db.getBot(botId)?.username.toLowerCase()
-      )
+      if (match[2] && !await deps.isBotAddress(match[2]))
         return false;
       const role = botId === "master" ? "owner" : db.role(botId, m.from?.id),
         admin = ["admin", "owner"].includes(role),

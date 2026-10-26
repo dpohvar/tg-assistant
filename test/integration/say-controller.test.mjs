@@ -5,7 +5,7 @@ import {createController} from '../../src/controller.mjs';
 const chat={id:-100,type:'supergroup'},message=(text='/say hello',extra={})=>({message_id:0,ephemeral_message_id:11,date:100,chat,from:{id:2,first_name:'User'},receiver_user:{id:42,is_bot:true},text,...extra});
 function fixture(t,{run,role='user',enabled=true,failPreparation=false,holdPreparation}={}){
   const db=openDatabase(':memory:');db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',chat);if(role)db.setRole('b',2,role);const a=db.ensureAgent('b',-100);db.sql.prepare('UPDATE chats SET agentEnabled=? WHERE botId=? AND chatId=?').run(+enabled,'b',-100);
-  const calls=[],batches=[],telegram={call:async(_b,method,args)=>{calls.push({method,args});if(method==='sendMessage'&&holdPreparation)await holdPreparation;if(failPreparation&&method==='sendMessage')throw Object.assign(new Error('expired'),{code:'telegram_api_error'});return method==='sendMessage'?{...(args.ephemeral_message_parameters?{message_id:0,ephemeral_message_id:100+calls.length,receiver_user:{id:args.ephemeral_message_parameters.receiver_user_id}}:{message_id:100+calls.length}),date:100,chat,from:{id:42,is_bot:true},text:args.text}:true;}};
+  const calls=[],batches=[],telegram={call:async(_b,method,args)=>{calls.push({method,args});if(method==='getChat')return {id:42,username:'bot',active_usernames:['bot']};if(method==='sendMessage'&&holdPreparation)await holdPreparation;if(failPreparation&&method==='sendMessage')throw Object.assign(new Error('expired'),{code:'telegram_api_error'});return method==='sendMessage'?{...(args.ephemeral_message_parameters?{message_id:0,ephemeral_message_id:100+calls.length,receiver_user:{id:args.ephemeral_message_parameters.receiver_user_id}}:{message_id:100+calls.length}),date:100,chat,from:{id:42,is_bot:true},text:args.text}:true;}};
   const c=createController({db,clock:()=>100000,telegram,config:{},agent:{interrupt:async()=>({state:'interrupted'}),run:async(scope,events,invoke)=>{batches.push(events);return run?.(scope,events,invoke);}}});
   t.after(async()=>{c.close();await c.idle();db.close();});return {db,c,a,calls,batches,receive:m=>c.receive('b',{message:m})};
 }
@@ -26,7 +26,7 @@ test('user role, enabled state, native privacy and bot addressing are checked be
   for(const options of [{role:null},{enabled:false},{}]){
     const f=fixture(t,options);const m=options.role===null||options.enabled===false?message():message('/say hello',{message_id:8,ephemeral_message_id:undefined,receiver_user:undefined});await f.receive(m);await f.c.idle();assert.equal(f.batches.length,0);
   }
-  const f=fixture(t);await f.receive(message('/say@other hello'));await f.c.idle();assert.equal(f.batches.length,0);assert.equal(f.calls.length,0);
+  const f=fixture(t);await f.receive(message('/say@other hello'));await f.c.idle();assert.equal(f.batches.length,0);assert.deepEqual(f.calls.map(c=>c.method),['getChat']);
 });
 test('full chat queue admits /say by eviction and role revocation prevents an already queued message from dispatching',async t=>{
   const f=fixture(t);f.c.queue.setPaused(f.a.agentId,true);

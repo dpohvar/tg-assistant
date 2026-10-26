@@ -3,7 +3,7 @@ import {parseArguments,syntaxError} from './arguments.mjs';
 import {commandError} from './contract.mjs';
 const callbackText=text=>{try{const u=new URL((text??'').trim());return ['http:','https:'].includes(u.protocol)&&u.searchParams.has('state')&&(u.searchParams.has('code')||u.searchParams.has('error'));}catch{return false;}};
 export const isMcpAuthReply=(m,oauth,botId)=>/^\/mcp(?:@[\w]+)?\s+auth(?:\s|$)/i.test(m.reply_to_message?.text??'')||callbackText(m.text)||callbackText(m.reply_to_message?.text)||oauth?.hasInvitation?.(botId,m.reply_to_message?.chat?.id,m.reply_to_message?.message_id)||Boolean(m.edit_date!==undefined&&oauth?.hasInvitation?.(botId,m.chat.id,m.message_id));
-export async function handleMcpAuthReply({botId,message:m,db,telegram,mcpOAuth}){
+export async function handleMcpAuthReply({botId,message:m,db,telegram,mcpOAuth,isBotAddress}){
   const send=text=>telegram.call(botId,'sendMessage',{chat_id:m.chat.id,text,...(topicIdOf(m)>1?{message_thread_id:topicIdOf(m)}:{}),reply_parameters:{message_id:m.message_id}});
   try{
     const role=db.role(botId,m.from?.id);
@@ -16,7 +16,7 @@ export async function handleMcpAuthReply({botId,message:m,db,telegram,mcpOAuth})
     if(q.edit_date!==undefined||m.edit_date!==undefined)throw syntaxError('OAuth command and callback must not be edited. Start a new /mcp auth command.');
     const match=/^\/mcp(?:@([\w]+))?(?:\s|$)/i.exec(q.text);
     if(!match)throw syntaxError('The original OAuth command was changed. Start /mcp auth again.');
-    if(match[1]&&match[1].toLowerCase()!==db.getBot(botId)?.username.toLowerCase())throw syntaxError('The quoted command addresses another bot.');
+    if(match[1]&&!await isBotAddress(match[1]))throw syntaxError('The quoted command addresses another bot.');
     const parts=parseArguments(q.text,q.entities,match[0].trimEnd().length);
     if(parts.length!==2||parts[0].value!=='auth'||parts.some(p=>p.type==='pre'))throw syntaxError('Reply to an unchanged /mcp auth NAME command.');
     if(!mcpOAuth)throw syntaxError('OAuth runtime is not configured.');

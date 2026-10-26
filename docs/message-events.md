@@ -64,7 +64,7 @@ Service messages are saved but do not start agent turns. Short history/search ca
 
 Private messages from authorized users need no group trigger. In groups/supergroups, `triggers` is included only when nonempty:
 
-- `mention:@username`: a native `mention` entity addresses this bot; comparison is case-insensitive and the event retains the observed spelling.
+- `mention:@username`: a native `mention` entity addresses any active username of this bot; comparison is case-insensitive and the event retains the observed spelling. The controller refreshes the bot's usernames for each message with a mention entity.
 - `reply`: the embedded `reply_to_message.from.id` is this bot's Telegram ID.
 - `match:phrase`: a configured trigger phrase matched text or caption. Matching is case-insensitive, literal and bounded by Unicode **letters**; punctuation and digits can form boundaries. Automatic channel forwards do not match configured phrases.
 

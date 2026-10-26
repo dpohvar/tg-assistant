@@ -12,7 +12,7 @@ test('failed background wait during migration always releases queue hold',async 
 test('group trigger starts two-minute ten-message window; passive chat has no agent', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-groups-')); const db = openDatabase(path.join(root, 'db.sqlite'));
   const batches = []; let time = 1000;
-  const c = createController({ db, telegram: { call: async () => ({}) }, agent: { run: async (_, events) => batches.push(events) }, clock: () => time });
+  const c = createController({ db, telegram: { call: async (_bot, method) => method==='getChat'?{id:42,username:'test_bot',active_usernames:['test_bot']}:{} }, agent: { run: async (_, events) => batches.push(events) }, clock: () => time });
   t.after(() => { c.close(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   db.registerBot({ botId: 'b1', telegramId: 42, username: 'test_bot', ownerId: 1 });
   db.saveChat('b1', { id: -1, type: 'group', title: 'Group' }); db.ensureAgent('b1',-1); db.saveChat('b1', { id: -2, type: 'supergroup', title: 'Passive' });
@@ -29,7 +29,7 @@ test('removal from a group stops the session and fences its tools without leavin
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-removed-')), db = openDatabase(path.join(root, 'db.sqlite'));
   db.registerBot({ botId: 'b', telegramId: 42, username: 'test', ownerId: 1 }); db.saveChat('b', { id: -1, type: 'group' }); db.ensureAgent('b',-1);
   let oldScope; const stopped = [], telegramCalls = [];
-  const c = createController({ db, telegram: { call: async (_bot, method) => { telegramCalls.push(method); return {}; } }, agent: { run: async scope => { oldScope = scope; }, deleteSession: async id => stopped.push(id) } });
+  const c = createController({ db, telegram: { call: async (_bot, method) => { telegramCalls.push(method); return method==='getChat'?{id:42,username:'test',active_usernames:['test']}:{}; } }, agent: { run: async scope => { oldScope = scope; }, deleteSession: async id => stopped.push(id) } });
   t.after(() => { c.close(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   await c.receive('b', { message: { message_id: 1, date: 1791383000, chat: { id: -1, type: 'group' }, from: { id: 1 }, text: '@test', entities: [{ type: 'mention', offset: 0, length: 5 }] } }); await c.idle();
   await c.receive('b', { my_chat_member: { chat: { id: -1, type: 'group' }, from: { id: 1 }, new_chat_member: { status: 'left' } } });
@@ -41,7 +41,7 @@ test('album delivery uses the latest saved caption when edited before collection
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-album-edit-')), db = openDatabase(path.join(root, 'db.sqlite'));
   db.registerBot({ botId: 'b', telegramId: 42, username: 'test', ownerId: 1 }); db.saveChat('b', { id: -1, type: 'group' }); db.ensureAgent('b',-1);
   let finish; const busy = new Promise(resolve => { finish = resolve; });
-  const c = createController({ db, telegram: { call: async () => ({}) }, agent: { run: async () => busy } });
+  const c = createController({ db, telegram: { call: async (_bot, method) => method==='getChat'?{id:42,username:'test',active_usernames:['test']}:{} }, agent: { run: async () => busy } });
   t.after(async () => { finish(); c.close(); await c.idle(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   const chat = { id: -1, type: 'group' }, from = { id: 1 };
   await c.receive('b', { message: { message_id: 1, date: 1791383000, chat, from, text: '@test', entities: [{ type: 'mention', offset: 0, length: 5 }] } });
@@ -69,7 +69,7 @@ test('ordinary loud events expire while queued; direct triggers remain eligible'
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-loud-expire-')), db = openDatabase(path.join(root, 'db.sqlite'));
   db.registerBot({ botId: 'b', telegramId: 42, username: 'test', ownerId: 1 }); db.saveChat('b', { id: -1, type: 'group' }); db.ensureAgent('b',-1);
   let now = 1000, finish; const busy = new Promise(resolve => { finish = resolve; }), batches = [];
-  const c = createController({ db, clock: () => now, telegram: { call: async () => ({}) }, agent: { run: async (_scope, events) => { batches.push(events); if (batches.length === 1) await busy; } } });
+  const c = createController({ db, clock: () => now, telegram: { call: async (_bot, method) => method==='getChat'?{id:42,username:'test',active_usernames:['test']}:{} }, agent: { run: async (_scope, events) => { batches.push(events); if (batches.length === 1) await busy; } } });
   t.after(async () => { finish(); c.close(); await c.idle(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
   const send = (id, trigger) => c.receive('b', { message: { message_id: id, date: 1791383000, chat: { id: -1, type: 'group' }, from: { id: 1 }, text: trigger ? '@test' : 'follow-up', ...(trigger ? { entities: [{ type: 'mention', offset: 0, length: 5 }] } : {}) } });
   await send(1, true); await waitFor(()=>batches.length===1); await send(2, false);

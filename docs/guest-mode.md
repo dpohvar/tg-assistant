@@ -1,6 +1,6 @@
 # Guest Mode
 
-A native guest invocation explicitly mentioning this bot is delivered to the author's existing enabled personal agent. No personal agent is created or enabled automatically. Without an available authorized personal agent, the invocation is left unanswered. A guest reply without a fresh mention does not continue another agent's conversation; a mention inside a reply selects its new author's own agent.
+A native guest invocation explicitly mentioning any active username of this bot is delivered to the author's existing enabled personal agent. The controller checks Telegram's current bot profile for each guest message with an explicit mention. No personal agent is created or enabled automatically. Without an available authorized personal agent, the invocation is left unanswered. A guest reply without a fresh mention does not continue another agent's conversation; a mention inside a reply selects its new author's own agent.
 
 The controller saves the complete native guest message separately from ordinary chat history and enqueues a compact `guest_message` event with an opaque `guestRequestId`. The event follows the normal short-preview conventions, without ordinary message, reply or topic selectors. The guest chat's numeric address grants no permission to read history or send ordinary messages there. See [message events](message-events.md), [storage](storage.md) and [security](security.md).
 
