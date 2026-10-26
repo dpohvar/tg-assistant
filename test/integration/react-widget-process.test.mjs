@@ -3,6 +3,45 @@ import assert from "node:assert/strict";
 import {fileURLToPath} from "node:url";
 import {createReactWidgetProcess} from "../../src/widgets/runtime-react.mjs";
 
+test("action waits for view acknowledgement and reports partial publication failure",async()=>{
+  let release,fail=false,waitOnce=true;
+  const requested=[];
+  const process=createReactWidgetProcess({request:async(method,args)=>{
+    if(method==="publish"){
+      requested.push(args);
+      if(fail&&args.viewId==="second")return {status:"view_error",error:{code:"MESSAGE_NOT_FOUND",message:"gone"}};
+      if(fail&&args.viewId==="first"&&waitOnce){
+        waitOnce=false;await new Promise(resolve=>{release=resolve;});
+      }
+      return {status:"confirmed",target:args.target,view:{target:args.target,
+        message:{message_id:args.target.messageId}}};
+    }
+    return null;
+  }});
+  const ref={widgetId:"action-process",botId:"b",agentId:"a",generation:1};
+  try{
+    await process.load(ref,{buildId:"action-process",snapshotPath:fileURLToPath(new URL("../fixtures/react-widgets/actions.mjs",import.meta.url))});
+    await process.mount(ref,{viewId:"first",target:{chatId:1,messageId:1},component:"Main"});
+    await process.mount(ref,{viewId:"second",target:{chatId:1,messageId:2},component:"Main"});
+    requested.length=0;fail=true;
+    const pending=process.dispatchAction(ref,{action:"finishRound",args:{}});
+    for(let i=0;i<30&&!release;i++)await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(typeof release,"function");
+    let settled=false;pending.finally(()=>{settled=true;}).catch(()=>{});
+    await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(settled,false,"action must wait for the Telegram acknowledgement");
+    release();
+    await assert.rejects(pending,error=>{
+      assert.equal(error.code,"view_render_failed");
+      assert.deepEqual(error.updatedViews.map(view=>view.viewId),["first"]);
+      assert.deepEqual(error.failedViews.map(view=>view.viewId),["second"]);
+      return true;
+    });
+    assert.ok(requested.some(item=>item.viewId==="first"));
+    assert.ok(requested.some(item=>item.viewId==="second"));
+  }finally{await process.retire(ref).catch(()=>{});}
+});
+
 test("sandbox process publishes a confirmed React view through its bridge",async()=>{
   const calls=[];
   const request=async(method,args)=>{

@@ -5,7 +5,7 @@ import { hostNode,hostText,insertNode,removeNode } from "./host-tree.mjs";
 import { WidgetInstanceContext,WidgetViewContext } from "./react-context.mjs";
 import { loadWidgetModule } from "./module-registry.mjs";
 import { createReactStore } from "./react-store.mjs";
-import { validateReactMount, widgetError } from "./contract.mjs";
+import { validateReactMount, plainJSON, widgetError } from "./contract.mjs";
 import { createViewHandle } from "./view-handles.mjs";
 import { randomUUID } from "node:crypto";
 
@@ -89,7 +89,40 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
       }},body));
     renderer.updateContainerSync(tree,instance.root,null,null);
     renderer.flushSyncWork();
-    await instance.lastCommit;
+    return await instance.lastCommit;
+  }
+  function checkedPublication(instance,outcome){
+    const updatedViews=outcome?.updatedViews??[],failedViews=[...(outcome?.failedViews??[])];
+    const reported=new Set(failedViews.map(view=>view.viewId));
+    for(const view of instance.views.values())if(view.status==="error"&&!reported.has(view.id))
+      failedViews.push({viewId:view.id,target:view.target,error:view.error??{code:"render_failed"}});
+    if(instance.status==="error")throw Object.assign(widgetError("runtime_failed",instance.error?.message),
+      {updatedViews,failedViews});
+    if(failedViews.length)throw Object.assign(widgetError("view_render_failed",
+      `${failedViews.length} widget view(s) were not published.`),{updatedViews,failedViews});
+    return {updatedViews};
+  }
+  async function applyStoreChange(instance,change){
+    const collector={after:instance.commitIndex,records:[]};
+    instance.collectors.add(collector);
+    try{
+      change();
+      let stable=false;
+      for(let attempt=0;attempt<5;attempt++){
+        const revision=instance.store.revision;
+        await instance.waitForSave();
+        await render(instance);
+        if(instance.store.revision===revision){stable=true;break;}
+      }
+      if(!stable)throw widgetError("stale_revision",
+        "The widget store kept changing during publication.");
+      const updated=new Map(),failed=new Map();
+      for(const record of collector.records){
+        for(const view of record.result?.updatedViews??[])updated.set(view.viewId,view);
+        for(const view of record.result?.failedViews??[])failed.set(view.viewId,view);
+      }
+      return checkedPublication(instance,{updatedViews:[...updated.values()],failedViews:[...failed.values()]});
+    }finally{instance.collectors.delete(collector);}
   }
   const api={
     module(widgetId){return ensure(widgetId).module;},
@@ -136,7 +169,7 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
         error=>bridge?.runtimeError?.(widgetId,error),null);
       const instance={widgetId,module,store,root,container,views:new Map(),runtimeProps:props,generation,
         status:"active",error:null,viewListeners:new Set(),viewSnapshot:Object.freeze([]),
-        waitForSave:()=>pendingSave};
+        waitForSave:()=>pendingSave,commitIndex:0,collectors:new Set(),lastCommit:Promise.resolve()};
       instance.context={store,widget:null,telegram:bridge?.telegramFor?.(widgetId)??{},
         subscribeViews:callback=>{instance.viewListeners.add(callback);return()=>instance.viewListeners.delete(callback);},
         getViews:()=>instance.viewSnapshot};
@@ -159,9 +192,14 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
         requestAgent:(payload,options)=>bridge?.requestAgent?.(widgetId,payload,options)};
       container.onCommit=()=>{
         const revision=store.revision,save=pendingSave;
-        instance.lastCommit=Promise.resolve(save).then(()=>{
+        const index=++instance.commitIndex,previous=instance.lastCommit;
+        instance.lastCommit=Promise.resolve(previous).catch(()=>{}).then(()=>save).then(()=>{
           if(store.revision!==revision)return;
           return bridge?.commit?.(widgetId,container.children,revision,instance.views);
+        }).then(result=>{
+          for(const collector of instance.collectors)if(index>collector.after)
+            collector.records.push({revision,result});
+          return result;
         });
         instance.lastCommit.catch(error=>bridge?.runtimeError?.(widgetId,error));
       };
@@ -222,10 +260,22 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
     },
     async replaceStore(widgetId,state){
       const instance=ensure(widgetId);
-      instance.store.replace(state);
-      await instance.waitForSave();
-      await render(instance);
-      return {revision:instance.store.revision,state:instance.store.getSnapshot()};
+      return applyStoreChange(instance,()=>instance.store.replace(state));
+    },
+    async dispatchAction(widgetId,action,args={}){
+      const instance=ensure(widgetId);
+      if(typeof action!=="string"||!/^[a-z][A-Za-z0-9_]*$/.test(action))
+        throw widgetError("invalid_argument","Action name must start with a lowercase letter.");
+      if(!args||typeof args!=="object"||Array.isArray(args))
+        throw widgetError("invalid_argument","Action arguments must be a JSON object.");
+      plainJSON(args);
+      const factory=Object.hasOwn(instance.module.exports,action)?instance.module.exports[action]:null;
+      if(typeof factory!=="function"||factory.constructor.name==="AsyncFunction")
+        throw widgetError("invalid_argument","Unknown or asynchronous widget action.");
+      const recipe=factory(args);
+      if(typeof recipe!=="function")
+        throw widgetError("invalid_argument","Widget action must return a synchronous store recipe.");
+      return applyStoreChange(instance,()=>instance.store.dispatch(recipe));
     },
     async unmount(widgetId,viewId,{controller=false}={}) {
       const instance=ensure(widgetId);

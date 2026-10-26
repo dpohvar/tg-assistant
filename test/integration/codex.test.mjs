@@ -60,12 +60,14 @@ test('retained widget IDs reach the model in a failed dynamic tool result',async
  db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const a=db.ensureAgent('b',1);
  const agent=new CodexAgent({db,config:{botsDir:root,codexHome:root,codexExecutable:process.execPath,defaultTimezone:'UTC'},spawnArgs:[path.resolve('test/fixtures/codex-server.mjs'),'tool-error',marker]});
  t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
- await agent.run(a,[{textPlain:'fixture'}],async()=>{throw Object.assign(new Error('Storage failed'),{code:'storage_failed',widgetId:'w',confirmedMessageId:71,confirmedTarget:{inlineMessageId:'confirmed-inline'},inlineMessageId:'confirmed-inline',publicationId:'publication'});});
+ await agent.run(a,[{textPlain:'fixture'}],async()=>{throw Object.assign(new Error('Storage failed'),{code:'storage_failed',widgetId:'w',confirmedMessageId:71,confirmedTarget:{inlineMessageId:'confirmed-inline'},inlineMessageId:'confirmed-inline',publicationId:'publication',updatedViews:[{viewId:'v1',target:{chatId:1,messageId:71}}],failedViews:[{viewId:'v2',target:{chatId:1,messageId:72},error:{code:'render_failed'}}]});});
  const result=JSON.parse(fs.readFileSync(marker,'utf8'));
  assert.equal(result.success,false);
  const error=JSON.parse(result.contentItems[0].text);
  assert.equal(error.widgetId,'w');assert.equal(error.confirmedMessageId,71);
  assert.deepEqual(error.confirmedTarget,{inlineMessageId:'confirmed-inline'});assert.equal(error.inlineMessageId,'confirmed-inline');assert.equal(error.publicationId,'publication');
+ assert.deepEqual(error.updatedViews,[{viewId:'v1',target:{chatId:1,messageId:71}}]);
+ assert.deepEqual(error.failedViews,[{viewId:'v2',target:{chatId:1,messageId:72},error:{code:'render_failed'}}]);
 });
 
 test('shutdown cancels and reaps the actual MCP configuration preflight process',async t=>{

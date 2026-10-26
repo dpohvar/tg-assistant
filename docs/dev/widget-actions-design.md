@@ -1,0 +1,7 @@
+# Agent-callable widget actions
+
+Widget entry modules may export synchronous action factories with lowercase names. Named uppercase exports remain view components and the default export remains the Runtime component. An action accepts one JSON argument object and returns a synchronous Immer recipe that mutates the current widget draft and returns nothing. Only the owning agent may call `dispatch_widget_action({widgetId,action,args?})`. Wordle and Nerdle expose `finishRound` as such an action.
+
+`update_widget_store` and `dispatch_widget_action` persist the new state before publishing, wait for Telegram acknowledgement of every view considered by that operation, and return `{updatedViews:[{viewId,target}]}` containing only confirmed Telegram changes. A previously failed view is not retried automatically; it causes the operation to reject until explicitly repaired with `view.mount()`. Known publication failure, uncertain delivery, render failure, or a prior view error rejects with successful and failed view details. A no-op render returns an empty `updatedViews` array. State may already be saved on publication failure and is never implicitly rolled back.
+
+`delete_widget` follows earlier awaited state operations for the same widget. After successful completion, deletion may disable buttons while retaining the final body. Telegram acknowledgement guarantees publication by the server, not display by every client. A widget callback between separate calls can still change state; Wordle's finished round prevents further moves.

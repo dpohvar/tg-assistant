@@ -165,10 +165,25 @@ export function createReactWidgetManager({db,host,store,build,authorize,notify=a
       return {viewId,target:result.target};
     },
     async updateStore(scope,{widgetId,state}){
-      const w=own(scope,widgetId);
-      if(w.status!=="active")throw widgetError("widget_stopped");
-      plainJSON(state);
-      return host.request(w,"replaceStore",{state});
+      own(scope,widgetId);
+      return locked(widgetId,async()=>{
+        const current=own(scope,widgetId);
+        if(current.status!=="active")throw widgetError("widget_stopped");
+        plainJSON(state);
+        return host.request(current,"replaceStore",{state});
+      });
+    },
+    async dispatchAction(scope,{widgetId,action,args={}}){
+      own(scope,widgetId);
+      return locked(widgetId,async()=>{
+        const current=own(scope,widgetId);
+        if(current.status!=="active")throw widgetError("widget_stopped");
+        if(typeof action!=="string"||!/^[a-z][A-Za-z0-9_]*$/.test(action)||
+          !args||typeof args!=="object"||Array.isArray(args))
+          throw widgetError("invalid_argument");
+        plainJSON(args);
+        return host.request(current,"dispatchAction",{action,args});
+      });
     },
     async deleteView(scope,{viewId}){
         const view=store.getView(viewId),candidate=store.getCandidate(viewId);

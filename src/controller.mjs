@@ -152,12 +152,13 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if(name==='read'&&args.inlineMessageId!==undefined)return inlineMessages.read(scope,args);
     if(name==='read'&&(!Array.isArray(args.messageIds)||args.messageIds.some(id=>!Number.isSafeInteger(id)||id<=0)))throw Object.assign(new Error('Use messageIds as an array of positive integers, or inlineMessageId alone.'),{code:'invalid_argument'});
     if(name==='edit'&&args.inlineMessageId!==undefined)return inlineMessages.edit(scope,args);
-    if(['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','list_widgets','get_widget','update_widget_store','answer_widget_request'].includes(name)){
+    if(['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','list_widgets','get_widget','update_widget_store','dispatch_widget_action','answer_widget_request'].includes(name)){
       if(!widgets)throw new Error('Widget storage is not configured.');
       if(name==='list_widgets')return widgets.list(scope);if(name==='get_widget')return widgets.get(scope,args);
       if(name==='create_widget')return widgets.create(scope,args);if(name==='update_widget')return widgets.update(scope,args);if(name==='set_widget_view')return widgets.setView(scope,args);
       if(name==='delete_widget_view'){await widgets.deleteView(scope,args);return {};}if(name==='delete_widget'){await widgets.delete(scope,args);return {};}
       if(name==='update_widget_store')return widgets.updateStore(scope,args);
+      if(name==='dispatch_widget_action')return widgets.dispatchAction(scope,args);
       if(name==='answer_widget_request')return widgets.answerWidgetRequest(scope,args);
     }
     if (name === 'rich_help') return richHelp();
@@ -227,7 +228,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     }
     throw new Error('Unknown or invalid tool');
   };
-  const invokeRaw = (scope, name, args) => ['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','update_widget_store'].includes(name)?invokeTool(scope,name,args):gate.run(scope.botId, () => invokeTool(scope, name, args), scope.agentId).finally(()=>{control?.kick(scope.agentId);});
+  const invokeRaw = (scope, name, args) => ['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','update_widget_store','dispatch_widget_action'].includes(name)?invokeTool(scope,name,args):gate.run(scope.botId, () => invokeTool(scope, name, args), scope.agentId).finally(()=>{control?.kick(scope.agentId);});
   const invoke=(scope,name,args)=>{
     const target=name==='set_widget_view'?args.target:name==='delete'&&args.messageId!==undefined?{chatId:args.chatId??scope.chatId,messageId:args.messageId}:null;
     if(!target?.messageId)return invokeRaw(scope,name,args);

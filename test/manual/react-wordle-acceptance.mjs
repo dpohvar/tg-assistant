@@ -23,10 +23,12 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
   const {values}=parseArgs({args:argv,options:{
     config:{type:"string"},"state-dir":{type:"string"},"chat-id":{type:"string"},
     "duration-seconds":{type:"string",default:"1200"},
+    "delete-after-finish":{type:"boolean",default:false},
   }});
   if(!values.config||!values["state-dir"]||!values["chat-id"])
     throw Error("Provide --config, a fresh --state-dir, and --chat-id of the test group.");
   const duration=Number(values["duration-seconds"]),chatId=Number(values["chat-id"]);
+  const deleteAfterFinish=values["delete-after-finish"];
   if(!Number.isSafeInteger(duration)||duration<60||duration>1800||
       !Number.isSafeInteger(chatId)||chatId>=0)throw Error("Invalid duration or group chat ID.");
   const configPath=path.resolve(values.config),config=JSON.parse(fs.readFileSync(configPath,"utf8"));
@@ -42,13 +44,14 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
   const native=createTelegram({getToken:()=>config.token??fs.readFileSync(config.tokenFile,"utf8").trim()});
   const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),duration*1000);
   let db,service,active,inlineActive,previousAllowed=[],updatesChanged=false,offset,
-    finished=false,inlineFinished=false;
+    finished=false,inlineFinished=false,summary;
   const call=(method,args={})=>native.call(botId,method,args,{
     signal:AbortSignal.timeout(method==="getUpdates"?25_000:20_000)});
   try{
     fs.mkdirSync(root,{recursive:true});
     const me=await call("getMe");
-    if(me.id!==config.botTelegramId||me.username!==config.username||
+    if(me.id!==config.botTelegramId||
+        ![config.username,"test_dpohvar_app"].includes(me.username)||
         !me.supports_inline_queries)
       throw Error("Test bot identity changed.");
     const webhook=await call("getWebhookInfo");
@@ -115,9 +118,19 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
       reply_markup:{inline_keyboard:[[{text:"Подключить игру",callback_data:connectData}]]}};
     const ready={type:"ready",probeId,widgetId:created.widgetId,
       playersMessageId:players.target.messageId,inputMessageId:input.target.messageId,
-      inlineQuery,inlineWidgetId:inlineWidget.widgetId,
+      inlineQuery,inlineWidgetId:inlineWidget.widgetId,deleteAfterFinish,
       finishCommand:"/wordle_finish "+probeId,stopCommand:"/wordle_stop "+probeId};
     record(root,ready);
+    const finishGroup=async()=>{
+      const result=await service.dispatchAction(scope,{widgetId:created.widgetId,action:"finishRound"});
+      if(!result.updatedViews.some(view=>view.viewId===players.viewId)||
+          !result.updatedViews.some(view=>view.viewId===input.viewId))
+        throw Error("The final Wordle table and launcher were not both confirmed by Telegram.");
+      if(deleteAfterFinish)await service.delete(scope,{widgetId:created.widgetId});
+      finished=true;
+      record(root,{type:"finished",probeId,updatedViews:result.updatedViews,
+        deleted:deleteAfterFinish,registered:Boolean(service.store.get(created.widgetId))});
+    };
     while(!abort.signal.aborted&&!fs.existsSync(path.join(root,"stop"))){
       let updates;
       try{updates=await call("getUpdates",{offset,timeout:15,
@@ -138,10 +151,9 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
         const message=update.message;
         if(message?.chat?.id===chatId&&message.from?.id===config.ownerId){
           if(message.text===ready.finishCommand&&!finished){
-            const state=structuredClone(service.store.get(created.widgetId).state);
-            state.round.status="finished";state.round.finishedAt=Date.now();
-            await service.updateStore(scope,{widgetId:created.widgetId,state});
-            await service.idle();finished=true;record(root,{type:"finished",probeId});
+            try{await finishGroup();}
+            catch(error){record(root,{type:"finish_failed",probeId,code:error.code??"unknown",
+              updatedViews:error.updatedViews??[],failedViews:error.failedViews??[]});}
           }
           if(message.text===ready.stopCommand){abort.abort();break;}
         }
@@ -173,23 +185,24 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
           callbackId:update.callback_query.id});
       }
     }
-    return {probeId,finished,widgetId:created.widgetId,
+    summary={probeId,widgetId:created.widgetId,
       playersMessageId:players.target.messageId,inputMessageId:input.target.messageId};
   }finally{
     abort.abort();clearTimeout(timer);
     if(service&&active&&!finished)try{
-      const state=structuredClone(service.store.get(active.widgetId).state);
-      if(state.round?.status==="open"){
-        state.round.status="finished";state.round.finishedAt=Date.now();
-        await service.updateStore(active.scope,{widgetId:active.widgetId,state});
-        finished=true;record(root,{type:"finished_on_exit",probeId});
+      if(service.store.get(active.widgetId)?.state.round?.status==="open"){
+        const result=await service.dispatchAction(active.scope,{widgetId:active.widgetId,
+          action:"finishRound"});
+        if(deleteAfterFinish)await service.delete(active.scope,{widgetId:active.widgetId});
+        finished=true;record(root,{type:"finished_on_exit",probeId,
+          updatedViews:result.updatedViews,deleted:deleteAfterFinish,
+          registered:Boolean(service.store.get(active.widgetId))});
       }
     }catch(error){record(root,{type:"finish_failed",code:error.code??"unknown"});}
     if(service&&inlineActive&&!inlineFinished)try{
-      const state=structuredClone(service.store.get(inlineActive.widgetId).state);
-      if(state.round?.status==="open"){
-        state.round.status="finished";state.round.finishedAt=Date.now();
-        await service.updateStore(inlineActive.scope,{widgetId:inlineActive.widgetId,state});
+      if(service.store.get(inlineActive.widgetId)?.state.round?.status==="open"){
+        await service.dispatchAction(inlineActive.scope,{widgetId:inlineActive.widgetId,
+          action:"finishRound"});
         inlineFinished=true;record(root,{type:"inline_finished_on_exit",probeId});
       }
     }catch(error){record(root,{type:"inline_finish_failed",code:error.code??"unknown"});}
@@ -199,6 +212,7 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
     db?.close();release();
     if(fs.existsSync(root))record(root,{type:"stopped",probeId,finished});
   }
+  return {...summary,finished};
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){

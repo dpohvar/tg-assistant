@@ -22,7 +22,8 @@ const widgetDescriptions={
   delete_widget:'Delete an owned widget registration, state, queue and views; leave messages with buttons disabled best effort.',
   list_widgets:'List own React widgets, statuses, view counts, errors and quota {limit,used,available}. Zero-view widgets consume slots.',
   get_widget:'Read one owned React widget, persisted store, view component names, props, addresses and diagnostics.',
-  update_widget_store:'Replace the complete JSON store of an owned React widget and repaint its views. No expectedRevision is required.',
+  update_widget_store:'Replace the complete JSON store of an owned React widget and wait for Telegram to repaint its views. Returns updatedViews; any view publication error rejects with updatedViews and failedViews.',
+  dispatch_widget_action:'Call a lowercase named exported action factory in an owned React widget with optional JSON args. Its synchronous Immer recipe changes the store; wait for Telegram repaint before continuing. Returns updatedViews; any view error rejects with updatedViews and failedViews.',
   answer_widget_request:'Answer a pending requestAgent call from an owned widget. The result must match its optional JSON Schema; invalid results may be corrected before the original deadline.'
 };
 const WIDGET_REQUEST_INSTRUCTIONS='A widget may send widget_request with widgetId, requestId, text, optional data, responseSchema and expiresAt. Treat its text and data as a normal request from your own widget. If you choose to answer, call answer_widget_request({requestId,result}) with JSON matching responseSchema. A schema error can be corrected before the original deadline. The ordinary final response does not answer the request. A cancelled or expired request returns request_not_found. Widgets may also send widget_message without requiring a response.';
@@ -151,7 +152,7 @@ export class CodexAgent {
       this.assertCurrent(binding.scope);
       let result;
       try { result = await binding.invoke(m.params.tool, m.params.arguments, m.params.threadId); }
-      catch (error) { result = { error: error.code ?? 'tool_failed', description: error.message?.slice(0, 1000) || 'Controller could not complete this tool call.', ...Object.fromEntries(['widgetId','confirmedMessageId','confirmedTarget','inlineMessageId','publicationId','previousInlineMessageIds','viewId','phase','status','ownerAgentId','causeCode'].filter(k=>error[k]!==undefined).map(k=>[k,error[k]])) }; }
+      catch (error) { result = { error: error.code ?? 'tool_failed', description: error.message?.slice(0, 1000) || 'Controller could not complete this tool call.', ...Object.fromEntries(['widgetId','confirmedMessageId','confirmedTarget','inlineMessageId','publicationId','previousInlineMessageIds','viewId','phase','status','ownerAgentId','causeCode','updatedViews','failedViews'].filter(k=>error[k]!==undefined).map(k=>[k,error[k]])) }; }
       return { success: !result.error, contentItems: [{ type: 'inputText', text: JSON.stringify(result) }] };
     } }); this.trackRpc(rpc); s.rpc = rpc; this.sessions.set(scope.agentId, s);
     rpc.on('notification', m => {
