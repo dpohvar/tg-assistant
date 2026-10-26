@@ -11,7 +11,7 @@ const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry =
 const all = walk(docs);
 const wiki = fs.readdirSync(docs).filter(name => name.endsWith('.md')).map(name => path.join(docs, name));
 const markdown = [...all.filter(name => name.endsWith('.md')), path.join(root, 'README.md'), path.join(root, 'AGENTS.md')];
-const current = new Set([...wiki, path.join(root, 'README.md'), path.join(root, 'AGENTS.md')]);
+const current = new Set([...wiki, ...all.filter(name => name.endsWith('.md') && name.startsWith(path.join(docs, 'widgets') + path.sep)), path.join(root, 'README.md'), path.join(root, 'AGENTS.md')]);
 const problems = [];
 const fail = (file, message) => problems.push(`${path.relative(root, file)}: ${message}`);
 const withoutFences = text => text.replace(/^(`{3,}|~{3,}).*\r?\n[\s\S]*?^\1\s*$/gm, '');
@@ -26,7 +26,7 @@ const slugs = text => {
 };
 
 for (const name of fs.readdirSync(docs, { withFileTypes: true })) {
-  if (!(name.isFile() && name.name.endsWith('.md')) && name.name !== 'dev') fail(docs, `Unexpected top-level entry: ${name.name}`);
+  if (!(name.isFile() && name.name.endsWith('.md')) && !['dev','widgets'].includes(name.name)) fail(docs, `Unexpected top-level entry: ${name.name}`);
 }
 
 let links = 0, jsonExamples = 0;
@@ -63,4 +63,4 @@ if (/\/bot(?:\s|`)/.test(childCommands)) fail(path.join(docs, 'commands.md'), 'M
 if (problems.length) {
   console.error(problems.join('\n'));
   process.exitCode = 1;
-} else console.log(`Checked ${wiki.length} wiki articles, ${links} local links, ${jsonExamples} JSON examples, and ${dynamicTools.length} controller tools.`);
+} else console.log(`Checked ${current.size-2} wiki articles, ${links} local links, ${jsonExamples} JSON examples, and ${dynamicTools.length} controller tools.`);

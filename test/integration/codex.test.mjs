@@ -185,6 +185,9 @@ test('rules version belongs to instructions read before awaited thread creation'
   assert.match(instructions,/Explicit General with a cross-topic or unknown reply is refused/);
   assert.match(instructions,/history\/search can filter topicId even after forum mode is disabled/);
   assert.match(instructions,/React widgets run independently of model turns/);
+  assert.match(instructions,/github.com\/dpohvar\/tg-assistant\/blob\/main\/docs\/widgets.md/);
+  assert.match(instructions,/Do not invent JSX host tags/);
+  assert.doesNotMatch(instructions,/useSelector reads the store and useDispatch accepts/);
   assert.match(instructions,/answer_widget_request\(\{requestId,result\}\)/);
  assert.ok(fs.existsSync(marker)); db.sql.prepare('UPDATE bots SET rulesVersion=rulesVersion+1 WHERE botId=?').run('b');
  await work; assert.equal(db.agent('b',1).threadRulesVersion,version); assert.notEqual(version,db.getBot('b').rulesVersion);

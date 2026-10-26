@@ -1,3 +1,5 @@
+import {WIKI_URL,WIDGETS_DOC_URL} from '../documentation-links.mjs';
+
 function availableCommands({ master = false, role, group = false }) {
   if (master)
     return {
@@ -202,12 +204,14 @@ export function helpMessages(sections, section) {
   if(section){
     const entry=sections[section];add(entry.description);
     for(const c of entry.commands)add(c.syntax+'\n'+c.description,c.syntax.length);
+    if(section==='widget')add('React widget authoring guide: '+WIDGETS_DOC_URL);
   }else{
     add('Spaces and newlines separate arguments. Telegram code or spoiler formatting keeps a phrase with spaces as one argument. A pre block keeps multiline text together, only where supported: /edit, /git sync, /rules set and /mcp set. Literal Markdown fences are not pre formatting. Other styling is rejected.\nUppercase names are placeholders; brackets mark optional arguments, not literal characters. RANGE is a position (5) or inclusive range (11-20); default: 1-10.');
     for(const [name,entry] of Object.entries(sections)){
       const command='/help '+name;add(command+'\n'+entry.description,command.length);
     }
     if(!Object.keys(sections).length)add('No command sections are available to you in this chat.');
+    add('Full command and widget documentation: '+WIKI_URL);
   }
   if(current.text)chunks.push(current);
   return chunks;
