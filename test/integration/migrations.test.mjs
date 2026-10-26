@@ -22,13 +22,13 @@ test('schema 9 upgrade retains vault values and adds empty per-bot MCP settings'
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-mcp-migration-')),file=path.join(root,'db.sqlite');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const sql=new DatabaseSync(file);
  for(let i=1;i<=9;i++)sql.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(i).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
  sql.exec("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',42,'bot',1);INSERT INTO vault VALUES('b','KEEP','synthetic')");sql.close();
- const db=openDatabase(file);try{assert.equal(db.sql.prepare('SELECT value FROM vault').get().value,'synthetic');assert.equal(db.getBot('b').mcpRevision,0);assert.equal(db.sql.prepare('SELECT count(*) n FROM mcp_servers').get().n,0);assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,20);}finally{db.close();}
+ const db=openDatabase(file);try{assert.equal(db.sql.prepare('SELECT value FROM vault').get().value,'synthetic');assert.equal(db.getBot('b').mcpRevision,0);assert.equal(db.sql.prepare('SELECT count(*) n FROM mcp_servers').get().n,0);assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,21);}finally{db.close();}
 });
 
 test('version 7 upgrades transactionally preserving agents, memory, tasks and passive chats',t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-upgrade-')),file=path.join(root,'db.sqlite');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const sql=new DatabaseSync(file);sql.exec('PRAGMA foreign_keys=ON');for(let i=1;i<=7;i++)sql.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(i).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
  sql.exec("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',42,'bot',1); INSERT INTO chats VALUES('b',-1,'group','Friends','{}','[]'),('b',-2,'supergroup','Passive','{}','[]'); INSERT INTO agents(agentId,botId,chatId,model,notes,createdAt) VALUES('a','b',-1,'m','keep',1); INSERT INTO tasks(taskId,agentId,description,text,at,createdAt) VALUES('t','a','keep','instruction','2099-01-01T00:00:00Z',1)");sql.close();
- let db=openDatabase(file);assert.equal(db.getChat('b',-1).agentEnabled,1);assert.equal(db.getChat('b',-2).agentEnabled,0);assert.equal(db.agent('b',-1).notes,'keep');assert.equal(db.sql.prepare('SELECT text FROM tasks WHERE taskId=?').get('t').text,'instruction');db.close();db=openDatabase(file);assert.equal(db.sql.prepare('SELECT MAX(version) v FROM schema_migrations').get().v,20);assert.equal(db.agent('b',-1).notes,'keep');db.close();
+ let db=openDatabase(file);assert.equal(db.getChat('b',-1).agentEnabled,1);assert.equal(db.getChat('b',-2).agentEnabled,0);assert.equal(db.agent('b',-1).notes,'keep');assert.equal(db.sql.prepare('SELECT text FROM tasks WHERE taskId=?').get('t').text,'instruction');db.close();db=openDatabase(file);assert.equal(db.sql.prepare('SELECT MAX(version) v FROM schema_migrations').get().v,21);assert.equal(db.agent('b',-1).notes,'keep');db.close();
 });
 
 test('an unsupported newer schema is refused without changing its data', t => {
@@ -44,7 +44,7 @@ test('schema 12 upgrades and reopens without changing secrets, MCP, tasks, histo
  for(let i=1;i<=12;i++)sql.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(i).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
  sql.exec("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',42,'bot',1);INSERT INTO chats(botId,chatId,chatType,name,json,agentEnabled) VALUES('b',1,'private','Owner','{}',1);INSERT INTO agents(agentId,botId,chatId,model,notes,createdAt) VALUES('a','b',1,'model','keep',1);INSERT INTO tasks(taskId,agentId,description,text,at,createdAt) VALUES('t','a','keep','instruction','2099-01-01T00:00:00Z',1);INSERT INTO vault VALUES('b','KEEP','synthetic');INSERT INTO mcp_servers VALUES('b','server','{\"url\":\"https://example.com\"}');INSERT INTO usage_bots VALUES(42,'bot',1);INSERT INTO usage_buckets VALUES(42,'total','total','{\"inputTokens\":123}');INSERT INTO messages(botId,chatId,messageId,date,receivedAt,json,plainText,receiptSeq) VALUES('b',1,7,1,1,'{\"message_id\":7,\"text\":\"keep\"}','keep',1)");sql.close();
  for(let i=0;i<2;i++){const db=openDatabase(file);try{
-  assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,20);
+  assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,21);
   assert.equal(db.agent('b',1).notes,'keep');assert.equal(db.getMessage('b',1,7).text,'keep');
   assert.equal(db.sql.prepare('SELECT text FROM tasks').get().text,'instruction');assert.equal(db.sql.prepare('SELECT value FROM vault').get().value,'synthetic');
   assert.equal(JSON.parse(db.sql.prepare('SELECT counters FROM usage_buckets').get().counters).inputTokens,123);

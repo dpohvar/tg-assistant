@@ -5,11 +5,13 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import { createWidgetStore } from "./store.mjs";
 import { createWidgetHost } from "./host.mjs";
-import { createWidgetManager } from "./manager.mjs";
-import { createWidgetRenderer } from "./render.mjs";
+import { createReactWidgetManager } from "./manager-react.mjs";
+import { createReactPublications } from "./publications.mjs";
+import { disabledRender } from "./disabled-render.mjs";
 import { createWidgetAPI } from "./api.mjs";
 import {createPublicationReceipts} from "./receipts.mjs";
-import {createWidgetStop} from "./native-stop.mjs";
+import {runLegacyCleanup} from "./legacy-cleanup.mjs";
+import {createWidgetAgentRequests} from "./agent-requests.mjs";
 import { createWidgetTransport } from "./transport.mjs";
 import { createProcessMonitor } from "./monitor.mjs";
 import { launchSandbox } from "./sandbox.mjs";
@@ -25,6 +27,8 @@ export function createWidgetService({
   invoke,
   filesFor,
   notify,
+  requestQueue,
+  messageSerial,
   isUnavailable = () => false,
   inlineStore,
   guest,
@@ -38,6 +42,11 @@ export function createWidgetService({
   const assets = (o) =>
       path.join(config.dataDir, "widgets", o.botId, o.agentId),
     snapshotPath = (id, o) => path.join(assets(o), "snapshots", id + ".mjs");
+  const agentRequests=createWidgetAgentRequests({
+    enqueue:(ref,event)=>requestQueue?.enqueue(ref,event)??"full",
+    cancelQueued:(ref,requestId)=>requestQueue?.cancel(ref,requestId),
+    isCurrent:ref=>Boolean(store.get(ref.widgetId)?.generation===ref.generation),
+  });
   function authorize(
     ref,
     target,
@@ -94,20 +103,20 @@ export function createWidgetService({
     const p = (async () => {
       fs.mkdirSync(path.join(dir, "snapshots"), { recursive: true });
       fs.writeFileSync(path.join(dir, "package.json"), '{"type":"module"}');
-      for(const entry of ['runtime.mjs','compiler-runtime.mjs'])await esbuild({
+      for(const entry of ['runtime-react.mjs','compiler-runtime.mjs'])await esbuild({
         entryPoints: [fileURLToPath(new URL('./'+entry, import.meta.url))],
         bundle: true,
         platform: "node",
         target: "node24",
         format: "esm",
-        external: ["esbuild"],
+        external: ["esbuild","react","react/jsx-runtime","react-reconciler","react-reconciler/constants.js","scheduler","immer","@tg-assistant/widget","./module-registry.mjs","./react-context.mjs"],
         outfile: path.join(dir, entry),
         banner: {
           js: "import {createRequire as __runtimeRequire} from 'node:module';const require=__runtimeRequire(import.meta.url);",
         },
         logLevel: "silent",
       });
-      for (const name of ["jsx-runtime.mjs", "contract.mjs", "types.d.ts"])
+      for (const name of ["jsx-runtime.mjs", "contract.mjs", "module-registry.mjs", "react-context.mjs", "subscriptions.mjs", "sdk.mjs", "types.d.ts"])
         fs.copyFileSync(
           new URL("./" + name, import.meta.url),
           path.join(dir, name),
@@ -116,6 +125,22 @@ export function createWidgetService({
       fs.mkdirSync(modules, { recursive: true });
       const esbuildDir = path.dirname(require.resolve("esbuild/package.json"));
       fs.cpSync(esbuildDir, path.join(modules, "esbuild"), { recursive: true });
+      for (const dependency of ["react","react-reconciler","scheduler","immer"]) {
+        const source=path.dirname(require.resolve(dependency+"/package.json"));
+        fs.cpSync(source,path.join(modules,dependency),{recursive:true});
+      }
+      const runtimeSdk=path.join(modules,"@tg-assistant","widget");
+      fs.mkdirSync(runtimeSdk,{recursive:true});
+      fs.writeFileSync(path.join(runtimeSdk,"package.json"),JSON.stringify({
+        name:"@tg-assistant/widget",type:"module",
+        exports:{".":"./sdk.mjs","./jsx-runtime":"./jsx-runtime.mjs"},
+      }));
+      fs.writeFileSync(path.join(runtimeSdk,"sdk.mjs"),
+        'export {defineStore} from "../../../module-registry.mjs";\n'+
+        'export {useSelector,useDispatch,useWidget,useView,useViews,useTelegram} from "../../../react-context.mjs";\n'+
+        'export {useOnMessage,useOnReply,useOnReaction,useDice} from "../../../subscriptions.mjs";\n');
+      fs.writeFileSync(path.join(runtimeSdk,"jsx-runtime.mjs"),
+        'export {jsx,jsxs,Fragment} from "react/jsx-runtime";\n');
       const platformPackage = `@esbuild/${process.platform}-${process.arch}`,
         binDir = path.dirname(
           require.resolve(platformPackage + "/package.json"),
@@ -134,7 +159,7 @@ export function createWidgetService({
             type: "module",
             types: "types.d.ts",
             exports: {
-              ".": { types: "./types.d.ts", default: "./jsx-runtime.mjs" },
+            ".": { types: "./types.d.ts", default: "./sdk.mjs" },
               "./jsx-runtime": {
                 types: "./types.d.ts",
                 default: "./jsx-runtime.mjs",
@@ -143,7 +168,7 @@ export function createWidgetService({
           }),
         ),
       );
-      for (const name of ["jsx-runtime.mjs", "contract.mjs", "types.d.ts"])
+      for (const name of ["jsx-runtime.mjs", "contract.mjs", "module-registry.mjs", "react-context.mjs", "subscriptions.mjs", "sdk.mjs", "types.d.ts"])
         files.write(
           sdk + "/" + name,
           fs.readFileSync(new URL("./" + name, import.meta.url)),
@@ -159,7 +184,7 @@ export function createWidgetService({
     }
   }
   const callbackResponses = new Set();
-  async function launch(owner, { heartbeat },entry='runtime.mjs') {
+  async function launch(owner, { heartbeat },entry='runtime-react.mjs') {
       const dir = await materialize(owner);
       monitor ??= createProcessMonitor({ dataDir: config.dataDir });
       let rpc;
@@ -174,7 +199,7 @@ export function createWidgetService({
             heartbeat();
             return;
           }
-          if(entry!=='runtime.mjs')throw widgetError('access_denied','Compiler cannot issue widget operations.');
+          if(entry!=='runtime-react.mjs')throw widgetError('access_denied','Compiler cannot issue widget operations.');
           const ref = args.ref;
           if (
             !ref ||
@@ -184,28 +209,22 @@ export function createWidgetService({
             throw widgetError("access_denied");
           authorize(ref);
           if (method === "api") return api(ref, args.name, args.args);
+          if (method === "beginAgentRequest")return agentRequests.begin(ref,args.payload,{timeoutMs:args.timeoutMs,hasSignal:args.hasSignal});
+          if (method === "waitAgentRequest")return agentRequests.wait(ref,args.requestId);
+          if (method === "cancelAgentRequest")return agentRequests.cancel(ref,args.requestId);
           if (method === "save") {
             validateWidgetState(args.state);
-            store.save(ref, { state: args.state });
-            return;
+            return store.save(ref, { state: args.state,storeVersion:args.version,revision:args.revision });
           }
-          if(method==='views')return store.listViews(ref.widgetId);
           if (method === "publish") {
-            return manager.publish(ref,args.viewId,args.value);
+            return publications.publish(ref,args.viewId,args);
           }
-          if (method === "begin") {
-            const event = await manager.begin(ref, args.token);
-            const w = store.get(ref.widgetId);
-            return { event, dropped: w.dropped };
-          }
-          if (method === "complete") {
-            manager.complete(ref, args.token);
+          if (method === "subscription") {
+            manager.setSubscription(ref,args.viewId,args.type,args.active);
             return;
           }
-          if (method === "drop") {
-            if (args.event?.token) store.drop(ref, args.event.token);
-            return;
-          }
+          if (method === "detach") return manager.detachRuntimeView(ref,args.viewId);
+          if (method === "closeOverlays") return manager.closeOverlays(ref,args.parentViewId);
           if (method === "notifyError") {
             await manager.error(ref, args.error,args.viewId,{quiet:args.quiet});
             return;
@@ -283,45 +302,61 @@ export function createWidgetService({
   });
   const builder=createWidgetBuilder({host:compilerHost,authorize});
   const receipts=createPublicationReceipts({directory:ref=>path.join(assets(ref),"receipts")});
-  const renderer = createWidgetRenderer({
-    guest,
-    store,
-    db,
-    telegram,
-    filesFor,
-    authorize,
-    saveInline:(ref,id,content)=>inlineStore?.saveConfirmed(ref,id,content),
-    journal:(ref,message,projection,view)=>receipts.write(ref,view,projection),
-    completeJournal:(ref,id)=>{if(id)receipts.done(ref,id);},
-  });
+  const publications=createReactPublications({store,telegram,authorize,receipts,filesFor,messageSerial,
+    closeOverlays:(ref,parentViewId)=>manager.closeOverlays(ref,parentViewId),
+    guest:guest?{publish:async(ref,target,body)=>{
+      const scope=authorize(ref),prepared=guest.prepare(scope,body,"widget");
+      return guest.publishPrepared(scope,{guestRequestId:target.guestRequestId,prepared});
+    },complete:id=>guest.complete(id)}:undefined});
   const build = buildWidget({
     host:{request:(owner,_method,{handler})=>builder.compile(owner,handler)},
+    read:(owner,relative)=>filesFor(owner).read(relative),
     persist: async (id, code, o) => {
       const dest = snapshotPath(id, o);
       fs.writeFileSync(dest, code, { mode: 0o600 });
     },
   });
-  manager = createWidgetManager({
-    guest,
+  manager = createReactWidgetManager({
     db,
     host,
     store,
     build,
-    render: renderer,
+    publications,
     authorize,
     notify,
     snapshotPath,
     assertInlineOwner:(scope,id)=>{if(!inlineStore)throw widgetError('inline_message_unknown');inlineStore.assertOwner(scope,id);},
-    recoverReceipts:(w,store)=>receipts.recover(w,store),
-    removeReceipts:w=>receipts.remove(w),
-    ackCallback:async (id,ref)=>{await telegram.call(ref.botId, 'answerCallbackQuery',{callback_query_id:id});},
+    receipts,
+    agentRequests,
+    invalidateParent:viewId=>publications.invalidateParent(viewId),
+    invalidateView:viewId=>publications.invalidateView(viewId),
+    disableView:async(ref,view)=>{
+      const target=view.target;
+      const disable=async()=>{
+        if(target.ephemeralMessageId){await telegram.call(ref.botId,'deleteEphemeralMessage',{
+          chat_id:target.chatId,receiver_user_id:target.receiverUserId,
+          ephemeral_message_id:target.ephemeralMessageId});return;}
+        const address=target.inlineMessageId?{inline_message_id:target.inlineMessageId}:
+          {chat_id:target.chatId,message_id:target.messageId};
+        if(view.projection?.body?.rich_message){
+          const body=disabledRender(view.projection.body);
+          await telegram.call(ref.botId,'editMessageText',{...address,...body,
+            reply_markup:{inline_keyboard:[]}});
+        }else await telegram.call(ref.botId,'editMessageReplyMarkup',{...address,
+          reply_markup:{inline_keyboard:[]}});
+      };
+      return target.messageId&&messageSerial
+        ?messageSerial.run({botId:ref.botId,chatId:target.chatId,messageId:target.messageId},disable)
+        :disable();
+    },
   });
+  const ephemeralTimer=setInterval(()=>void manager.expireEphemeralViews().catch(()=>{}),60_000);
+  ephemeralTimer.unref();
   const api = createWidgetAPI({
     authorize,
     manager,
     invoke,
     notify,
-    stop:createWidgetStop({store,authorize,telegram}),
   });
   function collectSnapshots() {
     const root = path.join(config.dataDir, "widgets");
@@ -337,7 +372,7 @@ export function createWidgetService({
         const used = new Set(
           store
             .list({ botId: bot.name, agentId: owner.name })
-            .map((w) => w.snapshotId + ".mjs"),
+            .map((w) => w.buildId + ".mjs"),
         );
         for (const entry of fs.readdirSync(dir, { withFileTypes: true }))
           if (
@@ -356,6 +391,8 @@ export function createWidgetService({
   }
   const close = manager.close;
   manager.close = async () => {
+    agentRequests.close();
+    clearInterval(ephemeralTimer);
     await builder.close();
     await close();
     closed = true;
@@ -363,6 +400,18 @@ export function createWidgetService({
     collectSnapshots();
   };
   manager.authorize = authorize;
-  manager.renderer = renderer;
+  manager.answerWidgetRequest=(scope,{requestId,result})=>agentRequests.answer(scope,requestId,result);
+  manager.renderer = publications;
+  const recover=manager.recover.bind(manager);
+  manager.recover=async()=>{
+    await runLegacyCleanup({db,
+      telegram:{editMessageReplyMarkup:(botId,args)=>telegram.call(botId,"editMessageReplyMarkup",args)},
+      authorize:async({botId,agentId,target})=>{
+        const agent=db.sql.prepare("SELECT 1 FROM agents WHERE botId=? AND agentId=?").get(botId,agentId);
+        return Boolean(db.getBot(botId)&&agent&&
+          (target.inlineMessageId||db.getChat(botId,target.chatId)));
+      }});
+    return recover();
+  };
   return manager;
 }

@@ -51,7 +51,7 @@ The paired `--case layout --no-thumbnails` control removes only the first ten ar
 
 ## Native-model family matrix
 
-The native-model [bounded runner](../../test/manual/inline-agent-acceptance.mjs) uses case `matrix` with [public fixture preparation](../../test/manual/inline-media-matrix.mjs). It uploads eight files quietly to the permitted private buffer, saves the actual outer messages, and validates all 19 variants through the production normalizer and file-provenance checks before accepting queries. Each family query prepares URL first, cached second; repeated queries allow selecting both. Captions identify the selected source. Test files and credentials remain private and ignored by Git. They are not production data.
+The native-model [bounded runner](../../test/legacy/manual/inline-agent-acceptance.mjs) uses case `matrix` with [public fixture preparation](../../test/manual/inline-media-matrix.mjs). It uploads eight files quietly to the permitted private buffer, saves the actual outer messages, and validates all 19 variants through the production normalizer and file-provenance checks before accepting queries. Each family query prepares URL first, cached second; repeated queries allow selecting both. Captions identify the selected source. Test files and credentials remain private and ignored by Git. They are not production data.
 
 | Family / query | Variants | Preparation | Desktop display / send | Android display / send |
 | --- | --- | --- | --- | --- |

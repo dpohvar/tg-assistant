@@ -151,20 +151,21 @@ The schemas are in [`src/codex/threads.mjs`](../src/codex/threads.mjs); dispatch
 
 ## Widget tools
 
-All tools operate on the owning agent's registrations. See [widgets](widgets.md) for lifecycle, view targets, event admission and error details.
+All tools operate on the owning agent's React widget registrations. See [widgets](widgets.md) for the store, view targets, callbacks and recovery rules.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `create_widget` | `handler:string!`, `description:string!`, optional `state:object` | `{widgetId}`; zero views |
-| `update_widget` | `widgetId:string!`, optional `handler`, `description`, `state` | `{widgetId,renderErrors}`; keeps views, repaints all, resumes stopped registrations |
-| `set_widget_view` | `widgetId:string!`, exactly one `send:object` or `target:object`, optional `props:object` | `{viewId,target}`; commit binding only after confirmed publication |
-| `delete_widget_view` | `viewId:string!` | `{}`; keeps message, disables buttons best effort; candidate IDs only clear diagnostics |
-| `delete_widget` | `widgetId:string!` | `{}`; deletes registration/state/queue, leaves inactive messages |
-| `list_widgets` | None | `{canCreate,items}` with own metadata, view counts and error flags |
-| `get_widget` | `widgetId:string!` | Full committed state, views, last errors and possible publication candidates |
-| `widget_event` | `widgetId:string!`, `name:string!`, optional JSON `data` | `{}` after queue admission, before execution |
+| `create_widget` | `handler:string!`, `description:string!`, optional JSON `props` | `{widgetId}`; creates a zero-view instance |
+| `update_widget` | `widgetId:string!`, optional `handler`, `description`, JSON `props` | `{widgetId,renderErrors}`; retains store and ordinary view addresses |
+| `set_widget_view` | `widgetId:string!`, named exported `component`, exactly one `send`, `target` or existing `viewId`; optional JSON `props`, `force:boolean` | `{viewId,target}` after a confirmed publication |
+| `update_widget_store` | `widgetId:string!`, complete JSON-object `state` | New revision and state after persistence and repaint |
+| `delete_widget_view` | `viewId:string!` | `{}`; detaches the view and disables its buttons best effort |
+| `delete_widget` | `widgetId:string!` | `{}`; deletes the instance, store and views |
+| `list_widgets` | None | `{quota:{limit,used,available},items}` |
+| `get_widget` | `widgetId:string!` | Persisted store, views, statuses, errors and uncertain publications |
+| `answer_widget_request` | `requestId:string!`, JSON `result` | `{status:"answered"}`; rejects an expired, foreign or schema-invalid reply |
 
-`send:{}` defaults to the current chat; optional native creation fields are described in the widget article. `target` is either `{messageId,chatId?}` or `{inlineMessageId}`. Replacing an occupied owned view changes `viewId`; conflicts identify `ownerAgentId`, `widgetId` and `viewId`. Description is required only at creation. A failed `onInit` returns `widget_init_failed` with `widgetId`, `phase:"onInit"`, `status:"stopped"` and `causeCode`; valid saved partial state is retained. Direct errors are returned without duplicate agent notifications. Old set/render/resume tools are not public.
+`send:{}` uses the current chat; `send:{guestRequestId}` publishes the first render as a guest answer. Ordinary `target` is `{chatId,messageId}` or `{inlineMessageId}`. A new view needs a named export from the widget module. Updating by `viewId` retains its address; supplied props replace the old props. React callbacks live in the sandbox and are not named agent actions. `widget_event` and the old `render(state,view)` engine are retired. Direct `edit` or `delete` on a bound ordinary message detaches that view after Telegram confirms the operation.
 ## Guest invocations
 
 `read({guestRequestId})` returns the complete saved incoming guest message for its selected bot/agent only. Its native addresses do not grant ordinary chat access. `send({guestRequestId,...content})` returns `{inlineMessageId}`; `set_widget_view({widgetId,send:{guestRequestId},props:{}})` returns `{viewId,target:{inlineMessageId}}` and publishes the first render directly. Guest addressing excludes ordinary chat/topic/reply and notification/protection/effect fields. Supported content is text, rich_message, photo, animation, video, audio, voice, document, sticker, location, venue and contact when representable as one native inline result. Inline action buttons reuse existing permits/groups. Uploads, albums, polls, dice, video notes, ordinary reply keyboards, games and invoices are unsupported. Guest media may require `mime_type`, `thumbnail_url` and matching `file_sources`. See [Guest Mode](guest-mode.md) for examples, buffers, optional answers, 30-day retention, multiple successful publications and confirmed/uncertain failure handling. There is no separate answer_guest tool or local answer-count guard.

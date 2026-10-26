@@ -151,12 +151,13 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if(name==='read'&&args.inlineMessageId!==undefined)return inlineMessages.read(scope,args);
     if(name==='read'&&(!Array.isArray(args.messageIds)||args.messageIds.some(id=>!Number.isSafeInteger(id)||id<=0)))throw Object.assign(new Error('Use messageIds as an array of positive integers, or inlineMessageId alone.'),{code:'invalid_argument'});
     if(name==='edit'&&args.inlineMessageId!==undefined)return inlineMessages.edit(scope,args);
-    if(['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','list_widgets','get_widget','widget_event'].includes(name)){
+    if(['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','list_widgets','get_widget','update_widget_store','answer_widget_request'].includes(name)){
       if(!widgets)throw new Error('Widget storage is not configured.');
       if(name==='list_widgets')return widgets.list(scope);if(name==='get_widget')return widgets.get(scope,args);
       if(name==='create_widget')return widgets.create(scope,args);if(name==='update_widget')return widgets.update(scope,args);if(name==='set_widget_view')return widgets.setView(scope,args);
       if(name==='delete_widget_view'){await widgets.deleteView(scope,args);return {};}if(name==='delete_widget'){await widgets.delete(scope,args);return {};}
-      await widgets.event(scope,args);return {};
+      if(name==='update_widget_store')return widgets.updateStore(scope,args);
+      if(name==='answer_widget_request')return widgets.answerWidgetRequest(scope,args);
     }
     if (name === 'rich_help') return richHelp();
     if (name === 'time') return { now: new Date().toISOString() };
@@ -208,7 +209,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       queue.enqueue(target.agentId, { eventType: 'agent_message', from: { agentId: scope.agentId, ...(db.getChat(scope.botId, scope.chatId).chatType !== 'private' ? { chatId: scope.chatId } : {}) }, text: args.text }, 'agent');
       return { status: 'queued' };
     }
-    if (name === 'send' || name === 'edit') {const owned=name==='edit'&&widgets?.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageId);if(owned)throw Object.assign(new Error('Use widget_event, update_widget or set_widget_view for an owned widget message.'),{code:'widget_owned',ownerAgentId:owned.agentId,widgetId:owned.widgetId,viewId:owned.view.id});return name==='edit'?messageSerial.run({botId:scope.botId,chatId:args.chatId??scope.chatId,messageId:args.messageId},async()=>{const result=await messages.edit(scope,args);if(result.unknown?.length)buttonRollback.invalidate({botId:scope.botId,chatId:args.chatId??scope.chatId,messageId:args.messageId});return result;}):messages.send(scope,args);}
+    if (name === 'send' || name === 'edit') {const owned=name==='edit'&&widgets?.store.byMessage(scope.botId,args.chatId??scope.chatId,args.messageId);return name==='edit'?messageSerial.run({botId:scope.botId,chatId:args.chatId??scope.chatId,messageId:args.messageId},async()=>{const result=await messages.edit(scope,args);if(result.unknown?.length)buttonRollback.invalidate({botId:scope.botId,chatId:args.chatId??scope.chatId,messageId:args.messageId});else if(owned)await widgets.detachExternal(owned,owned.view.id);return result;}):messages.send(scope,args);}
     if (name === 'forward' || name === 'copy') return messages.transfer(scope, name, args);
     if (['delete', 'pin', 'unpin', 'react'].includes(name)) {
       const target = args.chatId ?? scope.chatId; if (name === 'delete' && target !== scope.chatId) throw new Error('Deletion is allowed only in the current chat.'); if (isStopping(scope.botId, target)) throw new Error('Target chat is stopping.'); access.assertWrite(scope, target); assertCurrent(scope);
@@ -220,17 +221,20 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         const w=widgets?.store.byMessage(scope.botId,target,args.messageId);
         if(w){const message=projectReaction(structuredClone(w.view.message),event,args.reaction);if(message)widgets.store.patchView(w,w.view.id,{message});}
       }
-      if (name === 'delete') {const w=widgets?.store.byMessage(scope.botId,target,args.messageId);if(w)await widgets.deleteView(w,{viewId:w.view.id});db.sql.prepare('DELETE FROM messages WHERE botId=? AND chatId=? AND messageId=?').run(scope.botId, target, args.messageId);}
+      if (name === 'delete') {const w=widgets?.store.byMessage(scope.botId,target,args.messageId);if(w)await widgets.detachExternal(w,w.view.id);db.sql.prepare('DELETE FROM messages WHERE botId=? AND chatId=? AND messageId=?').run(scope.botId, target, args.messageId);}
       return { status: 'done' };
     }
     throw new Error('Unknown or invalid tool');
   };
-  const invokeRaw = (scope, name, args) => ['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget'].includes(name)?invokeTool(scope,name,args):gate.run(scope.botId, () => invokeTool(scope, name, args), scope.agentId).finally(()=>{control?.kick(scope.agentId);});
+  const invokeRaw = (scope, name, args) => ['create_widget','update_widget','set_widget_view','delete_widget_view','delete_widget','update_widget_store'].includes(name)?invokeTool(scope,name,args):gate.run(scope.botId, () => invokeTool(scope, name, args), scope.agentId).finally(()=>{control?.kick(scope.agentId);});
   const invoke=(scope,name,args)=>{
     const target=name==='set_widget_view'?args.target:name==='delete'&&args.messageId!==undefined?{chatId:args.chatId??scope.chatId,messageId:args.messageId}:null;
     if(!target?.messageId)return invokeRaw(scope,name,args);
     const address={botId:scope.botId,chatId:target.chatId??scope.chatId,messageId:target.messageId};
-    return messageSerial.run(address,async()=>{try{const result=await invokeRaw(scope,name,args);if(name==='set_widget_view')buttonRollback.invalidate(address);return result;}catch(e){if(name==='set_widget_view'&&!e.noEffect)buttonRollback.invalidate(address);throw e;}});
+    if(name==='set_widget_view')return invokeRaw(scope,name,args).then(result=>{
+      buttonRollback.invalidate(address);return result;
+    },error=>{if(!error.noEffect)buttonRollback.invalidate(address);throw error;});
+    return messageSerial.run(address,()=>invokeRaw(scope,name,args));
   };
   const scheduled = new Map();
   const trackConsumed = (id, events) => { if (!consumed.has(id)) consumed.set(id, new Map()); const count = consumed.get(id); for (const e of events) if (e.eventType === 'agent_message') count.set(e.from.agentId, (count.get(e.from.agentId) ?? 0) + 1); };
@@ -490,7 +494,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     receipts:createGuestReceipts({directory:config?.dataDir?path.join(config.dataDir,'guest-publications'):undefined,now:clock}),
     resolveActor:(botId,userId)=>{const a=db.agent(botId,userId);return a?resolveInlineOwner(botId,a.agentId):null;},
     isKnownMember:(botId,chat)=>chat.type!=='private'&&Boolean(db.getChat(botId,chat.id))});
-  widgets=widgetService??(config?.dataDir&&config?.botsDir?createWidgetService({db,config,telegram,invoke,filesFor,inlineStore,guest,notify:async(owner,event)=>{const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(owner.botId,owner.agentId);if(!a||!db.getChat(a.botId,a.chatId)?.agentEnabled||lifecycle.closed)return;scopes.set(a.agentId,lifecycle.scope(a));queue.enqueue(a.agentId,event,'widget');},isUnavailable:(botId,agentId)=>lifecycle.closed||deleting.has(botId)||isStopping(botId,db.sql.prepare('SELECT chatId FROM agents WHERE agentId=?').get(agentId)?.chatId)}):null);
+  widgets=widgetService??(config?.dataDir&&config?.botsDir?createWidgetService({db,config,telegram,invoke,filesFor,messageSerial,inlineStore,guest,notify:async(owner,event)=>{const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(owner.botId,owner.agentId);if(!a||!db.getChat(a.botId,a.chatId)?.agentEnabled||lifecycle.closed)return 'full';scopes.set(a.agentId,lifecycle.scope(a));return queue.enqueue(a.agentId,event,'widget');},requestQueue:{enqueue:(owner,event)=>{const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(owner.botId,owner.agentId);if(!a||!db.getChat(a.botId,a.chatId)?.agentEnabled||lifecycle.closed)return 'full';scopes.set(a.agentId,lifecycle.scope(a));return queue.enqueue(a.agentId,event,'widget');},cancel:(owner,requestId)=>queue.cancelWhere(owner.agentId,event=>event?.eventType==='widget_request'&&event.requestId===requestId)},isUnavailable:(botId,agentId)=>lifecycle.closed||deleting.has(botId)||isStopping(botId,db.sql.prepare('SELECT chatId FROM agents WHERE agentId=?').get(agentId)?.chatId)}):null);
   if(widgets)widgetEvents=createWidgetEvents({db,manager:widgets,telegram});
   function resolveInlineOwner(botId,agentId) {
     const a=db.sql.prepare('SELECT * FROM agents WHERE botId=? AND agentId=?').get(botId,agentId),chat=a&&db.getChat(botId,a.chatId);
@@ -532,8 +536,14 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       if(update.edited_message&&isMcpAuthReply(update.edited_message,mcpOAuth,botId)){await commands.handle(botId,update.edited_message);return;}
       if (commandMessage && await commands.handle(botId, commandMessage)) return;
       if(update.callback_query&&await browse.callback(botId,update.callback_query))return;
-      if(privateRoute(commandMessage)||privateRoute(update.channel_post))return;
-      if(privateRoute(update.callback_query?.message)){await telegram.call(botId,'answerCallbackQuery',{callback_query_id:update.callback_query.id,text:'Ephemeral agent and widget callbacks are not supported yet.'}).catch(()=>{});return;}
+      if(privateRoute(commandMessage)||privateRoute(update.channel_post)){
+        if(widgetEvents&&await widgetEvents(botId,update))return;
+        return;
+      }
+      if(privateRoute(update.callback_query?.message)){
+        if(widgetEvents&&await widgetEvents(botId,update))return;
+        await telegram.call(botId,'answerCallbackQuery',{callback_query_id:update.callback_query.id,text:'Ephemeral callback is unavailable.'}).catch(()=>{});return;
+      }
       if (botId === 'master') return;
       if(update.callback_query?.inline_message_id&&guest.hasPending(botId)){
         await telegram.call(botId,'answerCallbackQuery',{callback_query_id:update.callback_query.id}).catch(()=>{});

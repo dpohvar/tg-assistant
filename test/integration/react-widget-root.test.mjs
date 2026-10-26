@@ -1,0 +1,73 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import React,{createContext,useContext,useEffect,useRef,useState} from "react";
+import * as runtimeModule from "../../src/widgets/reconciler.mjs";
+import { useViews } from "../../src/widgets/react-context.mjs";
+
+const h=React.createElement;
+const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+
+test("one real React root retains hooks and Runtime context across view prop updates", async () => {
+  assert.equal(typeof runtimeModule.createReactRuntime,"function");
+  const Context=createContext(null),events=[];
+  function Runtime({children}) { const ref=useRef({token:"shared"});useEffect(()=>{events.push("runtime mount");return()=>events.push("runtime cleanup")},[]);return h(Context,{value:ref.current},children); }
+  function Main({label}) {const shared=useContext(Context),[count,setCount]=useState(0);useEffect(()=>{events.push(`view mount ${label}`);return()=>events.push(`view cleanup ${label}`)},[]);return h("p",{onClick:()=>setCount(x=>x+1)},`${label}:${count}:${shared.token}`);}
+  const runtime=runtimeModule.createReactRuntime();
+  await runtime.create({widgetId:"w",buildId:"b",factory:()=>({default:Runtime,Main})});
+  const view=await runtime.mount({widgetId:"w",viewId:"v",target:{chatId:1,messageId:1},component:"Main",props:{label:"A"}});
+  await tick();
+  assert.equal(runtime.describe("w","v").tree.children[0].children[0].text,"A:0:shared");
+  runtime.describe("w","v").tree.children[0].props.onClick();
+  await tick();
+  assert.equal(runtime.describe("w","v").tree.children[0].children[0].text,"A:1:shared");
+  await view.mount(h(Main,{label:"B"}));
+  await tick();
+  assert.equal(runtime.describe("w","v").tree.children[0].children[0].text,"B:1:shared");
+  await view.mount(h(Main,{label:"C"}),{force:true});
+  await tick();
+  assert.equal(runtime.describe("w","v").tree.children[0].children[0].text,"C:0:shared");
+  assert.equal(events.filter(x=>x==="runtime mount").length,1);
+  await runtime.retire("w");
+  assert.ok(events.includes("runtime cleanup"));
+});
+
+test("default Runtime is optional, useViews stabilizes and a failing view can recover", async () => {
+  const events=[];
+  function Good({label}) {const views=useViews();return h("p",null,`${label}:${views.length}`);}
+  function Bad(){throw Error("render boom");}
+  const runtime=runtimeModule.createReactRuntime({bridge:{viewError:(widgetId,viewId)=>events.push(viewId)}});
+  await runtime.create({widgetId:"plain",buildId:"plain",factory:()=>({Good,Bad})});
+  const good=await runtime.mount({widgetId:"plain",viewId:"good",target:{chatId:1,messageId:1},component:"Good",props:{label:"ok"}});
+  assert.equal(runtime.describe("plain","good").tree.children[0].children[0].text,"ok:1");
+  await runtime.mount({widgetId:"plain",viewId:"bad",target:{chatId:1,messageId:2},component:"Bad"});
+  await tick();
+  assert.equal(runtime.describe("plain","bad").status,"error");
+  assert.deepEqual(events,["bad"]);
+  assert.equal(runtime.describe("plain","good").tree.children[0].children[0].text,"ok:2");
+  await good.mount();
+  assert.equal(runtime.describe("plain","good").tree.children[0].children[0].text,"ok:2");
+  await runtime.retire("plain");
+});
+
+test("Runtime can run with no views and sibling widget roots keep state separate", async () => {
+  const Context=createContext(null),events=[];
+  function Runtime({children}) { useEffect(()=>{events.push("open");return()=>events.push("close")},[]);return h(Context,{value:{}},children); }
+  function Main() { const [n,setN]=useState(0);useContext(Context);return h("p",{onClick:()=>setN(n+1)},String(n)); }
+  const runtime=runtimeModule.createReactRuntime();
+  await runtime.create({widgetId:"a",buildId:"shared",factory:()=>({default:Runtime,Main})});
+  await runtime.create({widgetId:"b",buildId:"shared",factory:()=>{throw Error("recompiled")}});
+  await tick();
+  assert.equal(events.length,2);
+  const va=await runtime.mount({widgetId:"a",viewId:"va",target:{chatId:1,messageId:1},component:"Main"});
+  await runtime.mount({widgetId:"b",viewId:"vb",target:{chatId:1,messageId:2},component:"Main"});
+  runtime.describe("a","va").tree.children[0].props.onClick();
+  await tick();
+  assert.equal(runtime.describe("a","va").tree.children[0].children[0].text,"1");
+  assert.equal(runtime.describe("b","vb").tree.children[0].children[0].text,"0");
+  await va.unmount();
+  await tick();
+  assert.equal(events.filter(x=>x==="close").length,0);
+  await runtime.retire("a");
+  await runtime.retire("b");
+  assert.equal(events.filter(x=>x==="close").length,2);
+});

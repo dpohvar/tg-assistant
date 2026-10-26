@@ -36,7 +36,7 @@ test('schema 11 migrates once, preserves private state and retains baselines acr
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-usage-migrate-')),file=path.join(root,'db');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));let old=new DatabaseSync(file);
  for(let i=1;i<=11;i++)old.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(i).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
  old.exec("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',42,'bot',1);INSERT INTO vault VALUES('b','KEEP','synthetic')");old.close();let db=openDatabase(file),store=createUsageStore(db);const start=store.startedAt();store.track('b','a','r',{now:at});store.tokens('r',tokens(100),at);db.close();
- db=openDatabase(file);store=createUsageStore(db);try{assert.equal(store.startedAt(),start);assert.equal(db.sql.prepare('SELECT value FROM vault').get().value,'synthetic');assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,20);store.tokens('r',tokens(100),at);assert.equal(store.list()[0].total.inputTokens,100);}finally{db.close();}
+ db=openDatabase(file);store=createUsageStore(db);try{assert.equal(store.startedAt(),start);assert.equal(db.sql.prepare('SELECT value FROM vault').get().value,'synthetic');assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,21);store.tokens('r',tokens(100),at);assert.equal(store.list()[0].total.inputTokens,100);}finally{db.close();}
 });
 test('bucket overflow rolls back the entire delta including the session baseline',t=>{
  const{db,usage}=fixture(t);usage.track('b','a','r',{now:at});usage.tokens('r',tokens(100),at);

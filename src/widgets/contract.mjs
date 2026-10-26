@@ -86,6 +86,77 @@ export function validateWidgetState(v) {
 export function normalizeWidgetState(value) {
   return JSON.parse(validateWidgetState(value));
 }
+/** Validate a renderer mount before adopting its node or publishing anything. */
+export function validateReactMount(input) {
+  if (!input || Array.isArray(input) || typeof input !== "object")
+    throw widgetError("invalid_argument", "Mount must be an object.");
+  const { target, component, props = {}, origin = "agent" } = input;
+  if (!target || Array.isArray(target) || typeof target !== "object" ||
+      Object.getPrototypeOf(target) !== Object.prototype)
+    throw widgetError("invalid_argument", "Invalid view target.");
+  const keys = Object.keys(target).sort();
+  const has = (items) => items.some(key => keys.join(",") === [...key].sort().join(","));
+  const ordinary = has([
+    ["chatId"], ["chatId", "topicId"], ["chatId", "reply_parameters"],
+    ["chatId", "topicId", "reply_parameters"], ["chatId", "messageId"],
+    ["inlineMessageId"], ["guestRequestId"],
+  ]);
+  const ephemeral = has([
+    ["chatId", "receiverUserId"],
+    ["chatId", "receiverUserId", "ephemeralMessageId"],
+    ["chatId", "receiverUserId", "callbackQueryId"],
+    ["chatId", "receiverUserId", "callbackQueryId", "replaceCallbackQueryMessage"],
+  ]);
+  if (!ordinary && !ephemeral)
+    throw widgetError("invalid_argument", "Target selectors are ambiguous or unsupported.");
+  if (target.chatId !== undefined && !Number.isSafeInteger(target.chatId))
+    throw widgetError("invalid_argument", "Invalid chatId.");
+  if (target.messageId !== undefined && (!Number.isSafeInteger(target.messageId) || target.messageId < 1))
+    throw widgetError("invalid_argument", "Invalid messageId.");
+  if (target.topicId !== undefined && (!Number.isSafeInteger(target.topicId) || target.topicId < 1))
+    throw widgetError("invalid_argument", "Invalid topicId.");
+  if (target.receiverUserId !== undefined && (!Number.isSafeInteger(target.receiverUserId) || target.receiverUserId < 1))
+    throw widgetError("invalid_argument", "Invalid receiverUserId.");
+  if (target.ephemeralMessageId !== undefined && (!Number.isSafeInteger(target.ephemeralMessageId) || target.ephemeralMessageId < 1))
+    throw widgetError("invalid_argument", "Invalid ephemeralMessageId.");
+  if (target.callbackQueryId !== undefined &&
+      (typeof target.callbackQueryId !== "string" || !target.callbackQueryId || origin!=="runtime"))
+    throw widgetError("invalid_argument", "Invalid callbackQueryId.");
+  if (target.replaceCallbackQueryMessage !== undefined &&
+      (target.replaceCallbackQueryMessage!==true || !target.callbackQueryId))
+    throw widgetError("invalid_argument", "Replacement requires a fresh callback.");
+  for (const key of ["inlineMessageId", "guestRequestId"])
+    if (target[key] !== undefined && (typeof target[key] !== "string" || !target[key]))
+      throw widgetError("invalid_argument", `Invalid ${key}.`);
+  if (origin !== "agent" && origin !== "runtime")
+    throw widgetError("invalid_argument", "Unknown mount origin.");
+  const live = ephemeral && origin === "runtime";
+  if (live) {
+    if ((typeof component !== "function" && typeof component !== "string") ||
+        !props || typeof props !== "object" || Array.isArray(props))
+      throw widgetError("invalid_argument", "Invalid live renderer.");
+  } else {
+    if (typeof component !== "string" || !/^[A-Za-z_$][\w$]*$/.test(component))
+      throw widgetError("invalid_argument", "Ordinary views require an exported component name.");
+    if (!props || typeof props !== "object" || Array.isArray(props))
+      throw widgetError("invalid_argument", "Props must be a JSON object.");
+    plainJSON(props);
+  }
+  plainJSON(target);
+  return { target, component, props, origin };
+}
+
+export function validateReactState(value) {
+  return normalizeWidgetState(value);
+}
+
+export function validateAgentRequestPayload(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object" ||
+      typeof value.text !== "string" || !value.text ||
+      Object.keys(value).some(key => !["text", "responseSchema", "data"].includes(key)))
+    throw widgetError("invalid_argument", "Invalid agent request.");
+  return JSON.parse(plainJSON(value));
+}
 export function assertActionName(name) {
   if (
     typeof name !== "string" ||
@@ -247,21 +318,20 @@ export const WIDGET_TOOL_SCHEMAS = {
         "Path to an existing .ts/.tsx/.js/.jsx/.mjs/.cjs module in the bot workspace, e.g. widgets/counter.tsx. Write the file first with exec_command/apply_patch. Do not pass source code here.",
     },
     description: str,
-    state,
+    props:state,
   },['handler','description']),
-  update_widget:obj({widgetId:str,handler:str,description:str,state},['widgetId']),
-  set_widget_view:obj({widgetId:str,props:state,
+  update_widget:obj({widgetId:str,handler:str,description:str,props:state},['widgetId']),
+  set_widget_view:obj({widgetId:str,viewId:str,component:str,props:state,force:{type:'boolean'},
     send:{...obj({guestRequestId:{type:'string',minLength:1},chatId:integer,topicId:integer,reply_parameters:state,disable_notification:{type:'boolean'},protect_content:{type:'boolean'},message_effect_id:str}),
       oneOf:[{not:{required:['guestRequestId']}},{required:['guestRequestId'],not:{anyOf:['chatId','topicId','reply_parameters','disable_notification','protect_content','message_effect_id'].map(key=>({required:[key]}))}}]},
-    target:obj({chatId:integer,messageId:integer,inlineMessageId:str})},['widgetId']),
+    target:obj({chatId:integer,messageId:integer,inlineMessageId:str,
+      receiverUserId:integer,ephemeralMessageId:integer})},['widgetId']),
+  update_widget_store:obj({widgetId:str,state},['widgetId','state']),
+  answer_widget_request:obj({requestId:str,result:{}},['requestId','result']),
   delete_widget_view:obj({viewId:str},['viewId']),
   delete_widget: obj({ widgetId: str }, ["widgetId"]),
   list_widgets: obj({}),
   get_widget: obj({ widgetId: str }, ["widgetId"]),
-  widget_event: obj({ widgetId: str, name: str, data: {} }, [
-    "widgetId",
-    "name",
-  ]),
 };
 export function publicWidget(w) {
   const keys = [

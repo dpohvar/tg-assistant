@@ -39,18 +39,15 @@ URL photos use the same URL as their default thumbnail. URL video/animation need
 
 ## Widgets and callbacks
 
-Create an owned widget or choose an existing one, then publish its first rendering directly:
+Create an owned React widget or choose an existing one, then mount a named component as the direct guest answer:
 
 ```js
-const widget=await create_widget({handler:"widgets/wordle/widget.tsx",description:"Shared Wordle"});
-await set_widget_view({widgetId:widget.widgetId,send:{guestRequestId:"REQUEST_ID"},props:{}});
+const widget=await create_widget({handler:"widgets/wordle/widget.tsx",description:"Wordle",props:{wordMode:"individual"}});
+await set_widget_view({widgetId:widget.widgetId,component:"GameShared",send:{guestRequestId:"REQUEST_ID"}});
 // {viewId:"VIEW_ID",target:{inlineMessageId:"OPAQUE_INLINE_ID"}}
 ```
 
-The first visible response is already the rendered widget. There is no mandatory intermediate Wordle text/card or first edit. The initial frozen view target is `{guestRequestId}`; after confirmation it becomes `{inlineMessageId}`. Render code must not assume an ordinary chat/message address exists. Existing one-argument render functions remain supported. Text/rich output and native inline buttons fit this route; initial unsupported formats/uploads fail before a message is sent.
-
-Every confirmed native inline ID is registered to the publishing agent immediately, with its authored content snapshot. It can be read/edited through the existing owned inline route; a widget-bound message uses widget tools thereafter. An optional activation card is also supported: its prepared action callback reaches the preparing agent, which attaches a view using the callback's exact inline ID. Subsequent widget buttons run the widget handler, with shared state, timers, lifecycle and permits unchanged. No guest reply subscription or widget `onReply` is created.
-
+The first visible response is the rendered view. A guest view has no ordinary chat/message address, so `event.overlay` cannot create a private group overlay. Wordle's `GameShared` uses one shared message, individual answers and a short active-player lease. A native inline action card can instead prompt the agent to create a view after a click. Widget buttons route to the current React closure, not a named module action. Telegram may give different participants different opaque inline IDs for the publication; the controller never treats an unknown participant ID as a new canonical view registration.
 A prepared one-shot action closes its group when the accepted event enters the agent queue. Its visible button changes when the agent edits or replaces the message, so it may remain visible while the agent prepares a widget. Further presses of the closed group do not enqueue another action.
 
 ## Lifetime and delivery

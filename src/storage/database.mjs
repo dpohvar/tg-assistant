@@ -16,7 +16,7 @@ export function openDatabase(filename) {
     sql.exec('BEGIN IMMEDIATE');
     sql.exec('CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY)');
     const version = sql.prepare('SELECT COALESCE(MAX(version),0) AS version FROM schema_migrations').get().version;
-    if (version > 20) throw new Error('Database uses a newer schema than this controller supports.');
+    if (version > 21) throw new Error('Database uses a newer schema than this controller supports.');
     for (let n = 1; n <= 20; n++) if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(n)) {
       sql.exec(fs.readFileSync(new URL(`./migrations/${String(n).padStart(3, '0')}.sql`, import.meta.url), 'utf8'));
     }
@@ -25,6 +25,8 @@ export function openDatabase(filename) {
       const topics=createTopicStore({sql,getChat:(botId,chatId)=>sql.prepare('SELECT * FROM chats WHERE botId=? AND chatId=?').get(botId,chatId)});
       for(const row of sql.prepare('SELECT botId,json FROM messages WHERE topicId IS NOT NULL ORDER BY date,messageId').all())topics.observeMessage(row.botId,JSON.parse(row.json));
     }
+    if (!sql.prepare('SELECT 1 FROM schema_migrations WHERE version=21').get())
+      sql.exec(fs.readFileSync(new URL('./migrations/021.sql',import.meta.url),'utf8'));
     sql.exec('COMMIT');
   } catch (error) { try { sql.exec('ROLLBACK'); } finally { sql.close(); } throw error; }
   const getBot = botId => sql.prepare('SELECT * FROM bots WHERE botId=?').get(botId) ?? null;
@@ -73,13 +75,9 @@ export function openDatabase(filename) {
           const message=row.message?JSON.parse(row.message):null;if(message?.chat)message.chat={...message.chat,...chat};
           sql.prepare('UPDATE widget_views SET chatId=?,chatType=?,message=? WHERE viewId=?').run(chat.id,chat.type,message?JSON.stringify(message):null,row.viewId);
         }
-        sql.prepare('UPDATE widget_publication_candidates SET chatId=? WHERE botId=? AND chatId=?').run(chat.id,botId,oldId);
-        for(const row of sql.prepare('SELECT e.widgetId,e.seq,e.payload,e.admission FROM widget_events e JOIN widgets w USING(widgetId) WHERE w.botId=?').all(botId)){
-          const event=JSON.parse(row.payload);if(!['button','reply','reaction'].includes(event.source))continue;
-          const rewrite=v=>{if(!v||typeof v!=='object')return;if(v.chat?.id===oldId)v.chat={...v.chat,...chat};for(const x of Object.values(v))rewrite(x);};rewrite(event.data);
-          if(event.view?.target?.chatId===oldId)event.view.target.chatId=chat.id;
-          const admission=row.admission?JSON.parse(row.admission):null;if(admission?.target?.chatId===oldId)admission.target.chatId=chat.id;
-          const payload=JSON.stringify(event),meta=admission?JSON.stringify(admission):null;sql.prepare('UPDATE widget_events SET payload=?,admission=?,bytes=?+COALESCE((SELECT length(CAST(state AS BLOB)) FROM widget_control_jobs WHERE widgetId=? AND seq=?),0) WHERE widgetId=? AND seq=?').run(payload,meta,Buffer.byteLength(payload)+Buffer.byteLength(meta??''),row.widgetId,row.seq,row.widgetId,row.seq);
+        for(const candidate of sql.prepare('SELECT viewId,target FROM widget_publication_candidates WHERE botId=?').all(botId)){
+          const target=JSON.parse(candidate.target);
+          if(target.chatId===oldId){target.chatId=chat.id;sql.prepare('UPDATE widget_publication_candidates SET target=? WHERE viewId=?').run(JSON.stringify(target),candidate.viewId);}
         }
         if(chat.is_forum)sql.prepare('INSERT OR IGNORE INTO topics(botId,chatId,topicId) VALUES(?,?,1)').run(botId,chat.id);
         for(const row of sql.prepare('SELECT messageId,json FROM messages WHERE botId=? AND chatId=?').all(botId,chat.id)){const m=JSON.parse(row.json);m.chat={...m.chat,...chat};sql.prepare('UPDATE messages SET json=? WHERE botId=? AND chatId=? AND messageId=?').run(JSON.stringify(m),botId,chat.id,row.messageId);}

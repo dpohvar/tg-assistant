@@ -21,7 +21,7 @@ test('disabled preparing agent cannot consume the group or receive a click',asyn
   const f=fixture(t);f.disable();await f.events.receive('b',f.callback());assert.ok(f.store.button('b','one'));assert.equal(f.store.pendingEvents().length,0);assert.equal(f.queued.length,0);
 });
 test('an old action token on a widget-owned message cannot invoke the agent',async t=>{
-  const f=fixture(t),w=f.widgets.store.create({...f.owner,handler:'a.tsx',snapshotId:'s',description:'Wordle'});f.widgets.store.createView(w,{target:{inlineMessageId:'inline-one'}});
+  const f=fixture(t),w=f.widgets.store.create({...f.owner,handler:'a.tsx',buildId:'s',description:'Wordle'});f.widgets.store.createView(w,{target:{inlineMessageId:'inline-one'},exportName:'Main',props:{}});
   await f.events.receive('b',f.callback());assert.equal(f.queued.length,0);assert.ok(f.store.button('b','one'));
 });
 test('failed queue marker retains one durable pending event for a later admissible drain',async t=>{

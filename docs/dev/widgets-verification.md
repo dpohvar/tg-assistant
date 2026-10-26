@@ -21,7 +21,7 @@ A separate fresh-context review inspected lifecycle, recovery, sandbox, routing 
 
 ## Actual sandbox processes
 
-The explicit [runtime acceptance program](../../test/manual/widget-runtime-acceptance.mjs) passed on Windows (Node 26.8.2, strict MXC sandbox) and Alpine (Node 24.18.1, nonroot Codex sandbox). Both used Codex 0.159.3.
+The explicit [runtime acceptance program](../../test/legacy/manual/widget-runtime-acceptance.mjs) passed on Windows (Node 26.8.2, strict MXC sandbox) and Alpine (Node 24.18.1, nonroot Codex sandbox). Both used Codex 0.159.3.
 
 Each run built and exercised all eight examples, then checked filesystem/environment isolation, self-replacement and stale effects, controller restart, heartbeat during a 12-second asynchronous action, termination of a tracked detached child, a synchronous event-loop hang, a 350 MiB Buffer allocation and bounded cleanup after a hanging stop hook. Each produced 49 simulated Telegram calls and the three expected runtime-failure notifications. These are real sandbox/process tests with a simulated Telegram endpoint, not human callback acceptance.
 
@@ -29,7 +29,7 @@ A second Windows launcher installation, reporting the same Codex version, exceed
 
 ## Actual Telegram requests
 
-The explicit [Telegram acceptance program](../../test/manual/widget-telegram-acceptance.mjs) used the designated test bot, an existing private test dialogue and a permitted passive test supergroup. It created its own fixtures, consumed no updates, exercised the production widget service/renderer and strict Alpine sandbox, and deleted its fixtures where Telegram allowed deletion.
+The explicit [Telegram acceptance program](../../test/legacy/manual/widget-telegram-acceptance.mjs) used the designated test bot, an existing private test dialogue and a permitted passive test supergroup. It created its own fixtures, consumed no updates, exercised the production widget service/renderer and strict Alpine sandbox, and deleted its fixtures where Telegram allowed deletion.
 
 - Repeated the previously documented singleton conversion matrix through widget rendering, preserving message IDs for every successful conversion. Telegram rejections remain explicit errors; there is no delete/resend fallback. Static location/venue to live location was again rejected.
 - Native photo, video, animation, audio and document rendering reused the exact returned file IDs on subsequent renders without uploading again. Venue, contact, poll, dice, voice, sticker, square MP4 video note and live photo creation succeeded in their permitted targets.

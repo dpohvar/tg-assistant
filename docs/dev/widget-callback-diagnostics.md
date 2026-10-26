@@ -1,6 +1,6 @@
 # Widget callback diagnostics
 
-The standalone [diagnostic script](../../test/manual/widget-callback-diagnostic.mjs) observes the local controller database with Node's read-only SQLite connection. It needs Node 24.18.1 or later and schema 15 or later, has no npm dependencies, imports no application startup code and makes no Telegram calls. Copying this one file to a server is sufficient; the controller can keep running. No migration or service restart is performed.
+The standalone [diagnostic script](../../test/legacy/manual/widget-callback-diagnostic.mjs) observes the local controller database with Node's read-only SQLite connection. It needs Node 24.18.1 or later and schema 15 or later, has no npm dependencies, imports no application startup code and makes no Telegram calls. Copying this one file to a server is sufficient; the controller can keep running. No migration or service restart is performed.
 
 Find the working old and failing new widget IDs using `/widget list all` and `/widget show WIDGET_ID`. Then run as a user with access to the existing controller database:
 

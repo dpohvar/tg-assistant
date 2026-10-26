@@ -7,6 +7,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {openDatabase} from '../../src/storage/database.mjs';
 import {createGuestStore} from '../../src/guest/store.mjs';
 import {retention} from '../../src/storage/retention.mjs';
+import {createWidgetStore} from '../../src/widgets/store.mjs';
 
 const DAY=86400000;
 function fixture(t,{file=':memory:'}={}) {
@@ -67,9 +68,10 @@ test('guest errors and uncertain attempts persist without replacing a confirmed 
 test('guest cleanup is silent and preserves live inline widget ownership',async t=>{
   const f=fixture(t),id=f.record().request.guestRequestId;
   const pub=f.store.beginPublication(f.a,{guestRequestId:id,prepared:{}});f.store.saveOutcome(pub.publicationId,{status:'confirmed',inlineMessageId:'live'});
-  f.db.sql.prepare("INSERT INTO widgets(widgetId,botId,agentId,generation,status,handler,snapshotId,description,state,createdAt) VALUES('w','b',?,1,'active','wordle.tsx','old','Wordle','{}',1000)").run(f.a.agentId);
+  const widgets=createWidgetStore(f.db),widget=widgets.create({botId:'b',agentId:f.a.agentId,
+    handler:'wordle.tsx',buildId:'old',description:'Wordle'});
   f.db.sql.prepare("INSERT INTO inline_message_owners VALUES('b','live',?,1000,2000)").run(f.a.agentId);
-  f.db.sql.prepare("INSERT INTO widget_views(viewId,widgetId,botId,agentId,inlineMessageId,bindingEpoch) VALUES('v','w','b',?,'live','epoch')").run(f.a.agentId);
+  widgets.createView(widget,{target:{inlineMessageId:'live'},exportName:'Main',props:{}});
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'guest-retention-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   await retention({db:f.db,config:{botsDir:root,codexHome:root},telegram:{call:()=>assert.fail('Cleanup must not notify')},now:1000+30*DAY});
   assert.equal(f.db.sql.prepare('SELECT count(*) n FROM guest_requests').get().n,0);
@@ -78,7 +80,7 @@ test('guest cleanup is silent and preserves live inline widget ownership',async 
   assert.equal(f.db.sql.prepare('SELECT count(*) n FROM inline_message_owners').get().n,1);
 });
 
-test('schema 16 upgrade preserves Wordle registrations and guest data survives reopen',t=>{
+test('schema 16 upgrade retires legacy Wordle registrations while guest data survives reopen',t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'guest-migration-')),file=path.join(root,'db.sqlite');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const old=new DatabaseSync(file);
   for(let n=1;n<=16;n++)old.exec(fs.readFileSync(new URL(`../../src/storage/migrations/${String(n).padStart(3,'0')}.sql`,import.meta.url),'utf8'));
@@ -93,9 +95,9 @@ test('schema 16 upgrade preserves Wordle registrations and guest data survives r
   db=openDatabase(file);try{
     store=createGuestStore(db,{now:()=>2000});assert.equal(store.get(scope,request.guestRequestId).queryId,'retained');
     assert.equal(store.publications(scope,request.guestRequestId)[0].inlineMessageId,'retained-inline');
-    assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,20);
-    assert.equal(db.sql.prepare("SELECT state FROM widgets WHERE widgetId='wordle'").get().state,'{"input":"А"}');
-    assert.equal(db.sql.prepare("SELECT messageId FROM widget_views WHERE viewId='old-view'").get().messageId,7);
+    assert.equal(db.sql.prepare('SELECT max(version) v FROM schema_migrations').get().v,21);
+    assert.equal(db.sql.prepare("SELECT count(*) n FROM widgets WHERE widgetId='wordle'").get().n,0);
+    assert.equal(db.sql.prepare("SELECT count(*) n FROM widget_views WHERE viewId='old-view'").get().n,0);
     db.sql.prepare("DELETE FROM agents WHERE agentId='a'").run();assert.equal(db.sql.prepare('SELECT count(*) n FROM guest_requests').get().n,0);
   }finally{db.close();}
 });

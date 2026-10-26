@@ -26,12 +26,16 @@ export const WIDGET_API_METHODS = new Set([
   "delete_widget",
   "list_widgets",
   "get_widget",
-  "widget_event",
+  "update_widget_store",
   "notify_agent",
-  "stop_poll",
-  "stop_live_location",
+  "ws_open",
+  "ws_list",
+  "ws_pull",
+  "ws_send",
+  "ws_close",
+  "ws_delete",
 ]);
-export function createWidgetAPI({ authorize, invoke, manager, notify, stop }) {
+export function createWidgetAPI({ authorize, invoke, manager, notify }) {
   return async (ref, name, args = {}) => {
     if (!WIDGET_API_METHODS.has(name))
       throw widgetError(
@@ -49,25 +53,18 @@ export function createWidgetAPI({ authorize, invoke, manager, notify, stop }) {
       });
     if (name === "list_widgets") return manager.list(scope);
     if (name === "get_widget") return manager.get(scope, args);
-    if (name === "widget_event") {
-      await manager.event(scope, args, {
-        source: "widget",
-        fromWidgetId: ref.widgetId,
-      });
-      return;
-    }
+    if (name === "update_widget_store") return manager.updateStore(scope,args);
     if (name === "notify_agent") {
       if (typeof args.text !== "string" || args.text.length > 10000)
         throw widgetError("invalid_argument");
-      await notify(ref, {
+      const admitted=await notify(ref, {
         eventType: "widget_message",
         widgetId: ref.widgetId,
         text: args.text,
       });
+      if(admitted!=="accepted")throw widgetError("agent_unavailable","Owner queue did not accept the notification.");
       return;
     }
-    if (name === "stop_poll" || name === "stop_live_location")
-      return stop(ref, name, args);
     return invoke(scope, name, args);
   };
 }

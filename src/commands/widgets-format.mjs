@@ -13,10 +13,10 @@ export function formatWidgets(items, start, end, total) {
     add(w.status, "italic");
     add("\n" + w.description + "\n");add('Owner:', 'bold');add(' ');
     add(w.agentId, "code");
-    add('\n');add('Pending:','bold');add(` ${w.pending}`);
     const views=w.views??[];add('\n');add('Views:','bold');add(` ${views.length}`);
     for(const view of views){
       add('\n- ');const target=view.target;
+      if(target.ephemeralMessageId){add(`Private recipient ${target.receiverUserId} in chat ${target.chatId}`);continue;}
       if(target.inlineMessageId){add(`${view.chatType??'inline'} ${target.inlineMessageId}`);continue;}
       const address=`${target.chatId}/${target.messageId}`,offset=text.length;add(address);
       let url;
@@ -31,8 +31,8 @@ export function formatWidgets(items, start, end, total) {
 }
 export function formatWidget(w) {
   const result = formatWidgets([w], 0, 1, 1);
-  result.text += `\nHandler: ${w.handler ?? "unknown"}\nStopped reason: ${w.stoppedReason ?? "none"}\nDropped: ${w.dropped}\nCreated: ${new Date(w.createdAt).toISOString()}\nLast error: ${w.lastError?JSON.stringify(w.lastError):'none'}`;
-  for(const view of w.views??[])result.text+=`\nView ${view.id}: ${JSON.stringify(view.props)}; error: ${view.lastError?JSON.stringify(view.lastError):'none'}`;
+  result.text += `\nHandler: ${w.handler ?? "unknown"}\nStore version: ${w.storeVersion??0}; revision: ${w.storeRevision??0}\nCreated: ${new Date(w.createdAt).toISOString()}\nLast error: ${w.lastError?JSON.stringify(w.lastError):'none'}`;
+  for(const view of w.views??[])result.text+=`\nView ${view.id} (${view.exportName??'[Function]'}, ${view.status??'active'}): ${JSON.stringify(view.props??{})}; error: ${view.lastError?JSON.stringify(view.lastError):'none'}`;
   for(const candidate of w.possiblePublications??[])result.text+=`\nPossible publication ${candidate.viewId}: ${JSON.stringify(candidate.target)} (${candidate.reason})`;
   return result;
 }

@@ -5,7 +5,7 @@ export function sandboxLaunchSpec(
   config,
   owner,
   assets,
-  { platform = process.platform, entry = "runtime.mjs" } = {},
+  { platform = process.platform, entry = "runtime-react.mjs" } = {},
 ) {
   const cwd = path.join(config.botsDir, owner.botId),
     temp = path.join(cwd, ".temp", owner.agentId);
