@@ -1,6 +1,11 @@
 {
   "name": "tg-assistant",
   "version": "0.1.0",
+  "homepage": "https://github.com/dpohvar/tg-assistant/blob/main/docs/index.md",
+  "documentation": {
+    "commands": "https://github.com/dpohvar/tg-assistant/blob/main/docs/commands.md",
+    "widgets": "https://github.com/dpohvar/tg-assistant/blob/main/docs/widgets.md"
+  },
   "private": true,
   "type": "module",
   "engines": {

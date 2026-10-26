@@ -205,7 +205,7 @@ In [forum groups](forum-groups.md), command replies and downloads stay in the in
 
 ## Programmable widgets
 
-Administrator/owner only. Filters select the owning agent, not the publication chat. `/help widget` gives expanded descriptions. See [widgets](widgets.md).
+Administrator/owner only. Filters select the owning agent, not the publication chat. `/help widget` gives expanded descriptions and a link to the [React-widget handbook](widgets.md). The general `/help` includes a link to the full project wiki.
 
 | Command | Behavior |
 | --- | --- |

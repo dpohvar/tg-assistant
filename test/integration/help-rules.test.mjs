@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {openDatabase} from '../../src/storage/database.mjs';
 import {createCommands} from '../../src/commands/router.mjs';
 import {helpSections,helpMessages} from '../../src/commands/help.mjs';
+import {WIKI_URL,WIDGETS_DOC_URL} from '../../src/documentation-links.mjs';
 import {createController} from '../../src/controller.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -96,6 +97,11 @@ test('every role/chat and master help has complete descriptions and valid format
       for(const e of m.entities)assert.ok(m.text.slice(e.offset,e.offset+e.length).startsWith('/'));
     }
   }
+});
+test('help links to the project wiki and widget authoring handbook',()=>{
+  const sections=helpSections({role:'admin',group:false});
+  assert.match(helpMessages(sections).map(m=>m.text).join('\n'),new RegExp(WIKI_URL.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+  assert.match(helpMessages(sections,'widget').map(m=>m.text).join('\n'),new RegExp(WIDGETS_DOC_URL.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
 });
 test('controller saves inline rules exactly, updates version and removes idle context without downloading',async t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'rules-inline-')),db=openDatabase(':memory:');

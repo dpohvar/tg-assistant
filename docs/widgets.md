@@ -1,5 +1,7 @@
 # React widgets
 
+This is the stable entry point for the current React-widget API. For authoring, read [getting started](widgets/getting-started.md), the [JSX tag and layout reference](widgets/jsx.md), [state and lifecycle](widgets/state.md), [views and events](widgets/views.md), and [Node.js capabilities and limits](widgets/runtime.md). These chapters describe implemented behavior; [development notes](dev/react-widgets-design.md) contain historical alternatives, including JSX tags that were never implemented.
+
 A widget is a sandboxed React application owned by one chat agent. One widget instance has one persistent JSON store and zero or more Telegram message views. A view mounts an exported component onto a new message, an existing bot message, or an inline/guest publication. Multiple views of the same widget share its store; local React state and refs belong to the running process.
 
 ## Create and publish
