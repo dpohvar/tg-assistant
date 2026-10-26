@@ -8,6 +8,7 @@ import { createWidgetHost } from "./host.mjs";
 import { createReactWidgetManager } from "./manager-react.mjs";
 import { createReactPublications } from "./publications.mjs";
 import { disabledRender } from "./disabled-render.mjs";
+import { viewLossReason } from "./errors.mjs";
 import { createWidgetAPI } from "./api.mjs";
 import {createPublicationReceipts} from "./receipts.mjs";
 import {runLegacyCleanup} from "./legacy-cleanup.mjs";
@@ -333,9 +334,13 @@ export function createWidgetService({
     disableView:async(ref,view)=>{
       const target=view.target;
       const disable=async()=>{
-        if(target.ephemeralMessageId){await telegram.call(ref.botId,'deleteEphemeralMessage',{
-          chat_id:target.chatId,receiver_user_id:target.receiverUserId,
-          ephemeral_message_id:target.ephemeralMessageId});return;}
+        if(target.ephemeralMessageId){
+          try{await telegram.call(ref.botId,'deleteEphemeralMessage',{
+            chat_id:target.chatId,receiver_user_id:target.receiverUserId,
+            ephemeral_message_id:target.ephemeralMessageId});}
+          catch(error){if(viewLossReason(error)!=='message_not_found')throw error;}
+          return;
+        }
         const address=target.inlineMessageId?{inline_message_id:target.inlineMessageId}:
           {chat_id:target.chatId,message_id:target.messageId};
         if(view.projection?.body?.rich_message){
