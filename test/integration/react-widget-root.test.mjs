@@ -2,10 +2,28 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import React,{createContext,useContext,useEffect,useRef,useState} from "react";
 import * as runtimeModule from "../../src/widgets/reconciler.mjs";
-import { useViews } from "../../src/widgets/react-context.mjs";
+import { useViews,useSelector } from "../../src/widgets/react-context.mjs";
 
 const h=React.createElement;
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+
+test("restored view keeps its binding and repaints after store replacement",async()=>{
+  function Main(){const count=useSelector(state=>state.count);return h("p",null,String(count));}
+  let publishedEpoch;
+  const runtime=runtimeModule.createReactRuntime({bridge:{commit:(_id,_roots,_revision,views)=>{
+    publishedEpoch=views.get("v")?.bindingEpoch;
+  }}});
+  await runtime.create({widgetId:"restored",buildId:"saved",factory:()=>({Main}),
+    saved:{version:0,revision:3,state:{count:10}}});
+  await runtime.mount({widgetId:"restored",viewId:"v",target:{chatId:1,messageId:7},
+    component:"Main",bindingEpoch:"ePersisted"});
+  assert.equal(publishedEpoch,"ePersisted");
+  assert.equal(runtime.describe("restored","v").tree.children[0].children[0].text,"10");
+  await runtime.replaceStore("restored",{count:11});
+  await tick();
+  assert.equal(runtime.describe("restored","v").tree.children[0].children[0].text,"11");
+  await runtime.retire("restored");
+});
 
 test("one real React root retains hooks and Runtime context across view prop updates", async () => {
   assert.equal(typeof runtimeModule.createReactRuntime,"function");

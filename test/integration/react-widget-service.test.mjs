@@ -38,7 +38,8 @@ export function Main({value}) {
       if(method==="sendRichMessage"&&args.ephemeral_message_parameters)
         return {ephemeral_message_id:88,receiver_user:{id:args.ephemeral_message_parameters.receiver_user_id},
           chat:{id:-10,type:"supergroup"},rich_message:args.rich_message};
-      return {message_id:77,chat:{id:-10,type:"supergroup"},rich_message:args.rich_message};}};
+      return {message_id:77,chat:{id:-10,type:"supergroup"},
+        ...(args.rich_message?{rich_message:args.rich_message}:{})};}};
     service=createWidgetService({db,config:{dataDir:path.join(root,"data"),botsDir:path.join(root,"bots"),codexExecutable:executable},
       telegram:serviceTelegram,
       filesFor:()=>files,invoke:async()=>null,notify:async()=>{},
@@ -79,5 +80,13 @@ export function Main({value}) {
     assert.ok(service.store.getView(result.viewId));
     assert.equal(service.store.getView(privateView.viewId),null);
     assert.ok(sent.some(call=>call.method==="deleteEphemeralMessage"&&call.args.ephemeral_message_id===88));
+    const editsBefore=sent.filter(call=>call.method==="editMessageText").length;
+    await service.updateStore(owner,{widgetId,state:{count:11,hint:"A"}});
+    await service.idle();
+    for(let i=0;i<30&&sent.filter(call=>call.method==="editMessageText").length===editsBefore;i++)
+      await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(service.store.getView(result.viewId).status,"active");
+    assert.ok(sent.filter(call=>call.method==="editMessageText").length>editsBefore,
+      "an ordinary view restored after restart must publish the new state");
   }finally{await service?.close();db.close();fs.rmSync(root,{recursive:true,force:true});}
 });

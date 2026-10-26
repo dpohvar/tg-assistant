@@ -169,7 +169,7 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
       await render(instance);
       return instance.context.widget;
     },
-    async mount({widgetId,viewId,component,props,node,options={},target=null,parentViewId=null,user=null,message=null,origin="agent"}) {
+    async mount({widgetId,viewId,component,props,node,options={},target=null,parentViewId=null,user=null,message=null,bindingEpoch,origin="agent"}) {
       const instance=ensure(widgetId);
       let view=instance.views.get(viewId);
       const currentTarget=target??view?.target;
@@ -185,7 +185,7 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
         view={id:viewId,component:null,props:{},epoch:0,status:"active",error:null,
           generation:instance.generation??1,target:currentTarget,parentViewId,
           user:user??(currentTarget.receiverUserId?{id:currentTarget.receiverUserId}:null),message,
-          bindingEpoch:"e"+randomUUID().replaceAll("-",""),subscriptions:new Map(),
+          bindingEpoch:bindingEpoch??"e"+randomUUID().replaceAll("-",""),subscriptions:new Map(),
           diceListeners:new Set(),diceSnapshot:Object.freeze(message?.dice?
             [message.dice.value??null,message.dice.emoji??null]:[null,null])};
         view.handle=createViewHandle({widgetId,viewId,generation:view.generation,
