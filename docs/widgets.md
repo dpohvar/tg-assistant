@@ -43,7 +43,7 @@ Use `useView()` inside a mounted view. It exposes `id`, `target`, `props`, `mess
 
 `useWidget()` exposes `id`, `mount(targetOrViewId,node,{force?})`, `unmount`, `closeOverlays`, and `getView`. `widget.mount` is the path for a component to create a new message view. A callback on an ordinary public group message can open a recipient-only overlay with `event.overlay(<Game />)`. A repeat for the same user and public parent updates that overlay; another user gets an independent one. `event.respond(...)` answers the callback. Guest and inline views have no ordinary chat address for overlays.
 
-The parent view is edited only after its overlays are closed. User interaction renews a private view's 20-minute idle lifetime; background repaints do not. Private views close on restart. The store and ordinary views restore; pending callbacks and local React state do not replay.
+The parent view is edited only after its overlays are closed. If Telegram reports `MESSAGE_NOT_FOUND` while removing a private view, the controller still clears its local binding, so a later public button click can open a fresh overlay. User interaction renews a private view's 20-minute idle lifetime; background repaints do not. Private views close on restart. The store and ordinary views restore; pending callbacks and local React state do not replay.
 
 `useOnMessage(callback)` runs after each confirmed send or edit. `useOnReply(callback,{disabled?})` opts into replies to this view; an active handler receives the reply instead of the chat agent. `useOnReaction` receives identified reaction changes. `useDice()` reads the last confirmed native dice result. These hooks clean up when their component unmounts. A callback token works only while present in the current confirmed projection.
 

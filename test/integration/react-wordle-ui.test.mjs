@@ -48,8 +48,13 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
     fs.cpSync(path.resolve("examples/widgets/wordle"),widgetDir,{recursive:true});
     const files=new BotFiles(botRoot,a.agentId),calls=[],notifications=[];
     let messageId=40,ephemeralId=80;
+    const missingPrivateMessages=new Set();
     const telegram={async call(_bot,method,args){
       calls.push({method,args});
+      if(method==="deleteEphemeralMessage"&&
+        missingPrivateMessages.has(args.ephemeral_message_id))
+        throw Object.assign(new Error("Telegram API error 400: MESSAGE_NOT_FOUND"),
+          {code:"telegram_api_error"});
       if(method.startsWith("send"))return args.ephemeral_message_parameters
         ?{message_id:0,ephemeral_message_id:++ephemeralId,receiver_user:{id:args.ephemeral_message_parameters.receiver_user_id},
           chat:{id:-10,type:"supergroup"},rich_message:args.rich_message}
@@ -120,6 +125,7 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
     assert.equal(service.store.get(widgetId).state.players["8"].status,"playing");
     const secondOverlay=service.store.listViews(widgetId).find(view=>view.targetKind==="ephemeral"&&
       view.target.receiverUserId===8);
+    missingPrivateMessages.add(secondOverlay.target.ephemeralMessageId);
     assert.equal(await route("b",{callback_query:{id:"close-8",from:{id:8,first_name:"Eight"},
       data:richButton(secondOverlay,"Закрыть").callback_data,
       message:{message_id:0,ephemeral_message_id:secondOverlay.target.ephemeralMessageId,
@@ -133,8 +139,10 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
     await service.idle();
     assert.equal(service.store.listViews(widgetId).filter(view=>view.targetKind==="ephemeral").length,2);
     // A Telegram Revert has no bot update. Reopening from the public launcher must
-    // send a new private message to Seven while Eight's overlay remains intact.
+    // send a new private message to Seven even when deleting the stale overlay
+    // reports MESSAGE_NOT_FOUND, while Eight's overlay remains intact.
     const oldOverlay=overlay;
+    missingPrivateMessages.add(oldOverlay.target.ephemeralMessageId);
     assert.equal(await route("b",{callback_query:{id:"start-7-after-revert",
       from:{id:7,first_name:"Seven"},data:token,
       message:{message_id:input.target.messageId,chat:{id:-10,type:"supergroup"}}}}),true);
