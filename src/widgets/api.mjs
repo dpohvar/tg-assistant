@@ -27,6 +27,7 @@ export const WIDGET_API_METHODS = new Set([
   "list_widgets",
   "get_widget",
   "update_widget_store",
+  "dispatch_widget_action",
   "notify_agent",
   "ws_open",
   "ws_list",
@@ -54,6 +55,7 @@ export function createWidgetAPI({ authorize, invoke, manager, notify }) {
     if (name === "list_widgets") return manager.list(scope);
     if (name === "get_widget") return manager.get(scope, args);
     if (name === "update_widget_store") return manager.updateStore(scope,args);
+    if (name === "dispatch_widget_action") return manager.dispatchAction(scope,args);
     if (name === "notify_agent") {
       if (typeof args.text !== "string" || args.text.length > 10000)
         throw widgetError("invalid_argument");

@@ -327,6 +327,7 @@ export const WIDGET_TOOL_SCHEMAS = {
     target:obj({chatId:integer,messageId:integer,inlineMessageId:str,
       receiverUserId:integer,ephemeralMessageId:integer})},['widgetId']),
   update_widget_store:obj({widgetId:str,state},['widgetId','state']),
+  dispatch_widget_action:obj({widgetId:str,action:str,args:state},['widgetId','action']),
   answer_widget_request:obj({requestId:str,result:{}},['requestId','result']),
   delete_widget_view:obj({viewId:str},['viewId']),
   delete_widget: obj({ widgetId: str }, ["widgetId"]),

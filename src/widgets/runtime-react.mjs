@@ -45,6 +45,7 @@ export function createReactWidgetProcess({request}) {
     },
     async commit(widgetId,roots,storeRevision,views) {
       const ref=refs.get(widgetId);
+      const updatedViews=[],failedViews=[];
       const rootsById=new Map();
       function collect(node) {
         if(node.type==="widget-view")rootsById.set(node.props.viewId,node);
@@ -78,22 +79,28 @@ export function createReactWidgetProcess({request}) {
             view.projection={body,replyMarkup};
             view.status="active";view.error=null;
             callbacks.set(viewId,{widgetId,handlers:nextCallbacks});
+            if(outcome.status==="confirmed")updatedViews.push({viewId,target:view.target});
             if(outcome.status==="confirmed")runtime.deliverMessage(widgetId,viewId,
               view.message??(view.target?.inlineMessageId?
                 {inline_message_id:view.target.inlineMessageId}:null));
           } else if(outcome.status==="view_error"){
             view.status="error";view.error=outcome.error;
+            failedViews.push({viewId,target:view.target,error:view.error});
           } else if(outcome.status==="removed"){
             callbacks.delete(viewId);
             view.status="error";view.error=outcome.error;
+            failedViews.push({viewId,target:view.target,error:view.error});
           } else if(outcome.status==="unknown"){
             view.status="error";view.error=outcome.error??{code:"delivery_unknown",message:outcome.reason};
+            failedViews.push({viewId,target:view.target,error:view.error});
           }
         } catch(error) {
           view.status="error";view.error={code:error.code??"render_failed",message:String(error.message)};
+          failedViews.push({viewId,target:view.target,error:view.error});
           await request("notifyError",{ref,viewId,error:view.error}).catch(()=>{});
         }
       }
+      return {updatedViews,failedViews};
     },
     runtimeError(widgetId,error) {
       const ref=refs.get(widgetId);
@@ -161,6 +168,9 @@ export function createReactWidgetProcess({request}) {
     async replaceStore(ref,{state}){
       return runtime.replaceStore(ref.widgetId,state);
     },
+    async dispatchAction(ref,{action,args}){
+      return runtime.dispatchAction(ref.widgetId,action,args);
+    },
     async retire(ref){
       for(const [viewId,entry] of callbacks)
         if(entry.widgetId===ref.widgetId)callbacks.delete(viewId);
@@ -177,7 +187,7 @@ async function main() {
   let rpc;
   const processRuntime=createReactWidgetProcess({request:(method,args)=>rpc.request(method,args)});
   rpc=await connectWidgetTransport({...boot,handle:async(method,args={})=>{
-    if(!["load","mount","unmount","callback","event","replaceStore","retire"].includes(method))throw widgetError("access_denied");
+    if(!["load","mount","unmount","callback","event","replaceStore","dispatchAction","retire"].includes(method))throw widgetError("access_denied");
     if(args.ref?.botId!==boot.owner.botId||args.ref?.agentId!==boot.owner.agentId)
       throw widgetError("access_denied");
     const {ref,...rest}=args;

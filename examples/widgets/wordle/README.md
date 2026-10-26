@@ -28,7 +28,15 @@ await set_widget_view({widgetId,component:"GameShared",
 
 For Nerdle, change `handler` to `widgets/wordle/nerdle.tsx` and use `length:8`. The same `Players`, `GameInput`, and `GameShared` exports apply. Classic equations are selected from the shipped answer pool and guesses must be valid eight-character equations.
 
-The round ends only when an external actor rotates or closes it. For example, read the current `get_widget` state, set `round.status="finished"` and `round.finishedAt` in a complete replacement object, then call `update_widget_store({widgetId,state})`. This reveals the answer(s), disables play, and closes private overlays. A win or loss by one player does not end the round for others. If removing the widget after finishing, check its public views and final Telegram messages first: `delete_widget` detaches the registration and disables controls but does not perform a final render. Keep the registration if a final view reports an error, repair or retry that view, and delete only after the finished projection is confirmed. Retain the old widget/table if historical results should remain visible; create a new widget for the next round.
+The round ends only when an external actor rotates or closes it. Both Wordle and Nerdle export `finishRound`, which sets the finished time, reveals the answer(s), disables play and closes private overlays. A win or loss by one player does not end the round for others. To finish and detach while preserving the final table:
+
+```js
+const result=await dispatch_widget_action({widgetId,action:"finishRound"});
+// result.updatedViews contains each confirmed Telegram edit.
+await delete_widget({widgetId});
+```
+
+The awaited action confirms the final repaint before deletion can disable buttons. If it rejects, inspect `get_widget` and its `updatedViews`/`failedViews` error details: the state may already be finished while one view failed to publish. Repair or retry the failed view before deleting. Deletion leaves the last message body visible. Retain the widget if the final view needs to stay interactive; create a new widget for the next round.
 
 The dictionary editor is a separate widget:
 

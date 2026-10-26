@@ -176,7 +176,7 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
     await service.idle();
     assert.deepEqual(service.store.get(widgetId).state.players["7"].guesses,[answer]);
     assert.equal(service.store.get(widgetId).state.players["7"].status,"won");
-    assert.ok(JSON.stringify(richBlocks(service.store.getView(overlay.id))).includes("Победа!"));
+    await waitFor(()=>JSON.stringify(richBlocks(service.store.getView(overlay.id))).includes("Победа!"));
     assert.equal(keyCell(service.store.getView(overlay.id),"А").is_header,true);
     assert.ok(keyButton(service.store.getView(overlay.id),"А").callback_data,
       "inactive keyboard keys remain enabled but use a no-op callback");
@@ -190,16 +190,11 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
     assert.ok(publicProjection.includes("🟩"));
     assert.ok(!publicProjection.includes(service.store.get(widgetId).state.round.sharedAnswer),
       "unfinished shared answer must not leak into Players projection");
-    const finished=structuredClone(service.store.get(widgetId).state);
-    finished.round.status="finished";finished.round.finishedAt=Date.now();
-    await service.updateStore(scope,{widgetId,state:finished});
-    await waitFor(()=>service.store.listViews(widgetId).filter(view=>view.targetKind==="ephemeral").length===0);
-    await waitFor(()=>JSON.stringify(service.store.getView(players.viewId).projection).includes(`Ответ: ${answer}`),
-      8000,()=>({round:service.store.get(widgetId).state.round,
-        playerView:service.store.getView(players.viewId),
-        inputView:service.store.getView(input.viewId),
-        calls:calls.map(call=>call.method)}));
-    await service.idle();
+    const finishResult=await service.dispatchAction(scope,{widgetId,action:"finishRound"});
+    assert.ok(finishResult.updatedViews.some(view=>view.viewId===players.viewId));
+    assert.equal(service.store.listViews(widgetId).filter(view=>view.targetKind==="ephemeral").length,0);
+    assert.ok(JSON.stringify(service.store.getView(players.viewId).projection).includes(`Ответ: ${answer}`),
+      "finishRound returns only after the answer is published");
     const finishedRows=richBlocks(service.store.getView(players.viewId))
       .find(block=>block.type==="table").cells;
     const winningRow=finishedRows.find(row=>textContent(row[0].text).includes("Seven"));
@@ -210,6 +205,11 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
     "every green letter is both marked and bold");
     assert.deepEqual(notifications.filter(event=>event.eventType==="widget_error"),[],
       "finishing a round should not report already-detached overlays as widget errors");
+    await service.delete(scope,{widgetId});
+    assert.equal(service.store.get(widgetId),null);
+    assert.ok(calls.some(call=>call.method==="editMessageText"&&
+      JSON.stringify(call.args.rich_message).includes(`Ответ: ${answer}`)),
+      "the final answer was delivered before the widget was deleted");
     const inline=await service.create(scope,{handler:"widgets/wordle/widget.tsx",description:"Inline Wordle",
       props:{length:4,wordMode:"individual"}});
     const shared=await service.setView(scope,{widgetId:inline.widgetId,component:"GameShared",

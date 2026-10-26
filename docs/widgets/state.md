@@ -22,6 +22,14 @@ export function Count(){
 
 If `defineStore` is omitted, the store starts at version 0 with `{}`. A second or late call throws. `useSelector` subscribes a component to the selected value. `useDispatch` takes a synchronous Immer recipe; mutate the draft, do not perform I/O in the recipe and do not return a replacement value. A store change is saved before view publication or edit. Store values must be JSON serializable. `update_widget_store({widgetId,state})` replaces the complete store without calling button handlers.
 
+An agent-callable action is a named lowercase export that takes one JSON object and returns an Immer recipe. Uppercase exports are components and `default` is the Runtime. For example:
+
+```tsx
+export const setCount=({value})=>draft=>{draft.count=value;};
+```
+
+Call `dispatch_widget_action({widgetId,action:"setCount",args:{value:3}})`. The action runs against the current store in the widget process; it must be synchronous, must not return a replacement, and must not perform I/O. Both `dispatch_widget_action` and `update_widget_store` wait until Telegram confirms the resulting view updates. Success returns `{updatedViews:[{viewId,target}]}`; a no-op yields `updatedViews:[]`. If any view fails, the tool rejects and includes confirmed `updatedViews` and `failedViews`. The state may already be saved, so inspect it before retrying. View errors are not automatically retried; `view.mount()` can retry one. An awaited action followed by `delete_widget` is ordered so deletion cannot interrupt the confirmed repaint.
+
 For a schema change, increase `version` and use an initializer function. It receives the prior state and version and returns a complete new JSON state:
 
 ```tsx

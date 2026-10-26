@@ -7,6 +7,56 @@ import { useViews,useSelector } from "../../src/widgets/react-context.mjs";
 const h=React.createElement;
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 
+test("named action publishes saved state and reports only confirmed view edits",async()=>{
+  function Main(){const count=useSelector(state=>state.count);return h("p",null,String(count));}
+  const edits=[];
+  const runtime=runtimeModule.createReactRuntime({bridge:{
+    storeRevision:async(_id,revision)=>edits.push(`saved:${revision.revision}`),
+    commit:async(_id,_roots,revision,views)=>{
+      edits.push(`published:${revision}`);
+      return {updatedViews:[...views.values()].map(view=>({viewId:view.id,target:view.target})),failedViews:[]};
+    },
+  }});
+  await runtime.create({widgetId:"actions",buildId:"actions",factory:()=>({Main,
+    add:({amount})=>state=>{state.count+=amount;},
+    noop:()=>state=>{state.count+=0;},
+    invalid:()=>({count:99}),
+  }),saved:{version:0,revision:2,state:{count:1}}});
+  await runtime.mount({widgetId:"actions",viewId:"v",target:{chatId:1,messageId:7},component:"Main"});
+  edits.length=0;
+  const result=await runtime.dispatchAction("actions","add",{amount:2});
+  assert.deepEqual(result,{updatedViews:[{viewId:"v",target:{chatId:1,messageId:7}}]});
+  assert.equal(runtime.state("actions").state.count,3);
+  assert.ok(edits.indexOf("saved:3")<edits.indexOf("published:3"));
+  await assert.rejects(runtime.dispatchAction("actions","Missing",{}),{code:"invalid_argument"});
+  await assert.rejects(runtime.dispatchAction("actions","invalid",{}),{code:"invalid_argument"});
+  assert.equal(runtime.state("actions").state.count,3);
+  await runtime.retire("actions");
+});
+
+test("store operation rejects a failed view publication with partial results",async()=>{
+  function Main(){const count=useSelector(state=>state.count);return h("p",null,String(count));}
+  let fail=false;
+  const runtime=runtimeModule.createReactRuntime({bridge:{commit:async(_id,_roots,_revision,views)=>{
+    if(!fail)return {updatedViews:[],failedViews:[]};
+    return {updatedViews:[{viewId:"a",target:views.get("a").target}],
+      failedViews:[{viewId:"b",error:{code:"MESSAGE_NOT_FOUND",message:"gone"}}]};
+  }}});
+  await runtime.create({widgetId:"partial",buildId:"partial",factory:()=>({Main}),
+    saved:{version:0,revision:0,state:{count:1}}});
+  await runtime.mount({widgetId:"partial",viewId:"a",target:{chatId:1,messageId:1},component:"Main"});
+  await runtime.mount({widgetId:"partial",viewId:"b",target:{chatId:1,messageId:2},component:"Main"});
+  fail=true;
+  await assert.rejects(runtime.replaceStore("partial",{count:2}),error=>{
+    assert.equal(error.code,"view_render_failed");
+    assert.deepEqual(error.updatedViews,[{viewId:"a",target:{chatId:1,messageId:1}}]);
+    assert.equal(error.failedViews[0].viewId,"b");
+    return true;
+  });
+  assert.equal(runtime.state("partial").state.count,2);
+  await runtime.retire("partial");
+});
+
 test("restored view keeps its binding and repaints after store replacement",async()=>{
   function Main(){const count=useSelector(state=>state.count);return h("p",null,String(count));}
   let publishedEpoch;
