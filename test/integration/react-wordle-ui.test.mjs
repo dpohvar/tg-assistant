@@ -42,11 +42,15 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
   try{
     db.registerBot({botId:"b",telegramId:42,username:"bot",ownerId:1});
     db.saveChat("b",{id:-10,type:"supergroup",title:"test"});
+    db.saveChat("b",{id:1,type:"private"});
     const a=db.ensureAgent("b",-10),scope={botId:"b",agentId:a.agentId,chatId:-10};
+    const privateAgent=db.ensureAgent("b",1);
+    const privateScope={botId:"b",agentId:privateAgent.agentId,chatId:1};
     const botRoot=path.join(root,"bots","b"),widgetDir=path.join(botRoot,"widgets","wordle");
     fs.mkdirSync(path.dirname(widgetDir),{recursive:true});
     fs.cpSync(path.resolve("examples/widgets/wordle"),widgetDir,{recursive:true});
-    const files=new BotFiles(botRoot,a.agentId),calls=[],notifications=[];
+    const files=new BotFiles(botRoot,a.agentId),privateFiles=new BotFiles(botRoot,privateAgent.agentId);
+    const calls=[],notifications=[];
     let messageId=40,ephemeralId=80;
     const missingPrivateMessages=new Set();
     const telegram={async call(_bot,method,args){
@@ -58,15 +62,18 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
       if(method.startsWith("send"))return args.ephemeral_message_parameters
         ?{message_id:0,ephemeral_message_id:++ephemeralId,receiver_user:{id:args.ephemeral_message_parameters.receiver_user_id},
           chat:{id:-10,type:"supergroup"},rich_message:args.rich_message}
-        :{message_id:++messageId,chat:{id:-10,type:"supergroup"},rich_message:args.rich_message};
+        :{message_id:++messageId,chat:{id:args.chat_id??-10,
+          type:(args.chat_id??-10)>0?"private":"supergroup"},rich_message:args.rich_message};
       if(method.startsWith("edit")&&args.inline_message_id)return true;
       if(method.startsWith("edit"))return {message_id:args.message_id??0,
         ...(args.ephemeral_message_id?{ephemeral_message_id:args.ephemeral_message_id}:{}),
-        chat:{id:-10,type:"supergroup"},...(args.rich_message?{rich_message:args.rich_message}:{})};
+        chat:{id:args.chat_id??-10,type:(args.chat_id??-10)>0?"private":"supergroup"},
+        ...(args.rich_message?{rich_message:args.rich_message}:{})};
       return true;
     }};
     service=createWidgetService({db,config:{dataDir:path.join(root,"data"),botsDir:path.join(root,"bots"),codexExecutable:executable},
-      telegram,filesFor:()=>files,invoke:async()=>null,notify:async(_owner,event)=>{
+      telegram,filesFor:owner=>owner.agentId===privateAgent.agentId?privateFiles:files,
+      invoke:async()=>null,notify:async(_owner,event)=>{
         notifications.push(event);return "accepted";
       },
       inlineStore:{assertOwner:()=>{}},guest:{
@@ -210,6 +217,87 @@ test("fresh Wordle assets publish Players and a separate launcher with a private
     assert.ok(calls.some(call=>call.method==="editMessageText"&&
       JSON.stringify(call.args.rich_message).includes(`Ответ: ${answer}`)),
       "the final answer was delivered before the widget was deleted");
+    const solo=await service.create(privateScope,{handler:"widgets/wordle/widget.tsx",
+      description:"Personal Wordle",props:{length:4,wordMode:"individual"}});
+    const soloView=await service.setView(privateScope,{widgetId:solo.widgetId,
+      component:"GameInput",send:{}});
+    assert.equal(soloView.target.chatId,1);
+    assert.equal(richButton(service.store.getView(soloView.viewId),"Начать")?.text,"Начать игру");
+    assert.equal(richBlocks(service.store.getView(soloView.viewId))
+      .some(block=>block.type==="table"),false,"the launcher has no players table");
+    assert.equal(await route("b",{callback_query:{id:"solo-start",from:{id:1,first_name:"Owner"},
+      data:richButton(service.store.getView(soloView.viewId),"Начать").callback_data,
+      message:{message_id:soloView.target.messageId,chat:{id:1,type:"private"}}}}),true);
+    await service.idle();
+    assert.equal(service.store.get(solo.widgetId).state.players["1"].name,"Owner");
+    assert.equal(service.store.listViews(solo.widgetId).length,1,
+      "a private-chat overlay shares its parent's Telegram message");
+    await waitFor(()=>keyButton(service.store.getView(soloView.viewId),"А")?.callback_data);
+    assert.ok(keyButton(service.store.getView(soloView.viewId),"А")?.callback_data);
+    assert.equal(await route("b",{callback_query:{id:"solo-key",from:{id:1,first_name:"Owner"},
+      data:keyButton(service.store.getView(soloView.viewId),"А").callback_data,
+      message:{message_id:soloView.target.messageId,chat:{id:1,type:"private"}}}}),true);
+    await service.idle();
+    assert.equal(service.store.get(solo.widgetId).state.players["1"].input,"А");
+    await waitFor(()=>richButton(service.store.getView(soloView.viewId),"Закрыть")?.callback_data);
+    assert.equal(await route("b",{callback_query:{id:"solo-close",from:{id:1,first_name:"Owner"},
+      data:richButton(service.store.getView(soloView.viewId),"Закрыть").callback_data,
+      message:{message_id:soloView.target.messageId,chat:{id:1,type:"private"}}}}),true);
+    await service.idle();
+    await waitFor(()=>richButton(service.store.getView(soloView.viewId),"Начать")?.callback_data);
+    assert.equal(richButton(service.store.getView(soloView.viewId),"Начать")?.text,"Начать игру");
+    assert.equal(service.store.get(solo.widgetId).state.players["1"].input,"А");
+    assert.equal(await route("b",{callback_query:{id:"solo-reopen",from:{id:1,first_name:"Owner"},
+      data:richButton(service.store.getView(soloView.viewId),"Начать").callback_data,
+      message:{message_id:soloView.target.messageId,chat:{id:1,type:"private"}}}}),true);
+    await service.idle();
+    await waitFor(()=>keyButton(service.store.getView(soloView.viewId),"А")?.callback_data);
+    assert.equal(service.store.listViews(solo.widgetId).length,1);
+    const soloAnswer=service.store.get(solo.widgetId).state.players["1"].answer;
+    const soloFinish=await service.dispatchAction(privateScope,{widgetId:solo.widgetId,
+      action:"finishRound"});
+    assert.ok(soloFinish.updatedViews.some(view=>view.viewId===soloView.viewId));
+    await waitFor(()=>JSON.stringify(service.store.getView(soloView.viewId).projection)
+      .includes(`Ответ: ${soloAnswer}`));
+    assert.equal(service.store.listViews(solo.widgetId).length,1);
+    assert.equal(richButton(service.store.getView(soloView.viewId),"Закрыть"),undefined);
+    const hidden=await service.create(scope,{handler:"widgets/wordle/widget.tsx",
+      description:"Hidden group Wordle",props:{length:4,wordMode:"individual"}});
+    const hiddenView=await service.setView(scope,{widgetId:hidden.widgetId,
+      component:"GameInput",target:{chatId:-10,receiverUserId:7}});
+    assert.ok(hiddenView.target.ephemeralMessageId);
+    assert.equal(richButton(service.store.getView(hiddenView.viewId),"Начать")?.text,
+      "Начать игру");
+    const hiddenEvent=(id,button)=>({callback_query:{id,from:{id:7,first_name:"Seven"},
+      data:button.callback_data,message:{message_id:0,
+        ephemeral_message_id:hiddenView.target.ephemeralMessageId,
+        receiver_user:{id:7},chat:{id:-10,type:"supergroup"}}}});
+    assert.equal(await route("b",hiddenEvent("hidden-start",
+      richButton(service.store.getView(hiddenView.viewId),"Начать"))),true);
+    await service.idle();
+    assert.equal(service.store.listViews(hidden.widgetId).length,1,
+      "the hidden game edits its original ephemeral message");
+    await waitFor(()=>keyButton(service.store.getView(hiddenView.viewId),"А")?.callback_data);
+    assert.equal(await route("b",hiddenEvent("hidden-key",
+      keyButton(service.store.getView(hiddenView.viewId),"А"))),true);
+    await service.idle();
+    assert.equal(service.store.get(hidden.widgetId).state.players["7"].input,"А");
+    assert.equal(await route("b",hiddenEvent("hidden-close",
+      richButton(service.store.getView(hiddenView.viewId),"Закрыть"))),true);
+    await service.idle();
+    await waitFor(()=>richButton(service.store.getView(hiddenView.viewId),"Начать")?.callback_data);
+    assert.equal(await route("b",hiddenEvent("hidden-reopen",
+      richButton(service.store.getView(hiddenView.viewId),"Начать"))),true);
+    await service.idle();
+    assert.equal(service.store.get(hidden.widgetId).state.players["7"].input,"А");
+    const hiddenAnswer=service.store.get(hidden.widgetId).state.players["7"].answer;
+    const hiddenFinish=await service.dispatchAction(scope,{widgetId:hidden.widgetId,
+      action:"finishRound"});
+    assert.ok(hiddenFinish.updatedViews.some(view=>view.viewId===hiddenView.viewId));
+    await waitFor(()=>JSON.stringify(service.store.getView(hiddenView.viewId).projection)
+      .includes(`Ответ: ${hiddenAnswer}`));
+    assert.ok(calls.some(call=>call.method==="editEphemeralMessageText"&&
+      call.args.ephemeral_message_id===hiddenView.target.ephemeralMessageId));
     const inline=await service.create(scope,{handler:"widgets/wordle/widget.tsx",description:"Inline Wordle",
       props:{length:4,wordMode:"individual"}});
     const shared=await service.setView(scope,{widgetId:inline.widgetId,component:"GameShared",

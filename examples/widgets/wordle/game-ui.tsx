@@ -183,10 +183,11 @@ export function createGameUI(config){
   }
 
   function GameInput(){
-    const state=useSelector(state=>state),dispatch=useDispatch();
+    const view=useView(),state=useSelector(state=>state),dispatch=useDispatch();
     const {config,blockedUserIds}=useGame();
     if(!state.round)return <p>Подготовка игры…</p>;
     const active=state.round.status==="open";
+    const personalPlayerId=view.user?.id??(view.target?.chatId>0?view.target.chatId:null);
     const begin=async event=>{
       if(!active||!Number.isSafeInteger(event.from?.id))return;
       if(blockedUserIds.includes(event.from.id)){
@@ -201,8 +202,14 @@ export function createGameUI(config){
     };
     return <>
       <p>{state.round.title}</p>
+      {state.round.status==="finished"&&personalPlayerId&&
+        state.players[String(personalPlayerId)]
+        ?<p>Ответ: {state.players[String(personalPlayerId)].answer??state.round.sharedAnswer}</p>
+        :null}
       <tg-button-row><tg-button style="primary"
-        {...(active?{onClick:begin}:{disabled:true})}>Начать / продолжить игру</tg-button>
+        {...(active?{onClick:begin}:{disabled:true})}>
+          {personalPlayerId?"Начать игру":"Начать / продолжить игру"}
+        </tg-button>
       </tg-button-row>
     </>;
   }

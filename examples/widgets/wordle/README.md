@@ -17,6 +17,33 @@ await set_widget_view({widgetId,component:"GameInput",
 
 Each click on the launcher opens a fresh private overlay for that player, including after Telegram Revert. The private game shows six custom-emoji rows and a colored keyboard made from clickable rich-message table cells; Backspace, DELETE, Enter, and Close are rich buttons in the message body. Close removes only that player's overlay; reopening preserves their guesses even if Telegram has already discarded the prior private message. Input and attempts are per player. In shared mode the public table shows all accepted guesses as colored cells without letters until an external actor ends the round. Individual mode shows styled letters. The table sorts wins, losses, then unfinished games; among equal outcomes, fewer attempts and shorter completed time rank higher. Duration begins with the first accepted guess.
 
+For a personal game, create a widget in the player's private chat and mount only `GameInput`, without `Players`. Its **Начать игру** button opens a virtual overlay in the existing private message: the game field and keyboard replace the launcher there. **Закрыть** restores the launcher, and reopening preserves the player's guesses. The private chat owner is the only player. Use a separate widget instance for each personal game:
+
+```js
+const {widgetId}=await create_widget({
+  handler:"widgets/wordle/widget.tsx",
+  description:"Personal Wordle",
+  props:{length:5,wordMode:"individual"},
+});
+await set_widget_view({widgetId,component:"GameInput",send:{}});
+```
+
+The private overlay is local to the running process. After a restart, the launcher is restored in the same message; saved attempts remain. `finishRound` closes the overlay, disables the launcher, and reveals the answer once the player has started.
+
+For a **hidden personal game on a group timeline**, create the widget in that group's agent scope and mount only `GameInput` as a standalone ephemeral view for the player. The bot must be a group administrator to send this message proactively. The player sees **Начать игру** in the group; clicking it replaces that same hidden message with the board. **Закрыть** restores its launcher. The widget keeps one saved view and one message address:
+
+```js
+const {widgetId}=await create_widget({
+  handler:"widgets/wordle/widget.tsx",
+  description:"Hidden personal Wordle",
+  props:{length:5,wordMode:"individual"},
+});
+await set_widget_view({widgetId,component:"GameInput",
+  target:{chatId:GROUP_CHAT_ID,receiverUserId:PLAYER_USER_ID}});
+```
+
+An agent can create this view after a player's ephemeral `/say` request when the bot is an administrator. If the bot is only a member, Telegram requires a fresh callback or reply to an ephemeral message within 15 seconds; a delayed agent tool call cannot rely on that window. Ephemeral messages may disappear client-side, so saved guesses can outlive the visible message. `finishRound` reveals the answer in the hidden message if it is still editable.
+
 For one-message inline or guest publication use only individual answers and the `GameShared` export. It presents the table plus a turn-based input with a 60-second active-player lease and a close button. On timeout the field remains visible with gray, no-op rich keys and a "В меню" button available to everyone. It does not open overlays:
 
 ```js

@@ -7,6 +7,7 @@ import { loadWidgetModule } from "./module-registry.mjs";
 import { createReactStore } from "./react-store.mjs";
 import { validateReactMount, plainJSON, widgetError } from "./contract.mjs";
 import { createViewHandle } from "./view-handles.mjs";
+import { projectHostTree } from "./projection.mjs";
 import { randomUUID } from "node:crypto";
 
 const h=React.createElement;
@@ -67,19 +68,50 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
   };
   const resolved=(instance,component)=>typeof component==="string"
     ? instance.module.exports[component]:component;
-  function viewTree(instance,view) {
+  function renderedTree(instance,view,physicalId,role){
     const component=resolved(instance,view.component);
     if(!view.node&&typeof component!=="function")throw widgetError("invalid_argument","Unknown component export.");
     const element=view.node??h(component,{...view.props});
-    return h(WidgetViewContext,{value:view.handle},
+    return h(WidgetViewContext,{value:view.handle,key:role},
       h(ViewBoundary,{key:`${view.id}:${view.epoch}`,onError:error=>{
         view.status="error";view.error={code:"render_failed",message:String(error.message)};
-        bridge?.viewError?.(instance.widgetId,view.id,view.error);
-      }},h("widget-view",{viewId:view.id},element)));
+        if(view.virtual){const parent=instance.views.get(view.parentViewId);
+          if(parent){parent.status="error";parent.error=view.error;}}
+        bridge?.viewError?.(instance.widgetId,physicalId,view.error);
+      }},h("widget-view",{viewId:physicalId,role},element)));
+  }
+  function viewTree(instance,view){
+    const child=view.activeVirtualId?instance.views.get(view.activeVirtualId):null;
+    return h(React.Fragment,null,renderedTree(instance,view,view.id,"parent"),
+      child?renderedTree(instance,child,view.id,"overlay"):null);
+  }
+  function refreshViews(instance){
+    instance.viewSnapshot=Object.freeze([...instance.views.values()].map(view=>view.handle));
+    for(const listener of instance.viewListeners)listener();
+  }
+  function syncWireSubscription(instance,parentId,type){
+    if(type==="message")return;
+    const parent=instance.views.get(parentId);
+    const active=instance.views.get(parent?.activeVirtualId)??parent;
+    const wanted=Boolean(active?.subscriptions.get(type)?.size);
+    const key=`${parentId}:${type}`,previous=instance.wireSubscriptions.has(key);
+    if(wanted===previous)return;
+    if(wanted)instance.wireSubscriptions.add(key);
+    else instance.wireSubscriptions.delete(key);
+    bridge?.subscription?.(instance.widgetId,parentId,type,wanted);
+  }
+  function dropVirtual(instance,parent){
+    const child=parent.activeVirtualId?instance.views.get(parent.activeVirtualId):null;
+    if(!child)return;
+    instance.views.delete(child.id);
+    parent.activeVirtualId=null;parent.underlayProjection=null;
+    for(const type of ["reply","reaction"])syncWireSubscription(instance,parent.id,type);
+    refreshViews(instance);
   }
   async function render(instance) {
     const Wrapper=instance.module.exports.default ?? React.Fragment;
-    const children=[...instance.views.values()].map(view=>h(React.Fragment,{key:view.id},viewTree(instance,view)));
+    const children=[...instance.views.values()].filter(view=>!view.virtual)
+      .map(view=>h(React.Fragment,{key:view.id},viewTree(instance,view)));
     const body=Wrapper===React.Fragment?h(React.Fragment,null,...children)
       :h(Wrapper,{...instance.runtimeProps},...children);
     const tree=h(WidgetInstanceContext,{value:instance.context},
@@ -87,8 +119,25 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
         instance.status="error";instance.error={code:"runtime_failed",message:String(error.message)};
         bridge?.runtimeError?.(instance.widgetId,instance.error);
       }},body));
+    const before=instance.commitIndex;
     renderer.updateContainerSync(tree,instance.root,null,null);
     renderer.flushSyncWork();
+    const changed=[];
+    for(const parent of instance.views.values())if(parent.activeVirtualId&&parent.underlayProjection){
+      const underlay=instance.container.children.find(node=>node.type==="widget-view"&&
+        node.props.viewId===parent.id&&node.props.role==="parent");
+      if(!underlay)continue;
+      try{
+        const next=projectHostTree(underlay,{priorBody:parent.underlayProjection.body});
+        if(JSON.stringify({body:next.body,replyMarkup:next.replyMarkup})!==
+            JSON.stringify(parent.underlayProjection))changed.push(parent);
+      }catch{changed.push(parent);}
+    }
+    if(changed.length){
+      for(let index=before+1;index<=instance.commitIndex;index++)instance.skippedCommits.add(index);
+      for(const parent of changed)dropVirtual(instance,parent);
+      return render(instance);
+    }
     return await instance.lastCommit;
   }
   function checkedPublication(instance,outcome){
@@ -127,15 +176,22 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
   const api={
     module(widgetId){return ensure(widgetId).module;},
     view(widgetId,viewId){return ensure(widgetId).views.get(viewId)?.handle??null;},
+    activeView(widgetId,viewId){
+      const instance=ensure(widgetId),view=instance.views.get(viewId);
+      return instance.views.get(view?.activeVirtualId)?.handle??view?.handle??null;
+    },
     findOverlay(widgetId,parentViewId,userId){
       return [...ensure(widgetId).views.values()].find(view=>
         view.parentViewId===parentViewId&&view.user?.id===userId)?.handle??null;
     },
     hasSubscription(widgetId,viewId,type){
-      return (ensure(widgetId).views.get(viewId)?.subscriptions.get(type)?.size??0)>0;
+      const instance=ensure(widgetId),parent=instance.views.get(viewId);
+      const view=instance.views.get(parent?.activeVirtualId)??parent;
+      return (view?.subscriptions.get(type)?.size??0)>0;
     },
     async dispatchViewEvent(widgetId,viewId,type,event){
-      const instance=ensure(widgetId),view=instance.views.get(viewId);
+      const instance=ensure(widgetId),physical=instance.views.get(viewId);
+      const view=instance.views.get(physical?.activeVirtualId)??physical;
       if(!view)return false;
       const handlers=[...(view.subscriptions.get(type)??[])];
       for(const handler of handlers)await handler({...event,view:view.handle});
@@ -145,12 +201,14 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
       const instance=ensure(widgetId),view=instance.views.get(viewId);
       if(!view)return;
       view.message=message;
+      const active=instance.views.get(view.activeVirtualId);
+      if(active)active.message=message;
       const next=message?.dice?[message.dice.value??null,message.dice.emoji??null]:[null,null];
       if(!Object.is(view.diceSnapshot[0],next[0])||!Object.is(view.diceSnapshot[1],next[1])){
         view.diceSnapshot=Object.freeze(next);
         for(const listener of view.diceListeners)listener();
       }
-      const handlers=[...(view.subscriptions.get("message")??[])];
+      const handlers=[...((active??view).subscriptions.get("message")??[])];
       queueMicrotask(()=>{for(const handler of handlers)
         Promise.resolve().then(()=>handler(message)).catch(error=>bridge?.viewError?.(widgetId,viewId,error));});
     },
@@ -169,7 +227,9 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
         error=>bridge?.runtimeError?.(widgetId,error),null);
       const instance={widgetId,module,store,root,container,views:new Map(),runtimeProps:props,generation,
         status:"active",error:null,viewListeners:new Set(),viewSnapshot:Object.freeze([]),
-        waitForSave:()=>pendingSave,commitIndex:0,collectors:new Set(),lastCommit:Promise.resolve()};
+        waitForSave:()=>pendingSave,commitIndex:0,skippedCommits:new Set(),
+        wireSubscriptions:new Set(),
+        collectors:new Set(),lastCommit:Promise.resolve()};
       instance.context={store,widget:null,telegram:bridge?.telegramFor?.(widgetId)??{},
         subscribeViews:callback=>{instance.viewListeners.add(callback);return()=>instance.viewListeners.delete(callback);},
         getViews:()=>instance.viewSnapshot};
@@ -186,6 +246,8 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
           const closed=await bridge?.closeOverlays?.(widgetId,parentViewId)??[];
           for(const childId of closed)if(instance.views.has(childId))
             await api.unmount(widgetId,childId,{controller:true});
+          const virtual=instance.views.get(parentViewId)?.activeVirtualId;
+          if(virtual)await api.unmount(widgetId,virtual);
         },
         notifyAgent:async payload=>{await instance.waitForSave();
           return bridge?.notifyAgent?.(widgetId,payload);},
@@ -194,7 +256,7 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
         const revision=store.revision,save=pendingSave;
         const index=++instance.commitIndex,previous=instance.lastCommit;
         instance.lastCommit=Promise.resolve(previous).catch(()=>{}).then(()=>save).then(()=>{
-          if(store.revision!==revision)return;
+          if(instance.skippedCommits.delete(index)||store.revision!==revision)return;
           return bridge?.commit?.(widgetId,container.children,revision,instance.views);
         }).then(result=>{
           for(const collector of instance.collectors)if(index>collector.after)
@@ -207,9 +269,20 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
       await render(instance);
       return instance.context.widget;
     },
-    async mount({widgetId,viewId,component,props,node,options={},target=null,parentViewId=null,user=null,message=null,bindingEpoch,origin="agent"}) {
+    async mount({widgetId,viewId,component,props,node,options={},target=null,parentViewId=null,
+      user=null,message=null,bindingEpoch,origin="agent",virtual=false}) {
       const instance=ensure(widgetId);
       let view=instance.views.get(viewId);
+      virtual=virtual||Boolean(view?.virtual);
+      const parent=virtual?instance.views.get(parentViewId??view?.parentViewId):null;
+      const recipient=user?.id??view?.user?.id;
+      const confirmedPrivateParent=parent&&(
+        parent.target?.chatId===recipient&&Number.isSafeInteger(parent.target?.messageId)||
+        parent.target?.receiverUserId===recipient&&
+          Number.isSafeInteger(parent.target?.ephemeralMessageId));
+      if(virtual&&(!parent||parent.virtual||!Number.isSafeInteger(recipient)||
+          recipient<1||!confirmedPrivateParent))
+        throw widgetError("invalid_argument","Virtual overlays need a confirmed private parent view.");
       const currentTarget=target??view?.target;
       if(!currentTarget)throw widgetError("invalid_argument","A view target is required.");
       if(node!==undefined){
@@ -218,10 +291,20 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
         component=name??node.type;props=node.props;
       }
       if(component===undefined)component=view?.component;
-      validateReactMount({target:currentTarget,component,props:props??view?.props??{},origin});
+      validateReactMount({target:currentTarget,component,props:props??view?.props??{},origin,virtual});
+      if(virtual&&!view){
+        if(parent.activeVirtualId)dropVirtual(instance,parent);
+        const root=instance.container.children.find(item=>item.type==="widget-view"&&
+          item.props.viewId===parent.id&&item.props.role==="parent");
+        if(!root)throw widgetError("view_not_found","Parent has no rendered message.");
+        const underlay=projectHostTree(root,{priorBody:parent.projection?.body});
+        if(underlay.kind!=="rich_message")throw widgetError("render_failed",
+          "Private virtual overlays require a rich-message parent.");
+        parent.underlayProjection={body:underlay.body,replyMarkup:underlay.replyMarkup};
+      }else if(view?.activeVirtualId)dropVirtual(instance,view);
       if(!view){
         view={id:viewId,component:null,props:{},epoch:0,status:"active",error:null,
-          generation:instance.generation??1,target:currentTarget,parentViewId,
+          generation:instance.generation??1,target:currentTarget,parentViewId,virtual,
           user:user??(currentTarget.receiverUserId?{id:currentTarget.receiverUserId}:null),message,
           bindingEpoch:bindingEpoch??"e"+randomUUID().replaceAll("-",""),subscriptions:new Map(),
           diceListeners:new Set(),diceSnapshot:Object.freeze(message?.dice?
@@ -234,15 +317,17 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
             const selected=ensure(id).views.get(key);
             if(!selected)throw widgetError("view_not_found");
             const handlers=selected.subscriptions.get(type)??new Set();
-            const wasEmpty=handlers.size===0;
             handlers.add(callback);selected.subscriptions.set(type,handlers);
-            if(wasEmpty&&type!=="message")bridge?.subscription?.(id,key,type,true);
+            const wireId=selected.virtual?selected.parentViewId:key;
+            syncWireSubscription(ensure(id),wireId,type);
             return()=>{
               handlers.delete(callback);
-              if(!handlers.size&&type!=="message")bridge?.subscription?.(id,key,type,false);
+              syncWireSubscription(ensure(id),wireId,type);
             };
           }});
         instance.views.set(viewId,view);
+        if(virtual){parent.activeVirtualId=viewId;
+          for(const type of ["reply","reaction"])syncWireSubscription(instance,parent.id,type);}
       }
       const rendererKey=node?.key??view.rendererKey??null;
       if(component===undefined)component=view.component;
@@ -253,8 +338,8 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
       view.component=component;view.node=node??(node===undefined?view.node:null);
       view.props=props??view.props;view.rendererKey=rendererKey;
       view.status="active";view.error=null;
-      instance.viewSnapshot=Object.freeze([...instance.views.values()].map(v=>v.handle));
-      for(const listener of instance.viewListeners)listener();
+      if(virtual){parent.status="active";parent.error=null;}
+      refreshViews(instance);
       await render(instance);
       return view.handle;
     },
@@ -279,11 +364,18 @@ export function createReactRuntime({ bridge, moduleRegistry=loadWidgetModule }={
     },
     async unmount(widgetId,viewId,{controller=false}={}) {
       const instance=ensure(widgetId);
-      if(!instance.views.has(viewId))return;
+      const view=instance.views.get(viewId);
+      if(!view)return;
+      if(view.virtual){
+        const parent=instance.views.get(view.parentViewId);
+        if(parent)dropVirtual(instance,parent);
+        return render(instance);
+      }
+      if(view.activeVirtualId)dropVirtual(instance,view);
       if(!controller)await bridge?.unmount?.(widgetId,viewId);
       instance.views.delete(viewId);
-      instance.viewSnapshot=Object.freeze([...instance.views.values()].map(v=>v.handle));
-      for(const listener of instance.viewListeners)listener();
+      for(const type of ["reply","reaction"])syncWireSubscription(instance,viewId,type);
+      refreshViews(instance);
       await render(instance);
     },
     describe(widgetId,viewId) {

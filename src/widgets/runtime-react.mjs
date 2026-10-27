@@ -48,11 +48,15 @@ export function createReactWidgetProcess({request}) {
       const updatedViews=[],failedViews=[];
       const rootsById=new Map();
       function collect(node) {
-        if(node.type==="widget-view")rootsById.set(node.props.viewId,node);
+        if(node.type==="widget-view"){
+          if(node.props.role==="overlay"||!rootsById.has(node.props.viewId))
+            rootsById.set(node.props.viewId,node);
+        }
         else for(const child of node.children??[])collect(child);
       }
       for(const root of roots)collect(root);
       for(const [viewId,view] of views){
+        if(view.virtual)continue;
         const tree=rootsById.get(viewId);
         if(!tree||view.status!=="active")continue;
         try {
@@ -78,6 +82,8 @@ export function createReactWidgetProcess({request}) {
             view.message=outcome.view?.message??view.message;
             view.projection={body,replyMarkup};
             view.status="active";view.error=null;
+            const virtual=views.get(view.activeVirtualId);
+            if(virtual){virtual.message=view.message;virtual.status="active";virtual.error=null;}
             callbacks.set(viewId,{widgetId,handlers:nextCallbacks});
             if(outcome.status==="confirmed")updatedViews.push({viewId,target:view.target});
             if(outcome.status==="confirmed")runtime.deliverMessage(widgetId,viewId,
@@ -115,16 +121,28 @@ export function createReactWidgetProcess({request}) {
   };
   runtime=createReactRuntime({bridge});
   async function overlay(ref,viewId,event,node,options){
-    const source=runtime.view(ref.widgetId,viewId);
+    const source=runtime.activeView(ref.widgetId,viewId);
     if(!source)throw widgetError("view_not_found");
     if(source.user){
-      if(!source.parent)throw widgetError("invalid_argument","Standalone private views cannot be overlaid.");
-      return source.mount(node,options);
+      if(source.user.id!==event.from?.id)
+        throw widgetError("invalid_argument","Overlay belongs to another user.");
+      if(source.parent)return source.mount(node,options);
+      if(!source.target?.ephemeralMessageId||
+          source.target.receiverUserId!==event.from.id)
+        throw widgetError("invalid_argument","This private view has no editable overlay target.");
+      return runtime.mount({widgetId:ref.widgetId,viewId:"v"+randomUUID().replaceAll("-",""),
+        target:source.target,parentViewId:viewId,user:event.from,node,virtual:true,
+        origin:"runtime",options});
     }
     const chatId=source.target?.chatId,userId=event.from?.id;
     if(!Number.isSafeInteger(chatId)||!Number.isSafeInteger(userId)||userId<1||
         !event.callbackQueryId)
       throw widgetError("invalid_argument","Overlay needs a public chat view and a fresh callback.");
+    if(event.message?.chat?.type==="private"&&chatId===userId&&source.target?.messageId){
+      return runtime.mount({widgetId:ref.widgetId,viewId:"v"+randomUUID().replaceAll("-",""),
+        target:source.target,parentViewId:viewId,user:event.from,node,virtual:true,
+        origin:"runtime",options});
+    }
     const existing=runtime.findOverlay(ref.widgetId,viewId,userId);
     // Revert is a client-side action: Telegram sends no update when the user restores
     // the public message. Editing the old ephemeral ID succeeds but stays invisible.
@@ -157,7 +175,7 @@ export function createReactWidgetProcess({request}) {
       const entry=callbacks.get(viewId);
       const handler=entry?.widgetId===ref.widgetId?entry.handlers.get(token):null;
       if(!handler)throw widgetError("button_expired","This button is no longer active.");
-      await handler({...event,view:runtime.view(ref.widgetId,viewId),
+      await handler({...event,view:runtime.activeView(ref.widgetId,viewId),
         overlay:(node,options)=>overlay(ref,viewId,event,node,options),
         respond:answer=>request("respond",{ref,callbackId:event.callbackQueryId,answer})});
       return null;

@@ -151,6 +151,35 @@ test("button overlay reopens with a fresh private message after a client-side Re
   }finally{await process.retire(ref);}
 });
 
+test("button on standalone hidden group view edits that message instead of sending another",async()=>{
+  const published=[];
+  const process=createReactWidgetProcess({request:async(method,args)=>{
+    if(method!=="publish")return null;
+    published.push(args);
+    const target={chatId:-10,receiverUserId:5,ephemeralMessageId:91};
+    return {status:"confirmed",target,view:{target,
+      message:{message_id:0,ephemeral_message_id:91,receiver_user:{id:5},
+        chat:{id:-10,type:"supergroup"}}}};
+  }});
+  const ref={widgetId:"hidden-overlay",botId:"b",agentId:"a",generation:1};
+  try{
+    await process.load(ref,{buildId:"hidden-overlay",
+      snapshotPath:fileURLToPath(new URL("../fixtures/react-widgets/overlay.mjs",import.meta.url))});
+    await process.mount(ref,{viewId:"v",target:{chatId:-10,receiverUserId:5},
+      component:"Main"});
+    const token=published[0].replyMarkup.inline_keyboard[0][0].callback_data;
+    const event=id=>({from:{id},callbackQueryId:"click",
+      message:{message_id:0,ephemeral_message_id:91,chat:{id:-10,type:"supergroup"}}});
+    await assert.rejects(process.callback(ref,{viewId:"v",token,event:event(6)}),
+      {code:"invalid_argument"});
+    await process.callback(ref,{viewId:"v",token,event:event(5)});
+    assert.equal(published.length,2);
+    assert.equal(published[1].viewId,"v");
+    assert.equal(published[1].target.ephemeralMessageId,91);
+    assert.match(JSON.stringify(published[1].body),/Player 5/);
+  }finally{await process.retire(ref);}
+});
+
 test("widget requestAgent sends a JSON snapshot and resumes after an explicit agent answer",async()=>{
   const calls=[];
   const process=createReactWidgetProcess({request:async(method,args)=>{

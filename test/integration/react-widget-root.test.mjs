@@ -2,10 +2,106 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import React,{createContext,useContext,useEffect,useRef,useState} from "react";
 import * as runtimeModule from "../../src/widgets/reconciler.mjs";
-import { useViews,useSelector } from "../../src/widgets/react-context.mjs";
+import { useViews,useSelector,useView } from "../../src/widgets/react-context.mjs";
+import { useOnReply } from "../../src/widgets/subscriptions.mjs";
 
 const h=React.createElement;
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+
+test("private chat overlay is a virtual child of one retained message view",async()=>{
+  function Launcher(){return h("p",null,"Launch");}
+  function Game(){const view=useView();return h("p",null,
+    `Game for ${view.user?.id} under ${view.parent?.id}`);}
+  const published=[];
+  const runtime=runtimeModule.createReactRuntime({bridge:{commit:async(_id,roots,_revision,views)=>{
+    const rootsForView=roots.filter(node=>node.type==="widget-view"&&node.props.viewId==="v");
+    published.push({roots:rootsForView.map(node=>node.props.role),views:[...views.keys()]});
+    return {updatedViews:[],failedViews:[]};
+  }}});
+  await runtime.create({widgetId:"private-overlay",buildId:"private-overlay",
+    factory:()=>({Launcher,Game})});
+  const parent=await runtime.mount({widgetId:"private-overlay",viewId:"v",
+    target:{chatId:1,messageId:7},component:"Launcher"});
+  const child=await runtime.mount({widgetId:"private-overlay",viewId:"virtual",
+    target:parent.target,parentViewId:parent.id,user:{id:1},node:h(Game),
+    virtual:true,origin:"runtime"});
+  assert.equal(child.user.id,1);
+  assert.equal(child.parent.id,parent.id);
+  assert.equal(runtime.activeView("private-overlay","v").id,"virtual");
+  assert.deepEqual(published.at(-1).roots,["parent","overlay"]);
+  assert.deepEqual(published.at(-1).views,["v","virtual"]);
+  await child.closeOverlay();
+  assert.equal(runtime.activeView("private-overlay","v").id,"v");
+  assert.deepEqual(published.at(-1).roots,["parent"]);
+  await runtime.retire("private-overlay");
+});
+
+test("standalone group ephemeral view can host a virtual child in the same hidden message",async()=>{
+  function Launcher(){return h("p",null,"Launch");}
+  function Game(){const view=useView();return h("p",null,
+    `Game for ${view.user?.id} under ${view.parent?.id}`);}
+  const published=[];
+  const runtime=runtimeModule.createReactRuntime({bridge:{commit:async(_id,roots,_revision,views)=>{
+    published.push({roles:roots.filter(node=>node.type==="widget-view")
+      .map(node=>node.props.role),ids:[...views.keys()]});
+    return {updatedViews:[],failedViews:[]};
+  }}});
+  await runtime.create({widgetId:"hidden-game",buildId:"hidden-game",
+    factory:()=>({Launcher,Game})});
+  const target={chatId:-10,receiverUserId:5,ephemeralMessageId:91};
+  const parent=await runtime.mount({widgetId:"hidden-game",viewId:"v",
+    target,component:"Launcher"});
+  const child=await runtime.mount({widgetId:"hidden-game",viewId:"virtual",
+    target,parentViewId:parent.id,user:{id:5},node:h(Game),virtual:true,origin:"runtime"});
+  assert.equal(child.parent.id,parent.id);
+  assert.deepEqual(published.at(-1),{roles:["parent","overlay"],ids:["v","virtual"]});
+  await child.closeOverlay();
+  assert.equal(runtime.activeView("hidden-game","v").id,"v");
+  assert.deepEqual(published.at(-1),{roles:["parent"],ids:["v"]});
+  await runtime.retire("hidden-game");
+});
+
+test("an unchanged private parent keeps its overlay, but a changed parent closes it",async()=>{
+  function Launcher(){const label=useSelector(state=>state.label);return h("p",null,label);}
+  function Game(){return h("p",null,"game");}
+  const runtime=runtimeModule.createReactRuntime({bridge:{commit:async()=>({updatedViews:[],failedViews:[]})}});
+  await runtime.create({widgetId:"private-refresh",buildId:"private-refresh",
+    factory:()=>({Launcher,Game}),saved:{version:0,revision:0,state:{label:"start",count:0}}});
+  const parent=await runtime.mount({widgetId:"private-refresh",viewId:"v",
+    target:{chatId:1,messageId:7},component:"Launcher"});
+  await runtime.mount({widgetId:"private-refresh",viewId:"virtual",target:parent.target,
+    parentViewId:parent.id,user:{id:1},node:h(Game),virtual:true,origin:"runtime"});
+  await runtime.replaceStore("private-refresh",{label:"start",count:1});
+  assert.equal(runtime.activeView("private-refresh","v").id,"virtual");
+  await runtime.replaceStore("private-refresh",{label:"finished",count:1});
+  assert.equal(runtime.activeView("private-refresh","v").id,"v");
+  assert.equal(runtime.describe("private-refresh","v").tree.children[0].children[0].text,"finished");
+  await runtime.retire("private-refresh");
+});
+
+test("reply subscriptions follow the visible private overlay and return to its parent",async()=>{
+  const delivered=[],subscriptions=[];
+  function Launcher(){useOnReply(()=>delivered.push("parent"));return h("p",null,"Launch");}
+  function Game(){useOnReply(()=>delivered.push("game"));return h("p",null,"Game");}
+  const runtime=runtimeModule.createReactRuntime({bridge:{
+    subscription:(_widgetId,viewId,type,active)=>subscriptions.push({viewId,type,active}),
+    commit:async()=>({updatedViews:[],failedViews:[]}),
+  }});
+  await runtime.create({widgetId:"reply-overlay",buildId:"reply-overlay",
+    factory:()=>({Launcher,Game})});
+  const parent=await runtime.mount({widgetId:"reply-overlay",viewId:"v",
+    target:{chatId:1,messageId:7},component:"Launcher"});
+  await runtime.dispatchViewEvent("reply-overlay","v","reply",{});
+  const child=await runtime.mount({widgetId:"reply-overlay",viewId:"virtual",target:parent.target,
+    parentViewId:parent.id,user:{id:1},node:h(Game),virtual:true,origin:"runtime"});
+  await runtime.dispatchViewEvent("reply-overlay","v","reply",{});
+  await child.closeOverlay();
+  await runtime.dispatchViewEvent("reply-overlay","v","reply",{});
+  assert.deepEqual(delivered,["parent","game","parent"]);
+  assert.equal(subscriptions.at(-1).active,true);
+  assert.ok(subscriptions.every(item=>item.viewId==="v"&&item.type==="reply"));
+  await runtime.retire("reply-overlay");
+});
 
 test("named action publishes saved state and reports only confirmed view edits",async()=>{
   function Main(){const count=useSelector(state=>state.count);return h("p",null,String(count));}

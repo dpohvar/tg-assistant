@@ -90,7 +90,7 @@ export function normalizeWidgetState(value) {
 export function validateReactMount(input) {
   if (!input || Array.isArray(input) || typeof input !== "object")
     throw widgetError("invalid_argument", "Mount must be an object.");
-  const { target, component, props = {}, origin = "agent" } = input;
+  const { target, component, props = {}, origin = "agent", virtual = false } = input;
   if (!target || Array.isArray(target) || typeof target !== "object" ||
       Object.getPrototypeOf(target) !== Object.prototype)
     throw widgetError("invalid_argument", "Invalid view target.");
@@ -130,7 +130,7 @@ export function validateReactMount(input) {
       throw widgetError("invalid_argument", `Invalid ${key}.`);
   if (origin !== "agent" && origin !== "runtime")
     throw widgetError("invalid_argument", "Unknown mount origin.");
-  const live = ephemeral && origin === "runtime";
+  const live = (ephemeral || virtual) && origin === "runtime";
   if (live) {
     if ((typeof component !== "function" && typeof component !== "string") ||
         !props || typeof props !== "object" || Array.isArray(props))
