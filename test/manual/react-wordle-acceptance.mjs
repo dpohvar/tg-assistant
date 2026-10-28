@@ -24,11 +24,13 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
     config:{type:"string"},"state-dir":{type:"string"},"chat-id":{type:"string"},
     "duration-seconds":{type:"string",default:"1200"},
     "delete-after-finish":{type:"boolean",default:false},
+    "probe-memory-recovery":{type:"boolean",default:false},
   }});
   if(!values.config||!values["state-dir"]||!values["chat-id"])
     throw Error("Provide --config, a fresh --state-dir, and --chat-id of the test group.");
   const duration=Number(values["duration-seconds"]),chatId=Number(values["chat-id"]);
   const deleteAfterFinish=values["delete-after-finish"];
+  const probeMemoryRecovery=values["probe-memory-recovery"];
   if(!Number.isSafeInteger(duration)||duration<60||duration>1800||
       !Number.isSafeInteger(chatId)||chatId>=0)throw Error("Invalid duration or group chat ID.");
   const configPath=path.resolve(values.config),config=JSON.parse(fs.readFileSync(configPath,"utf8"));
@@ -96,9 +98,10 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
             .replace(/\d{10}:[A-Za-z0-9_-]+/g,"[redacted]").slice(0,1000)});return "accepted";
       }});
     const route=createWidgetEvents({db,manager:service,telegram});
+    const widgetProps={title:"Wordle · проверка "+probeId,length:5,wordMode:"shared",notify:true};
     const created=await service.create(scope,{handler:"widgets/wordle/widget.tsx",
       description:"React Wordle acceptance "+probeId,
-      props:{title:"Wordle · проверка "+probeId,length:5,wordMode:"shared",notify:true}});
+      props:widgetProps});
     active={scope,widgetId:created.widgetId};
     const players=await service.setView(scope,{widgetId:created.widgetId,
       component:"Players",send:{chatId}});
@@ -121,6 +124,11 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
       inlineQuery,inlineWidgetId:inlineWidget.widgetId,deleteAfterFinish,
       finishCommand:"/wordle_finish "+probeId,stopCommand:"/wordle_stop "+probeId};
     record(root,ready);
+    if(probeMemoryRecovery){
+      const listing=await service.list(scope);
+      record(root,{type:"memory_initial",memory:listing.memory});
+    }
+    let recoveryUpdated=false,recoveryReopened=false;
     const finishGroup=async()=>{
       const result=await service.dispatchAction(scope,{widgetId:created.widgetId,action:"finishRound"});
       if(!result.updatedViews.some(view=>view.viewId===players.viewId)||
@@ -183,6 +191,24 @@ export async function runReactWordleAcceptance(argv=process.argv.slice(2)){
         const accepted=await route(botId,update);
         if(accepted)record(root,{type:"callback",userId:update.callback_query.from?.id,
           callbackId:update.callback_query.id});
+        if(probeMemoryRecovery&&accepted&&callback?.message?.message_id===input.target.messageId){
+          await service.idle();
+          const ephemeral=()=>service.store.listViews(created.widgetId).filter(v=>v.targetKind==="ephemeral");
+          if(!recoveryUpdated&&ephemeral().length){
+            await new Promise(resolve=>setTimeout(resolve,8_000));
+            const before=await service.list(scope);
+            const oldIds=ephemeral().map(v=>v.id);
+            const result=await service.update(scope,{widgetId:created.widgetId,props:widgetProps});
+            const after=await service.list(scope);
+            recoveryUpdated=true;
+            record(root,{type:"memory_recovery_updated",before:before.memory,after:after.memory,
+              oldEphemeralViews:oldIds.length,remainingEphemeralViews:ephemeral().length,
+              renderErrors:result.renderErrors});
+          }else if(recoveryUpdated&&!recoveryReopened&&ephemeral().length){
+            recoveryReopened=true;
+            record(root,{type:"memory_recovery_reopened",ephemeralViews:ephemeral().length});
+          }
+        }
       }
     }
     summary={probeId,widgetId:created.widgetId,

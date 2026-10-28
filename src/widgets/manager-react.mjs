@@ -126,6 +126,15 @@ export function createReactWidgetManager({db,host,store,build,authorize,notify=a
           return {widgetId:w.widgetId,renderErrors:[]};}
         agentRequests?.cancelWidget(w);
         if(host.has(w))await host.request(w,"retire",{}).catch(()=>{});
+        for(const view of store.listViews(w.widgetId)){
+          if(view.targetKind!=="ephemeral"){
+            invalidateParent(view.id);
+            continue;
+          }
+          invalidateView(view.id);
+          subscriptions.delete(view.id+":reply");subscriptions.delete(view.id+":reaction");
+          await disableView(w,view).catch(()=>{});
+        }
         w=store.replace(w,{handler:args.handler??w.handler,buildId:built.snapshotId,
           description:args.description??w.description,
           runtimeProps:args.props??w.runtimeProps,status:"active",lastError:null});
@@ -256,9 +265,8 @@ export function createReactWidgetManager({db,host,store,build,authorize,notify=a
         if(!store.list(ownerOf(w)).some(item=>item.status==="active"))await host.release(w);
       });
     },
-    async list(scope){const items=store.list(scope);return {quota:{limit:WIDGET_LIMITS.widgets,
-      used:items.length,available:Math.max(0,WIDGET_LIMITS.widgets-items.length)},
-      canCreate:Math.max(0,WIDGET_LIMITS.widgets-items.length),
+    async list(scope){const items=store.list(scope),usedBytes=await host.memoryUsage?.(scope)??null;
+      return {memory:{usedBytes,limitBytes:WIDGET_LIMITS.memory},
       items:items.map(w=>({...publicWidget(w),viewCount:store.listViews(w.widgetId).length,
         hasError:Boolean(w.lastError||store.listCandidates(w.widgetId).length)}))};},
     get(scope,{widgetId}){const w=own(scope,widgetId);return {...w,views:store.listViews(widgetId),
@@ -277,8 +285,11 @@ export function createReactWidgetManager({db,host,store,build,authorize,notify=a
       await notify(w,{eventType:"widget_error",widgetId:w.widgetId,viewId,error:detail.code,
         description:repeats?`${detail.message} (repeated ${repeats} time${repeats===1?"":"s"} since the last report)`:detail.message});
     },
-    async failure(owner,error){agentRequests?.cancelOwner(owner);store.disableOwner(owner,error.code??"runtime_failed");
-      await notify(owner,{eventType:"widget_runtime_failed",error:error.code??"runtime_failed",description:String(error.message)});},
+    async failure(owner,error){agentRequests?.cancelOwner(owner);store.disableOwner(owner,error);
+      const diagnostic=error.diagnosticPath?` Diagnostic dump: ${error.diagnosticPath}`:
+        error.diagnosticUnavailable?" Diagnostic dump unavailable.":"";
+      await notify(owner,{eventType:"widget_runtime_failed",error:error.code??"runtime_failed",
+        description:String(error.message)+diagnostic});},
     async disableOwner(owner,reason="agent_disabled"){
       agentRequests?.cancelOwner(owner);
       for(const w of store.list(owner)){

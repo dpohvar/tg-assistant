@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { WIDGET_LIMITS, validateReactState, plainJSON, widgetError } from "./contract.mjs";
+import { validateReactState, plainJSON, widgetError } from "./contract.mjs";
 import { createReactViews } from "./react-views.mjs";
 
 const id = () => "w" + randomUUID().replaceAll("-", "");
@@ -34,9 +34,6 @@ export function createWidgetStore(db) {
       if (!Number.isSafeInteger(input.storeVersion??0) || (input.storeVersion??0)<0)
         throw widgetError("invalid_argument", "Invalid store version.");
       return db.transaction(() => {
-        const count = sql.prepare("SELECT count(*) n FROM widgets WHERE botId=? AND agentId=?")
-          .get(input.botId,input.agentId).n;
-        if (count >= WIDGET_LIMITS.widgets) throw widgetError("widget_quota");
         const widgetId = input.widgetId??id();
         sql.prepare(`INSERT INTO widgets(widgetId,botId,agentId,handler,buildId,description,
           runtimeProps,state,storeVersion,createdAt) VALUES(?,?,?,?,?,?,?,?,?,?)`)
@@ -83,8 +80,11 @@ export function createWidgetStore(db) {
       });
     },
     disableOwner({botId,agentId},reason) {
+      const detail = typeof reason === "string" ? {code:"owner_disabled",message:reason}
+        : {code:reason.code??"runtime_failed",message:String(reason.message),
+          ...(reason.diagnosticPath?{diagnosticPath:reason.diagnosticPath}:{})};
       sql.prepare("UPDATE widgets SET status='error',lastError=? WHERE botId=? AND agentId=?")
-        .run(encode({code:"owner_disabled",message:reason}),botId,agentId);
+        .run(encode(detail),botId,agentId);
     },
     deletionIntent(ref) { this.patch(ref,{lifecycleIntent:"delete"}); },
     remove(widgetId) { sql.prepare("DELETE FROM widgets WHERE widgetId=?").run(widgetId); },

@@ -162,9 +162,11 @@ All tools operate on the owning agent's React widget registrations. See [widgets
 | `dispatch_widget_action` | `widgetId:string!`, lowercase exported `action:string!`, optional JSON-object `args` | Runs the action recipe against the current store and waits for Telegram; same success/error result as `update_widget_store` |
 | `delete_widget_view` | `viewId:string!` | `{}`; detaches the view and disables its buttons best effort |
 | `delete_widget` | `widgetId:string!` | `{}`; deletes the instance, store and views |
-| `list_widgets` | None | `{quota:{limit,used,available},items}` |
+| `list_widgets` | None | `{memory:{usedBytes,limitBytes},items}`; bytes are for the agent's whole widget runtime process tree, with `usedBytes:0` when it is stopped. |
 | `get_widget` | `widgetId:string!` | Persisted store, views, statuses, errors and uncertain publications |
 | `answer_widget_request` | `requestId:string!`, JSON `result` | `{status:"answered"}`; rejects an expired, foreign or schema-invalid reply |
+
+On a runtime memory-limit failure, `get_widget.lastError.diagnosticPath` points to the latest diagnostic at `.temp/<agentId>/widget-memory-dump.json` when writing succeeded. It contains process RSS and widget identifiers, without widget state or props. A later memory-limit failure replaces the same file.
 
 `send:{}` uses the current chat; `send:{guestRequestId}` publishes the first render as a guest answer. Ordinary `target` is `{chatId,messageId}` or `{inlineMessageId}`. A new view needs a named uppercase component export from the widget module. Updating by `viewId` retains its address; supplied props replace the old props. Lowercase exported action factories are callable through `dispatch_widget_action`; React callbacks remain local to the widget. Store-tool success lists only actual confirmed message changes, so `updatedViews:[]` is valid. A view error rejects even if state persistence succeeded; inspect `get_widget` before retrying. `widget_event` and the old `render(state,view)` engine are retired. Direct `edit` or `delete` on a bound ordinary message detaches that view after Telegram confirms the operation.
 ## Guest invocations

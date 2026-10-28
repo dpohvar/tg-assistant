@@ -1,7 +1,6 @@
 export const WIDGET_LIMITS = Object.freeze({
-  widgets: 10,
   processes: 10,
-  memory: 256 * 1024 * 1024,
+  memory: 512 * 1024 * 1024,
   sampleMs: 500,
   heartbeatMs: 5000,
   silenceMs: 10000,

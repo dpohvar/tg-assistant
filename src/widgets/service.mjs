@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import { createWidgetStore } from "./store.mjs";
 import { createWidgetHost } from "./host.mjs";
+import { reportWidgetMemoryFailure } from "./memory-dump.mjs";
 import { createReactWidgetManager } from "./manager-react.mjs";
 import { createReactPublications } from "./publications.mjs";
 import { disabledRender } from "./disabled-render.mjs";
@@ -295,7 +296,9 @@ export function createWidgetService({
     launch,
     measureTree: (id) => monitor.measureTree(id),
     terminateTree: (id) => monitor.terminateTree(id),
-    onFailure: (o, e) => manager.failure(o, e),
+    onFailure: (owner,error) => reportWidgetMemoryFailure({
+      owner,error,store,filesFor,manager,
+    }),
   });
   const compilerHost=createWidgetHost({
     launch:(owner,options)=>launch(owner,options,'compiler-runtime.mjs'),

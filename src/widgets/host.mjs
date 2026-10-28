@@ -61,6 +61,16 @@ export function createWidgetHost({
       const s = sessions.get(key(o));
       if (s) s.heartbeat = clock();
     },
+    async memoryUsage(o) {
+      const s = sessions.get(key(o));
+      if (!s) return 0;
+      if (!s.child) await s.ready;
+      if (sessions.get(key(o)) !== s || !s.child) return 0;
+      const measurement = await host.measureTree(s.child.identity ?? s.child);
+      if (!Number.isSafeInteger(measurement.bytes) || measurement.bytes < 0)
+        throw widgetError("sandbox_unavailable", "Runtime memory measurement unavailable.");
+      return measurement.bytes;
+    },
     async request(ref, method, args) {
       const s = await host.reserve(ref);
       return s.child.request(method, { ...args, ref });
@@ -103,11 +113,17 @@ export function createWidgetHost({
             if (clock() - s.heartbeat > L.silenceMs)
               throw widgetError("widget_stopped", "Heartbeat expired.");
             const m = await host.measureTree(s.child.identity ?? s.child);
-            if (!Number.isFinite(m.bytes) || m.bytes > L.memory)
-              throw widgetError(
+            if (!Number.isSafeInteger(m.bytes) || m.bytes < 0)
+              throw widgetError("sandbox_unavailable", "Runtime memory measurement unavailable.");
+            if (m.bytes > L.memory) {
+              const error = widgetError(
                 "widget_stopped",
-                "Runtime memory limit exceeded.",
+                `Runtime memory limit exceeded: ${m.bytes} bytes used, ${L.memory} bytes allowed (${m.processes?.length ?? 0} processes).`,
               );
+              error.memorySample = { bytes: m.bytes, limitBytes: L.memory,
+                processes: m.processes ?? [] };
+              throw error;
+            }
           } catch (e) {
             await host.fail(s, e);
           }

@@ -217,4 +217,4 @@ Administrator/owner only. Filters select the owning agent, not the publication c
 | `/widget delete WIDGET_ID` | Delete registration, preserve message and notify owner |
 | `/widget delete * [agent AGENT_ID |in CHAT_ID]` | Delete registrations of current/selected owner |
 
-Zero-view React registrations consume quota. Lists show each instance's `active` or `error` status, owner, view count and published addresses; private views identify only their recipient and chat, without a public link. There are no administrator state-edit, manual stop/resume or bot-wide delete-all forms. Repair uses agent `update_widget` or a view remount.
+Zero-view React registrations are retained and share their agent's runtime memory limit. Lists show each instance's `active` or `error` status, owner, view count and published addresses; private views identify only their recipient and chat, without a public link. There are no administrator state-edit, manual stop/resume or bot-wide delete-all forms. Repair uses agent `update_widget` or a view remount.
