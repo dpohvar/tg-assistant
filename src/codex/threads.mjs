@@ -14,6 +14,17 @@ import {ownProcessTree} from './process-owner.mjs';
 import {createContextTracker,contextEvents,CONTEXT_INSTRUCTIONS} from './context.mjs';
 import {WIKI_URL,WIDGETS_DOC_URL} from '../documentation-links.mjs';
 const DOCUMENTATION_INSTRUCTIONS=`Project documentation: ${WIKI_URL}. For exact command syntax and React widget JSX/API, use browser_read to open the relevant linked article before answering or writing code; widget authoring starts at ${WIDGETS_DOC_URL}. Do not invent JSX host tags. Historical design documents are not the current API. GitHub main may be newer than this service; if documented syntax is rejected, report the version mismatch rather than guessing. If the page is unavailable, say so and use only syntax you can verify.`;
+function systemSkillsDirectory(home) {
+  fs.mkdirSync(home, { recursive: true });
+  let dir = home;
+  for (const part of ['skills', '.system']) {
+    dir = path.join(dir, part);
+    try { fs.mkdirSync(dir); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    const stat = fs.lstatSync(dir);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('System skills directory must contain only regular directories.');
+  }
+  return dir;
+}
 const widgetDescriptions={
   create_widget:'Create a zero-view React widget from an existing TS/TSX/JS module in the bot workspace. Pass its file path, description and optional serializable Runtime props. Export named components for durable views; consult the linked widget handbook for source syntax.',
   update_widget:'Update an owned React widget build, description or Runtime props. Existing ordinary views retain their addresses and exported component names. Build errors do not publish fallback messages.',
@@ -135,7 +146,7 @@ export class CodexAgent {
   async createSession(scope, invoke, startup) {
     const cwd = path.join(this.config.botsDir, scope.botId); fs.mkdirSync(path.join(cwd, '.temp', scope.agentId), { recursive: true });
     fs.mkdirSync(path.join(cwd, '.git'), { recursive: true });
-    const allow = { ':minimal': 'read', [cwd]: 'write', [path.join(cwd, '.git')]: 'deny', [path.join(cwd, '.temp')]: 'deny', [path.join(cwd, '.temp', scope.agentId)]: 'write', [path.dirname(this.config.codexExecutable)]: 'read' };
+    const allow = { ':minimal': 'read', [cwd]: 'write', [path.join(cwd, '.git')]: 'deny', [path.join(cwd, '.temp')]: 'deny', [path.join(cwd, '.temp', scope.agentId)]: 'write', [path.dirname(this.config.codexExecutable)]: 'read', [systemSkillsDirectory(this.config.codexHome)]: 'read' };
     const toml = '{' + Object.entries(allow).map(([p, v]) => `${JSON.stringify(p)}=${JSON.stringify(v)}`).join(',') + '}';
     // Snapshots live outside the agent sandbox; ash can exit silently before executing a login command.
     let args = this.spawnArgs ?? ['app-server', '--stdio', '--strict-config', ...(process.platform==='win32'?['--enable','prefer_mxc']:[]), '-c', 'approval_policy="never"', '-c', 'default_permissions="tg-agent"', '-c', `permissions.tg-agent.filesystem=${toml}`, '-c', 'permissions.tg-agent.network={enabled=true}', '-c', 'web_search="live"', '-c', 'features.multi_agent=true', '-c', 'features.shell_snapshot=false'];

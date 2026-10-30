@@ -6,6 +6,37 @@ import path from 'node:path';
 import { openDatabase } from '../../src/storage/database.mjs';
 import { CodexAgent, dynamicTools } from '../../src/codex/threads.mjs';
 import {isolatedMcpArgs} from '../../src/mcp/runtime.mjs';
+import {parse} from 'smol-toml';
+
+test('native launch grants only system skills read access inside the private Codex home', async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-system-skills-')),home=path.join(root,'home'),bots=path.join(root,'bots'),db=openDatabase(':memory:');
+ fs.mkdirSync(home);
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);
+ let launch;
+ const agent=new CodexAgent({db,config:{botsDir:bots,codexHome:home,codexExecutable:process.execPath},prepareMcpArgs:async options=>{
+  launch=options.args;return [path.resolve('test/fixtures/codex-server.mjs')];
+ }});
+ t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ await agent.session(scope,async()=>({}));
+ const override=launch.find(arg=>arg.startsWith('permissions.tg-agent.filesystem='));
+ const filesystem=parse(override).permissions['tg-agent'].filesystem;
+ assert.equal(filesystem[path.join(home,'skills','.system')],'read');
+ assert.equal(fs.statSync(path.join(home,'skills','.system')).isDirectory(),true);
+ assert.equal(filesystem[home],undefined);
+ assert.equal(filesystem[path.join(home,'skills')],undefined);
+});
+
+for (const link of ['skills','.system']) test(`native launch rejects a symlinked ${link} directory`, async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-system-skills-link-')),home=path.join(root,'home'),bots=path.join(root,'bots'),db=openDatabase(':memory:');
+ fs.mkdirSync(home);if(link==='.system')fs.mkdirSync(path.join(home,'skills'));
+ fs.symlinkSync(home,path.join(home,...(link==='skills'?['skills']:['skills','.system'])),process.platform==='win32'?'junction':'dir');
+ db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',{id:1,type:'private'});const scope=db.ensureAgent('b',1);
+ let launched=false;
+ const agent=new CodexAgent({db,config:{botsDir:bots,codexHome:home,codexExecutable:process.execPath},prepareMcpArgs:async()=>{launched=true;return [path.resolve('test/fixtures/codex-server.mjs')];}});
+ t.after(async()=>{await agent.close();db.close();fs.rmSync(root,{recursive:true,force:true});});
+ await assert.rejects(agent.session(scope,async()=>({})),/system skills.*directory/i);
+ assert.equal(launched,false);
+});
 
 for (const resume of [false, true]) test(`native launch disables shell snapshots on thread ${resume ? 'resume' : 'start'}`, async t => {
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'tg-shell-snapshot-')),db=openDatabase(':memory:');
