@@ -20,7 +20,7 @@ A newly prepared native thread stays in memory until the first actual turn is su
 
 ## Activation in groups
 
-[Guest Mode](guest-mode.md) is a separate nonmember route into the caller's existing enabled personal agent. Its compact events identify a public answer destination through `guestRequestId`; they do not change the personal agent's ordinary chat, notes or permissions. Each invocation is independent, answering is optional, and at most one answer is an instruction rather than a controller-enforced limit. Guest replies without a fresh explicit mention are ignored. A member bot continues through the group-agent rules below, with no personal fallback when the group agent is disabled or absent. Saved threads may need explicit `/agent clear` to receive the new guest instructions; the feature does not clear contexts automatically.
+[Guest Mode](guest-mode.md) is a separate nonmember route into the caller's existing enabled personal agent. Its compact events identify a public answer destination through `guestRequestId`; they do not change the personal agent's ordinary chat, notes or permissions. Each invocation is independent, answering is optional, and agents may publish multiple responses. Only one response is the supported expectation; additional responses are experimental and their delivery is not guaranteed. Guest replies without a fresh explicit mention are ignored. A member bot continues through the group-agent rules below, with no personal fallback when the group agent is disabled or absent. Saved threads may need explicit `/agent clear` to receive the new guest instructions; the feature does not clear contexts automatically.
 
 An enabled group agent is directly triggered by:
 

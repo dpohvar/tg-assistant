@@ -20,7 +20,8 @@ test('guest widget schema shares the send envelope without exposing a local publ
   assert.match(dynamicTools.find(t=>t.name==='set_widget_view').description,/guestRequestId/);
   assert.equal(schema('send').properties.origin,undefined);assert.equal(send.properties.reservation,undefined);
 });
-test('guest instructions distinguish public output optional answers buffers and no hard answer count',()=>{
-  for(const pattern of [/guest_message/,/public/i,/at most one/i,/unanswered/i,/read\(\{guestRequestId\}\)/,/set_widget_view/,/buffer chat/i,/private history/i,/does not enforce/i])assert.match(GUEST_INSTRUCTIONS,pattern);
+test('guest instructions allow experimental additional responses without guaranteeing their delivery',()=>{
+  for(const pattern of [/guest_message/,/public/i,/multiple responses/i,/additional responses.*experimental/i,/delivery.*not guaranteed/i,/unanswered/i,/read\(\{guestRequestId\}\)/,/set_widget_view/,/buffer chat/i,/private history/i,/does not enforce/i])assert.match(GUEST_INSTRUCTIONS,pattern);
+  assert.doesNotMatch(GUEST_INSTRUCTIONS,/at most one response/i);
   assert.equal(dynamicTools.some(t=>t.name==='answer_guest'),false);
 });
