@@ -520,11 +520,18 @@ function createCommandRouter(deps) {
             await send('Rules updated. Agent context will be cleared.');
             return true;
           }
+          if (parts.length === 2 && parts[0] === 'set') {
+            requireAdmin();
+            const text = await deps.readRulesFile(botId, parts[1]);
+            await deps.updateRules(botId, {text}, false);
+            await send('Rules updated. Agent context will be cleared.');
+            return true;
+          }
           if (parts.length === 1 && parts[0] === "set") {
             name = "set_rules";
             args = parsed.slice(1);
           } else if (parts.length)
-            throw syntaxError("Use /rules or /rules set.");
+            throw syntaxError("Use /rules, /rules set, or /rules set PATH or PRE_BLOCK.");
         } else if (section === "triggers") {
           if (parts[0] === "set") {
             name = "set_triggers";

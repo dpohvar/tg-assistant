@@ -40,7 +40,7 @@ function availableCommands({ master = false, role, group = false }) {
     result.temp = "/temp status\n/temp cleanup";
   }
   if(admin){
-    result.rules='/rules\n/rules set\n/rules set PRE_BLOCK';
+    result.rules='/rules\n/rules set\n/rules set PRE_BLOCK\n/rules set PATH';
     result.file='/browse [DIR]\n/ls [PATH]\n/cat PATH\n/download PATH\n/upload PATH\n/edit PATH PRE_BLOCK\n/mv FROM TO\n/rm PATH';
   }
   return result;
@@ -140,7 +140,8 @@ const details = {
   '/owner set USER_ID': 'Transfer ownership to an already authorized user. Only the current owner can do this. The previous owner becomes admin; transfer to self changes nothing. No confirmation is requested. BotFather ownership is unchanged.',
   '/rules': 'Send the current bot-wide AGENTS.md as a document. These are behavior instructions for all agents, separate from chat notes and shared wiki files.',
   '/rules set': 'Replace rules from a document in private or a group. Reply with this command to your own unedited document, or attach it to the bot invitation. An invitation lasts one hour, is lost on restart and closes after success; transfer failures allow retry. Legacy ordinary replies to your own command still work. Foreign/edited targets are rejected.',
-  '/rules set PRE_BLOCK': 'Replace rules with exactly one nonempty Telegram pre block, preserving spaces and newlines. A quoted attachment is ignored, including its ownership/edit status. Plain text or code is not accepted here. A later document reply to this form is not a rules upload.',
+  '/rules set PRE_BLOCK': 'Replace rules with exactly one nonempty Telegram pre block, preserving spaces and newlines. A quoted attachment is ignored, including its ownership/edit status. A later document reply to this form is not a rules upload.',
+  '/rules set PATH': 'Replace rules with the current UTF-8 contents of a Markdown file in this bot’s shared wiki. PATH is relative to the bot directory; format a path with spaces as inline code. Later file changes do not update the rules automatically.',
   '/git setup [BRANCH [REMOTE_URL [TOKEN]]]': 'With no arguments, show branch, HTTPS remote and token presence, never token value. With BRANCH, clone the selected remote branch and replace local wiki/Git, discarding changes, ignored files and unpushed commits; .temp remains. Omitted remote/token reuse stored values; first setup needs a remote. Clone failure preserves current files. Token-bearing commands are deleted where possible.',
   '/git setup': 'Show the current branch, HTTPS remote and whether a token is configured, never the token value. Does not synchronize, replace files or change Git settings.',
   '/git setup BRANCH [REMOTE_URL [TOKEN]]': 'Clone the selected remote branch and replace local wiki/Git, discarding changes, ignored files and unpushed commits; .temp remains. Omitted remote/token reuse stored values; first setup needs a remote. Clone failure preserves current files. Token-bearing commands are deleted where possible.',

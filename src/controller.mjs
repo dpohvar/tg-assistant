@@ -441,6 +441,15 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       await control.idleAgent(a.agentId);lifecycle.invalidate(a.agentId); db.sql.prepare('UPDATE agents SET threadId=NULL,threadRulesVersion=NULL WHERE agentId=?').run(a.agentId); await agent.deleteSession?.(a.agentId, a.threadId);control.retired(a.agentId);websockets.closeAgent(a.agentId,'context_reset');
     }
   };
+  const readRulesFile = (botId, input) => gate.run(botId, () => {
+    if (path.isAbsolute(input) || path.extname(input).toLowerCase() !== '.md') throw new Error('Rules path must be a relative Markdown file path.');
+    const files = new BotFiles(path.join(config.botsDir, botId));
+    if (files.parts(input)[0] === '.temp') throw new Error('Rules path must be in the bot wiki.');
+    let bytes;
+    try { bytes = files.read(input); } catch { throw new Error('Could not read the Markdown file from the bot wiki.'); }
+    try { return new TextDecoder('utf8', {fatal:true,ignoreBOM:true}).decode(bytes); }
+    catch { throw new Error('Rules file must contain valid UTF-8 text.'); }
+  });
   const masterCommands = config ? createMaster({ db, config,
     onBotAdded: id => { deleting.delete(id); mcpOAuth.allowBot(id); gate.held.delete(id); config.onBotAdded?.(id); },
     onBotRemoved: async id => {
@@ -518,7 +527,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     enqueue:(scope,event,admit)=>{scopes.set(scope.agentId,lifecycle.scope(scope));if(gate.held.has(scope.botId))queue.setPaused(scope.agentId,true);return queue.enqueue(scope.agentId,event,'guest',admit);}});
   const widgetReady=guest.recover().catch(onError).then(()=>widgets?.recover().catch(onError)).then(()=>inlineEvents.drain());
   sayEvents=createSayEvents({db,store:ephemeralStore,messages:ephemeralMessages,telegram,queue,assertCurrent,onError,isUnavailable:(botId,chatId)=>lifecycle.closed||deleting.has(botId)||isStopping(botId,chatId),resolveScope:record=>{const scope=lifecycle.scope(record);scopes.set(record.agentId,scope);if(gate.held.has(record.botId))queue.setPaused(record.agentId,true);return scope;}});
-  const commands = createCommands({ db, config: config ?? {}, telegram, clock, onError, browse, say:(botId,message)=>sayEvents.receive(botId,message), scheduler, agentControl:control,controlReply:(target,text)=>control.reply(target,text),contextStatus:id=>agent.context?.snapshot(id)??{usedTokens:null,maxTokens:null,measuredAt:null},stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'stopping' : (control.status(id).phase!=='running'&&control.status(id).phase?control.status(id).phase:availability.get(id)??'idle'),queue:queue.state(id).events.length}), updateRules, clearContext, models: () => agent.models(), websockets,widgets,mcpOAuth, requestMcpRefresh, testMcp:(botId,entry)=>agent.testMcp(botId,entry), masterCommands, fileCommands });
+  const commands = createCommands({ db, config: config ?? {}, telegram, clock, onError, browse, say:(botId,message)=>sayEvents.receive(botId,message), scheduler, agentControl:control,controlReply:(target,text)=>control.reply(target,text),contextStatus:id=>agent.context?.snapshot(id)??{usedTokens:null,maxTokens:null,measuredAt:null},stopAgent, setAgentState, agentStatus: id => ({status:db.sql.prepare('SELECT stopPending FROM agents WHERE agentId=?').get(id)?.stopPending ? 'stopping' : (control.status(id).phase!=='running'&&control.status(id).phase?control.status(id).phase:availability.get(id)??'idle'),queue:queue.state(id).events.length}), updateRules, readRulesFile, clearContext, models: () => agent.models(), websockets,widgets,mcpOAuth, requestMcpRefresh, testMcp:(botId,entry)=>agent.testMcp(botId,entry), masterCommands, fileCommands });
   for (const record of db.sql.prepare('SELECT * FROM agents').all()) {if(!db.getChat(record.botId,record.chatId).agentEnabled)queue.setHeld(record.agentId,'disabled',true);if(record.stopPending)finishStop(record);else if(record.contextResetPending)resetContext(record);}
   const ready=control.recover().then(()=>widgetReady);
   return {

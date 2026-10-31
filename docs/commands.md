@@ -115,7 +115,7 @@ At most 200 trigger phrases are accepted, each 2–50 characters with no newline
 
 ## Users, ownership and rules
 
-These commands require Admin. Reading and replacing `/rules` (document or inline pre form) are available in private chats, groups and supergroups. User and ownership management require a private chat. Ownership transfer requires Owner.
+These commands require Admin. Reading and replacing `/rules` (document, inline pre or wiki file form) are available in private chats, groups and supergroups. User and ownership management require a private chat. Ownership transfer requires Owner.
 
 | Command | Result |
 |---|---|
@@ -127,10 +127,13 @@ These commands require Admin. Reading and replacing `/rules` (document or inline
 | `/rules` | Download current bot-wide `AGENTS.md` |
 | `/rules set` | Replace rules using the document reply protocol below |
 | `/rules set PRE_BLOCK` | Replace rules with the exact contents of one nonempty Telegram pre block |
+| `/rules set PATH` | Replace rules with a Markdown file from the bot's shared wiki |
 
 Users sort by owner/admin/manager/user, then ascending user ID. Admin can manage only user/manager, cannot change another admin, assign admin, or change itself. Owner can manage admins but cannot alter/remove the owner through `/user`. Ownership transfer is atomic; the previous owner becomes admin. Transfer to self is unchanged. No confirmation is required. This changes application ownership, not BotFather ownership. Master assignment differs; see [Master bot](master-bot.md).
 
-Rules are shared by all bot agents. Updating them waits for current work and clears contexts to replace instructions; history, notes, wiki and tasks remain. `/rules set` has no `force` argument. The inline form accepts exactly one pre block and preserves whitespace; whitespace-only content is rejected. It ignores the quoted message entirely, including an attached document and its ownership/edit status. Sending a document in reply to the inline form is not a rules upload: only the argument-free `/rules set` invitation accepts one. See [Security](security.md).
+Rules are shared by all bot agents. Updating them waits for current work and clears contexts to replace instructions; history, notes, wiki and tasks remain. `/rules set` has no `force` argument. The inline form accepts exactly one pre block and preserves whitespace; whitespace-only content is rejected. It ignores the quoted message entirely, including an attached document and its ownership/edit status. Sending a document in reply to the inline form is not a rules upload: only the argument-free `/rules set` invitation accepts one.
+
+The path form, for example `/rules set policies/agents.md`, copies the current UTF-8 contents of a `.md` file into the bot rules; subsequent file edits do not change the rules until the command is run again. Paths are relative to the bot's shared directory; traversal, symlinks, protected paths and `.temp` are rejected. For a path with spaces, format the path as one inline-code argument. A Telegram pre block is always interpreted as rules text, even if it looks like a path. See [Security](security.md).
 
 ## Files and Git
 

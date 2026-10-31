@@ -25,7 +25,7 @@ test('inline rules preserve pre contents and ignore an invalid quoted document',
   assert.deepEqual(f.writes,[['b',{text:value},false]]);
   assert.match(f.calls.at(-1).text,/Rules updated/);
 });
-test('inline rules reject plain/code text, extras, whitespace and forbidden callers',async t=>{
+test('rules reject invalid paths, extras, whitespace and forbidden callers',async t=>{
   const f=fixture(t);
   for(const extra of [{},{entities:[{type:'code',offset:11,length:3}]},{entities:[{type:'pre',offset:11,length:3}],from:{id:4}},{entities:[{type:'pre',offset:11,length:3}],chat:{id:-1,type:'group'},from:{id:3}}]) await f.send('/rules set abc',extra);
   await f.send('/rules set abc extra',{entities:[{type:'pre',offset:11,length:3}]});
@@ -38,7 +38,7 @@ test('an admin can replace rules using an inline pre block in a group',async t=>
 test('group admin help exposes the complete file and rules sections',()=>{
   const sections=helpSections({role:'admin',group:true});
   assert.deepEqual(sections.file.commands.map(c=>c.syntax),['/browse [DIR]','/ls [PATH]','/cat PATH','/download PATH','/upload PATH','/edit PATH PRE_BLOCK','/mv FROM TO','/rm PATH']);
-  assert.deepEqual(sections.rules.commands.map(c=>c.syntax),['/rules','/rules set','/rules set PRE_BLOCK']);
+  assert.deepEqual(sections.rules.commands.map(c=>c.syntax),['/rules','/rules set','/rules set PRE_BLOCK','/rules set PATH']);
   assert.equal(helpSections({role:'manager',group:true}).file,undefined);
 });
 
@@ -116,6 +116,36 @@ test('controller saves inline rules exactly, updates version and removes idle co
   assert.equal(fs.readFileSync(path.join(root,'rules','b','AGENTS.md'),'utf8'),value);
   assert.equal(db.getBot('b').rulesVersion,before+1);assert.equal(db.agent('b',1).threadId,null);
   assert.deepEqual(deleted,[[a.agentId,'old']]);assert.ok(!calls.includes('getFile'));
+});
+test('rules set copies a bot wiki markdown file and preserves pre block semantics',async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'rules-wiki-')),db=openDatabase(':memory:');
+  db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.setRole('b',2,'admin');db.setRole('b',3,'manager');db.saveChat('b',{id:1,type:'private'});
+  const a=db.ensureAgent('b',1);db.sql.prepare('UPDATE agents SET threadId=?,threadRulesVersion=rulesVersion FROM bots WHERE agentId=?').run('old',a.agentId);
+  const wiki=path.join(root,'bots','b');fs.mkdirSync(path.join(wiki,'notes'),{recursive:true});
+  const content='  Rules from wiki\nCafé 😎  ';fs.writeFileSync(path.join(wiki,'notes','My rules.md'),content);
+  const deleted=[],calls=[];const controller=createController({db,config:{dataDir:root,botsDir:path.join(root,'bots')},agent:{run:async()=>{},deleteSession:async(...x)=>deleted.push(x)},telegram:{call:async(b,method,p)=>{calls.push({method,...p});return {};}}});
+  t.after(async()=>{controller.close();await controller.idle();db.close();fs.rmSync(root,{recursive:true,force:true});});
+  const send=async(text,id,extra={})=>controller.receive('b',{message:{message_id:id,date:1,from:{id:1},chat:{id:1,type:'private'},text,...extra}});
+  const command='/rules set notes/My rules.md';await send(command,1,{from:{id:2},chat:{id:-1,type:'group'},entities:[{type:'code',offset:11,length:'notes/My rules.md'.length}]});
+  const rules=path.join(root,'rules','b','AGENTS.md');assert.equal(fs.readFileSync(rules,'utf8'),content);assert.equal(db.agent('b',1).threadId,null);assert.deepEqual(deleted,[[a.agentId,'old']]);
+  fs.writeFileSync(path.join(wiki,'notes','My rules.md'),'changed later');assert.equal(fs.readFileSync(rules,'utf8'),content);
+  fs.writeFileSync(path.join(wiki,'rules.md'),'\ufeffplain path');await send('/rules set rules.md',2);assert.equal(fs.readFileSync(rules,'utf8'),'\ufeffplain path');
+  await send('/rules set notes/My rules.md',3,{entities:[{type:'pre',offset:11,length:'notes/My rules.md'.length}]});assert.equal(fs.readFileSync(rules,'utf8'),'notes/My rules.md');
+  await send('/rules set rules.md',4,{message_id:0,ephemeral_message_id:11,receiver_user:{id:42},date:Math.floor(Date.now()/1000),from:{id:2},chat:{id:-1,type:'supergroup'}});
+  assert.equal(fs.readFileSync(rules,'utf8'),'\ufeffplain path');assert.ok(calls.some(c=>c.ephemeral_message_parameters?.receiver_user_id===2));
+  assert.ok(calls.some(c=>c.text?.includes('Rules updated')));assert.ok(!calls.some(c=>c.method==='getFile'));
+});
+test('wiki rules reject unauthorized, unsafe, missing, non-markdown and invalid UTF-8 files without changing rules',async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'rules-wiki-invalid-')),db=openDatabase(':memory:');
+  db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.setRole('b',3,'manager');
+  const wiki=path.join(root,'bots','b');fs.mkdirSync(path.join(wiki,'.temp','a'),{recursive:true});fs.writeFileSync(path.join(wiki,'ok.md'),'good');fs.writeFileSync(path.join(wiki,'bad.txt'),'text');fs.writeFileSync(path.join(wiki,'invalid.md'),Buffer.from([0xff]));fs.writeFileSync(path.join(wiki,'.temp','a','secret.md'),'secret');fs.writeFileSync(path.join(root,'outside.md'),'outside');
+  const controller=createController({db,config:{dataDir:root,botsDir:path.join(root,'bots')},agent:{run:async()=>{}},telegram:{call:async()=>({})}});
+  t.after(async()=>{controller.close();await controller.idle();db.close();fs.rmSync(root,{recursive:true,force:true});});
+  const send=async(text,id,from=1)=>controller.receive('b',{message:{message_id:id,date:1,from:{id:from},chat:{id:-1,type:'group'},text}});
+  await send('/rules set ok.md',1,3);const version=db.getBot('b').rulesVersion;
+  for(const [index,arg] of ['../outside.md','.temp/a/secret.md','bad.txt','invalid.md','missing.md'].entries())await send('/rules set '+arg,index+2);
+  assert.equal(db.getBot('b').rulesVersion,version);assert.equal(fs.existsSync(path.join(root,'rules','b','AGENTS.md')),false);
+  if(process.platform!=='win32') {fs.symlinkSync(path.join(root,'outside.md'),path.join(wiki,'link.md'));await send('/rules set link.md',20);assert.equal(db.getBot('b').rulesVersion,version);}
 });
 test('inline rules wait for root and subagents before queued work uses fresh context',async t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'rules-busy-')),db=openDatabase(':memory:');
