@@ -7,9 +7,28 @@ import { WIDGET_API_METHODS } from "./api.mjs";
 import { WIDGET_LIMITS as L, validateAgentRequestPayload, widgetError } from "./contract.mjs";
 
 /** Runs inside the agent sandbox; closures and React nodes never cross RPC. */
-export function createReactWidgetProcess({request}) {
-  const refs=new Map(),callbacks=new Map();
+export function createReactWidgetProcess({request,retryDelayMs=1000}) {
+  const refs=new Map(),callbacks=new Map(),retries=new Map();
   let runtime;
+  const retryKey=(widgetId,viewId)=>JSON.stringify([widgetId,viewId]);
+  function clearRetry(widgetId,viewId){
+    const key=retryKey(widgetId,viewId),entry=retries.get(key);
+    if(entry)clearTimeout(entry.timer);
+    retries.delete(key);
+  }
+  function scheduleRetry(ref,viewId){
+    const key=retryKey(ref.widgetId,viewId),entry={phase:"waiting",timer:null};
+    retries.set(key,entry);
+    entry.timer=setTimeout(()=>{
+      if(retries.get(key)!==entry)return;
+      entry.phase="attempting";
+      void runtime.mount({widgetId:ref.widgetId,viewId,origin:"runtime"}).catch(async error=>{
+        clearRetry(ref.widgetId,viewId);
+        await request("notifyError",{ref,viewId,error:{code:error.code??"render_failed",message:String(error.message)}}).catch(()=>{});
+      });
+    },retryDelayMs);
+    entry.timer.unref?.();
+  }
   const bridge={
     storeRevision(widgetId,revision) {
       const ref=refs.get(widgetId);
@@ -20,12 +39,15 @@ export function createReactWidgetProcess({request}) {
       if(ref)void request("subscription",{ref,viewId,type,active}).catch(()=>{});
     },
     unmount(widgetId,viewId){
+      clearRetry(widgetId,viewId);
       const ref=refs.get(widgetId);
       return request("detach",{ref,viewId});
     },
-    closeOverlays(widgetId,parentViewId){
+    async closeOverlays(widgetId,parentViewId){
       const ref=refs.get(widgetId);
-      return request("closeOverlays",{ref,parentViewId});
+      const closed=await request("closeOverlays",{ref,parentViewId});
+      for(const viewId of closed??[])clearRetry(widgetId,viewId);
+      return closed;
     },
     notifyAgent(widgetId,payload){
       const ref=refs.get(widgetId);
@@ -59,6 +81,10 @@ export function createReactWidgetProcess({request}) {
         if(view.virtual)continue;
         const tree=rootsById.get(viewId);
         if(!tree||view.status!=="active")continue;
+        const key=retryKey(widgetId,viewId),pending=retries.get(key);
+        if(pending?.phase==="waiting"){
+          clearTimeout(pending.timer);pending.phase="attempting";
+        }
         try {
           const {body,replyMarkup,callbacks:nextCallbacks}=projectHostTree(tree,{
             priorBody:view.projection?.body,
@@ -75,9 +101,11 @@ export function createReactWidgetProcess({request}) {
           for(const childId of outcome.closedOverlayIds??[]){
             const child=views.get(childId);
             if(child){child.status="disabled";callbacks.delete(childId);
+              clearRetry(widgetId,childId);
               setTimeout(()=>void runtime.unmount(widgetId,childId,{controller:true}).catch(()=>{}),0);}
           }
           if(["confirmed","unchanged"].includes(outcome.status)){
+            clearRetry(widgetId,viewId);
             view.target=outcome.target??outcome.view?.target??view.target;
             view.message=outcome.view?.message??view.message;
             view.projection={body,replyMarkup};
@@ -90,17 +118,29 @@ export function createReactWidgetProcess({request}) {
               view.message??(view.target?.inlineMessageId?
                 {inline_message_id:view.target.inlineMessageId}:null));
           } else if(outcome.status==="view_error"){
+            clearRetry(widgetId,viewId);
             view.status="error";view.error=outcome.error;
+            if(pending)await request("notifyError",{ref,viewId,error:view.error}).catch(()=>{});
             failedViews.push({viewId,target:view.target,error:view.error});
           } else if(outcome.status==="removed"){
+            clearRetry(widgetId,viewId);
             callbacks.delete(viewId);
             view.status="error";view.error=outcome.error;
             failedViews.push({viewId,target:view.target,error:view.error});
           } else if(outcome.status==="unknown"){
-            view.status="error";view.error=outcome.error??{code:"delivery_unknown",message:outcome.reason};
+            view.error=outcome.error??{code:"delivery_unknown",message:outcome.reason};
+            if(outcome.retryable&&!pending){
+              scheduleRetry(ref,viewId);
+            }else{
+              clearRetry(widgetId,viewId);view.status="error";
+              if(!outcome.retryable&&view.error.code==="telegram_transport_failed")
+                view.error={code:"delivery_unknown",message:view.error.message};
+              if(pending)await request("notifyError",{ref,viewId,error:view.error}).catch(()=>{});
+            }
             failedViews.push({viewId,target:view.target,error:view.error});
           }
         } catch(error) {
+          clearRetry(widgetId,viewId);
           view.status="error";view.error={code:error.code??"render_failed",message:String(error.message)};
           failedViews.push({viewId,target:view.target,error:view.error});
           await request("notifyError",{ref,viewId,error:view.error}).catch(()=>{});
@@ -147,7 +187,7 @@ export function createReactWidgetProcess({request}) {
     // Revert is a client-side action: Telegram sends no update when the user restores
     // the public message. Editing the old ephemeral ID succeeds but stays invisible.
     // A public launcher click must therefore allocate a fresh private message.
-    if(existing)await runtime.unmount(ref.widgetId,existing.id);
+    if(existing){clearRetry(ref.widgetId,existing.id);await runtime.unmount(ref.widgetId,existing.id);}
     return runtime.mount({widgetId:ref.widgetId,
       viewId:"v"+randomUUID().replaceAll("-",""),
       target:{chatId,receiverUserId:userId,callbackQueryId:event.callbackQueryId,
@@ -165,9 +205,10 @@ export function createReactWidgetProcess({request}) {
     },
     async mount(ref,args){
       const view=await runtime.mount({widgetId:ref.widgetId,...args});
-      return {viewId:view.id,status:view.status,error:view.error,target:view.target};
+      return {viewId:view.id,status:retries.has(retryKey(ref.widgetId,view.id))?"error":view.status,error:view.error,target:view.target};
     },
     async unmount(ref,{viewId,controller=true}){
+      clearRetry(ref.widgetId,viewId);
       if(callbacks.get(viewId)?.widgetId===ref.widgetId)callbacks.delete(viewId);
       await runtime.unmount(ref.widgetId,viewId,{controller});
     },
@@ -190,6 +231,10 @@ export function createReactWidgetProcess({request}) {
       return runtime.dispatchAction(ref.widgetId,action,args);
     },
     async retire(ref){
+      for(const key of retries.keys()){
+        const [widgetId,viewId]=JSON.parse(key);
+        if(widgetId===ref.widgetId)clearRetry(widgetId,viewId);
+      }
       for(const [viewId,entry] of callbacks)
         if(entry.widgetId===ref.widgetId)callbacks.delete(viewId);
       try{await runtime.retire(ref.widgetId);}finally{refs.delete(ref.widgetId);}

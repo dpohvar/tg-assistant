@@ -3,6 +3,106 @@ import assert from "node:assert/strict";
 import {fileURLToPath} from "node:url";
 import {createReactWidgetProcess} from "../../src/widgets/runtime-react.mjs";
 
+test("uncertain existing edit retries once and recovers without another action",async()=>{
+  const calls=[],notices=[];let fail=false;
+  const process=createReactWidgetProcess({retryDelayMs:20,request:async(method,args)=>{
+    if(method==="notifyError"){notices.push(args);return;}
+    if(method!=="publish")return null;
+    calls.push(args);
+    if(fail){fail=false;return {status:"unknown",retryable:true,error:{code:"telegram_transport_failed",message:"lost"}};}
+    return {status:"confirmed",target:args.target,view:{target:args.target,message:{message_id:1}}};
+  }});
+  const ref={widgetId:"retry-process",botId:"b",agentId:"a",generation:1};
+  try{
+    await process.load(ref,{buildId:"retry-process",snapshotPath:fileURLToPath(new URL("../fixtures/react-widgets/basic.mjs",import.meta.url))});
+    await process.mount(ref,{viewId:"v",target:{chatId:1,messageId:1},component:"Main",props:{value:"Open"}});
+    fail=true;
+    assert.equal((await process.mount(ref,{viewId:"v",component:"Main",props:{value:"Finished"}})).status,"error");
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(calls.length,3,JSON.stringify(calls.map(call=>call.body.rich_message.blocks[0].text)));
+    assert.equal(calls.at(-1).body.rich_message.blocks[0].text,"Finished");
+    assert.equal(notices.length,0);
+  }finally{await process.retire(ref).catch(()=>{});}
+});
+
+test("a fresh render before the retry cancels the scheduled retry",async()=>{
+  const calls=[];let fail=false;
+  const process=createReactWidgetProcess({retryDelayMs:100,request:async(method,args)=>{
+    if(method!=="publish")return null;
+    calls.push(args);
+    if(fail){fail=false;return {status:"unknown",retryable:true,error:{code:"telegram_transport_failed",message:"lost"}};}
+    return {status:"confirmed",target:args.target,view:{target:args.target,message:{message_id:1}}};
+  }});
+  const ref={widgetId:"retry-cancel",botId:"b",agentId:"a",generation:1};
+  try{
+    await process.load(ref,{buildId:"retry-cancel",snapshotPath:fileURLToPath(new URL("../fixtures/react-widgets/basic.mjs",import.meta.url))});
+    await process.mount(ref,{viewId:"v",target:{chatId:1,messageId:1},component:"Main",props:{value:"Open"}});
+    fail=true;
+    assert.equal((await process.mount(ref,{viewId:"v",component:"Main",props:{value:"Finished"}})).status,"error");
+    assert.equal(calls.length,2,"the first failure must leave one pending retry");
+    await process.mount(ref,{viewId:"v",component:"Main"});
+    await new Promise(resolve=>setTimeout(resolve,180));
+    assert.equal(calls.length,3,JSON.stringify(calls.map(call=>call.body.rich_message.blocks[0].text)));
+  }finally{await process.retire(ref).catch(()=>{});}
+});
+
+test("a failed retry stops until an explicit remount",async()=>{
+  const calls=[],notices=[];let failures=0;
+  const process=createReactWidgetProcess({retryDelayMs:20,request:async(method,args)=>{
+    if(method==="notifyError"){notices.push(args);return;}
+    if(method!=="publish")return null;
+    calls.push(args);
+    if(failures>0){failures--;return {status:"unknown",retryable:true,error:{code:"telegram_transport_failed",message:"lost"}};}
+    return {status:"confirmed",target:args.target,view:{target:args.target,message:{message_id:1}}};
+  }});
+  const ref={widgetId:"retry-fails",botId:"b",agentId:"a",generation:1};
+  try{
+    await process.load(ref,{buildId:"retry-fails",snapshotPath:fileURLToPath(new URL("../fixtures/react-widgets/basic.mjs",import.meta.url))});
+    await process.mount(ref,{viewId:"v",target:{chatId:1,messageId:1},component:"Main",props:{value:"A"}});
+    failures=2;
+    assert.equal((await process.mount(ref,{viewId:"v",component:"Main",props:{value:"B"}})).status,"error");
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(calls.length,3);assert.equal(notices.length,1);
+    assert.equal((await process.mount(ref,{viewId:"v",component:"Main"})).status,"active");
+    assert.equal(calls.length,4);
+  }finally{await process.retire(ref).catch(()=>{});}
+});
+
+test("an uncertain first send is immediately reported and is never automatically retried",async()=>{
+  const calls=[];
+  const process=createReactWidgetProcess({retryDelayMs:20,request:async(method,args)=>{
+    if(method!=="publish")return null;
+    calls.push(args);
+    return {status:"unknown",retryable:false,error:{code:"telegram_transport_failed",message:"lost"}};
+  }});
+  const ref={widgetId:"first-unknown",botId:"b",agentId:"a",generation:1};
+  try{
+    await process.load(ref,{buildId:"first-unknown",snapshotPath:fileURLToPath(new URL("../fixtures/react-widgets/basic.mjs",import.meta.url))});
+    const result=await process.mount(ref,{viewId:"v",target:{chatId:1},component:"Main"});
+    assert.equal(result.status,"error");assert.equal(result.error.code,"delivery_unknown");
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(calls.length,1);
+  }finally{await process.retire(ref).catch(()=>{});}
+});
+
+test("retiring a widget cancels a pending repaint",async()=>{
+  let publishes=0,fail=false;
+  const process=createReactWidgetProcess({retryDelayMs:40,request:async(method,args)=>{
+    if(method!=="publish")return null;
+    publishes++;
+    if(fail)return {status:"unknown",retryable:true,error:{code:"telegram_transport_failed",message:"lost"}};
+    return {status:"confirmed",target:args.target,view:{target:args.target,message:{message_id:1}}};
+  }});
+  const ref={widgetId:"retry-retire",botId:"b",agentId:"a",generation:1};
+  await process.load(ref,{buildId:"retry-retire",snapshotPath:fileURLToPath(new URL("../fixtures/react-widgets/basic.mjs",import.meta.url))});
+  await process.mount(ref,{viewId:"v",target:{chatId:1,messageId:1},component:"Main"});
+  fail=true;
+  await process.mount(ref,{viewId:"v",component:"Main",props:{value:"Next"}});
+  await process.retire(ref);
+  await new Promise(resolve=>setTimeout(resolve,100));
+  assert.equal(publishes,2);
+});
+
 test("action waits for view acknowledgement and reports partial publication failure",async()=>{
   let release,fail=false,waitOnce=true;
   const requested=[];

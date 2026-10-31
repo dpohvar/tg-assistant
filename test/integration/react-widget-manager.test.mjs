@@ -10,6 +10,73 @@ import {createReactPublications} from "../../src/widgets/publications.mjs";
 import {createReactWidgetProcess} from "../../src/widgets/runtime-react.mjs";
 import {createReactWidgetManager} from "../../src/widgets/manager-react.mjs";
 
+test("an uncertain first send is returned immediately with a removable candidate",async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"react-unknown-create-"));
+  const db=openDatabase(path.join(dir,"db.sqlite"));let process;
+  try{
+    db.sql.prepare("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',1,'bot',5)").run();
+    db.sql.prepare("INSERT INTO chats(botId,chatId,chatType,name,json) VALUES('b',-10,'supergroup','g','{}')").run();
+    db.sql.prepare("INSERT INTO agents(agentId,botId,chatId,model,createdAt) VALUES('a','b',-10,'test',1)").run();
+    const store=createWidgetStore(db);let sends=0;
+    const publications=createReactPublications({store,telegram:{async call(){sends++;throw Object.assign(Error("lost"),{code:"telegram_transport_failed"});}}});
+    process=createReactWidgetProcess({retryDelayMs:20,request:async(method,args)=>{
+      if(method==="save")return store.save(args.ref,{state:args.state,storeVersion:args.version,revision:args.revision});
+      if(method==="publish")return publications.publish(args.ref,args.viewId,args);
+      return null;
+    }});
+    const host={canReserve:()=>true,reserve:async()=>{},load:(ref,args)=>process.load(ref,args),
+      request:(ref,method,args)=>process[method](ref,args),has:()=>true,release:async()=>{}};
+    const snapshotPath=fileURLToPath(new URL("../fixtures/react-widgets/basic.mjs",import.meta.url));
+    const manager=createReactWidgetManager({db,host,store,build:async()=>({snapshotId:"unknown-manager"}),
+      authorize:()=>{},snapshotPath:()=>snapshotPath});
+    const scope={botId:"b",agentId:"a",chatId:-10};
+    const {widgetId}=await manager.create(scope,{handler:"basic.mjs",description:"Unknown send"});
+    const result=await manager.setView(scope,{widgetId,component:"Main",send:{chatId:-10}});
+    assert.equal(result.status,"error");assert.equal(result.error.code,"delivery_unknown");
+    assert.equal(manager.get(scope,{widgetId}).possiblePublications[0].viewId,result.viewId);
+    await new Promise(resolve=>setTimeout(resolve,70));assert.equal(sends,1);
+    await manager.deleteView(scope,{viewId:result.viewId});
+    assert.deepEqual(manager.get(scope,{widgetId}).possiblePublications,[]);
+  }finally{await process?.close();db.close();fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test("an uncertain bound edit automatically repaints and restores the stored view",async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"react-unknown-edit-"));
+  const db=openDatabase(path.join(dir,"db.sqlite"));let process;
+  try{
+    db.sql.prepare("INSERT INTO bots(botId,telegramId,username,ownerId) VALUES('b',1,'bot',5)").run();
+    db.sql.prepare("INSERT INTO chats(botId,chatId,chatType,name,json) VALUES('b',-10,'supergroup','g','{}')").run();
+    db.sql.prepare("INSERT INTO agents(agentId,botId,chatId,model,createdAt) VALUES('a','b',-10,'test',1)").run();
+    const store=createWidgetStore(db),calls=[];let fail=false;
+    const publications=createReactPublications({store,telegram:{async call(_bot,method,args){
+      calls.push({method,args});if(fail){fail=false;throw Object.assign(Error("lost"),{code:"telegram_transport_failed"});}
+      return {message_id:42,chat:{id:-10},rich_message:args.rich_message};
+    }}});
+    let manager;
+    process=createReactWidgetProcess({retryDelayMs:30,request:async(method,args)=>{
+      if(method==="save")return store.save(args.ref,{state:args.state,storeVersion:args.version,revision:args.revision});
+      if(method==="publish")return publications.publish(args.ref,args.viewId,args);
+      if(method==="notifyError")return manager.error(args.ref,args.error,args.viewId);
+      return null;
+    }});
+    const host={canReserve:()=>true,reserve:async()=>{},load:(ref,args)=>process.load(ref,args),
+      request:(ref,method,args)=>process[method](ref,args),has:()=>true,release:async()=>{}};
+    const snapshotPath=fileURLToPath(new URL("../fixtures/react-widgets/basic.mjs",import.meta.url));
+    manager=createReactWidgetManager({db,host,store,build:async()=>({snapshotId:"retry-manager"}),
+      authorize:()=>{},snapshotPath:()=>snapshotPath});
+    const scope={botId:"b",agentId:"a",chatId:-10};
+    const {widgetId}=await manager.create(scope,{handler:"basic.mjs",description:"Edit"});
+    const {viewId}=await manager.setView(scope,{widgetId,component:"Main",send:{chatId:-10},props:{value:"A"}});
+    fail=true;
+    const failed=await manager.setView(scope,{widgetId,viewId,props:{value:"B"}});
+    assert.equal(failed.status,"error");assert.equal(store.getView(viewId).deliveryUnknown,true);
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(calls.length,3);assert.equal(store.getView(viewId).deliveryUnknown,false);
+    assert.equal(store.getView(viewId).status,"active");
+    assert.equal(store.getView(viewId).projection.body.rich_message.blocks[0].text,"B");
+  }finally{await process?.close();db.close();fs.rmSync(dir,{recursive:true,force:true});}
+});
+
 test("action acknowledgement precedes deletion and retains the finished projection",async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"react-actions-"));
   const db=openDatabase(path.join(dir,"db.sqlite"));

@@ -23,6 +23,34 @@ function fixture() {
 }
 const projection=(text,revision=0)=>({body:{rich_message:{blocks:[{type:"paragraph",text}]}},replyMarkup:null,storeRevision:revision});
 
+test("uncertain edit can be explicitly repainted even if the render equals the old projection",async()=>{
+  const x=fixture();try{
+    const publish=publicationModule.createReactPublications({store:x.store,telegram:x.telegram});
+    await publish.publish(x.ref,"v",{target:{chatId:-10},component:"Main",props:{},...projection("A")});
+    const normal=x.telegram.call;let failed=false;
+    x.telegram.call=async(...args)=>{if(!failed){failed=true;throw Object.assign(Error("lost"),{code:"telegram_transport_failed"});}return normal(...args);};
+    const result=await publish.publish(x.ref,"v",projection("B"));
+    assert.equal(result.status,"unknown");assert.equal(result.retryable,true);
+    assert.equal((await publish.publish(x.ref,"v",projection("A"))).status,"confirmed");
+    assert.equal(x.calls.length,2);
+    assert.equal(x.store.getView("v").deliveryUnknown,false);
+  }finally{x.close();}
+});
+
+test("not modified confirms the attempted edit after an uncertain delivery",async()=>{
+  const x=fixture();try{
+    const publish=publicationModule.createReactPublications({store:x.store,telegram:x.telegram});
+    await publish.publish(x.ref,"v",{target:{chatId:-10},component:"Main",props:{},...projection("A")});
+    let attempt=0;
+    x.telegram.call=async()=>{if(attempt++===0)throw Object.assign(Error("lost"),{code:"telegram_transport_failed"});
+      throw Object.assign(Error("Bad Request: message is not modified"),{code:"telegram_api_error"});};
+    assert.equal((await publish.publish(x.ref,"v",projection("B"))).status,"unknown");
+    assert.equal((await publish.publish(x.ref,"v",projection("B"))).status,"confirmed");
+    assert.equal(x.store.getView("v").deliveryUnknown,false);
+    assert.equal(x.store.getView("v").projection.body.rich_message.blocks[0].text,"B");
+  }finally{x.close();}
+});
+
 test("ordinary widget edits share the controller message lane and a detached view cannot publish again",async()=>{
   const x=fixture();try{
     const serial=createMessageSerial();

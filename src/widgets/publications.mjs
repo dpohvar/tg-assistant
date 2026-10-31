@@ -62,7 +62,6 @@ export function createReactPublications({store,telegram,authorize=()=>{},guest,r
     if(widget.storeRevision<input.storeRevision)throw widgetError("state_not_saved","Store revision must be persisted before publication.");
     let view=store.getView(viewId);
     if(view && view.widgetId!==ref.widgetId)throw widgetError("view_conflict");
-    if(view?.deliveryUnknown)throw widgetError("delivery_unknown","Inspect the prior edit before retrying.");
     if(!view&&(unknownViews.has(viewId)||store.getCandidate(viewId)))
       throw widgetError("delivery_unknown","Inspect the prior send before retrying.");
     if(view && input.bindingEpoch && view.bindingEpoch!==input.bindingEpoch)
@@ -81,7 +80,7 @@ export function createReactPublications({store,telegram,authorize=()=>{},guest,r
     const projected={body:normalized.body,replyMarkup:normalized.replyMarkup,
       ...(prepared.signatures.length?{mediaSignatures:prepared.signatures}:{})};
     const prior=view?.projection;
-    if(prior && same(projected,prior))return {status:"unchanged",view};
+    if(prior && !view.deliveryUnknown && same(projected,prior))return {status:"unchanged",view};
     if(prior && (kindOf(prior.body)!==normalized.kind ||
         (normalized.kind!=="rich_message"&&!same(prior.body,normalized.body))))
       throw widgetError("render_failed","Native body cannot be changed after sending.");
@@ -107,7 +106,7 @@ export function createReactPublications({store,telegram,authorize=()=>{},guest,r
         }}:{}),
         ...body,...(normalized.replyMarkup?{reply_markup:normalized.replyMarkup}:{})};
     } else {
-      if(normalized.kind==="rich_message" && (!prior||!same(prior.body,normalized.body))){
+      if(normalized.kind==="rich_message" && (view?.deliveryUnknown||!prior||!same(prior.body,normalized.body))){
         method="editMessageText";
         args={...address(target),...prepared.value,reply_markup:markup};
       } else {
@@ -128,19 +127,24 @@ export function createReactPublications({store,telegram,authorize=()=>{},guest,r
         ...normalized.body,...(normalized.replyMarkup?{reply_markup:normalized.replyMarkup}:{})
       }):await call(ref,method,args,prepared.uploads);
     } catch(error) {
-      if(transportUnknown(error)){
-        unknownViews.add(viewId);
-        if(view)store.patchView(ref,viewId,{status:"error",lastError:diagnostic(error),deliveryUnknown:true});
-        else try{store.addCandidate(ref,{viewId,target,reason:"delivery_unknown"});}catch{}
-        return {status:"unknown",error:diagnostic(error),target,closedOverlayIds};
-      }
-      const loss=view?viewLossReason(error):null;
-      if(loss){store.detachView(ref,viewId);receipts?.done(ref,viewId);return {status:"removed",error:diagnostic(error),reason:loss,closedOverlayIds};}
-      if(view){const updated=store.patchView(ref,viewId,{status:"error",lastError:diagnostic(error)});
+      if(view?.deliveryUnknown && error.code==="telegram_api_error" && /\bmessage is not modified\b/i.test(error.message)){
+        receipt=true;
+      } else {
+        if(transportUnknown(error)){
+          unknownViews.add(viewId);
+          if(view)store.patchView(ref,viewId,{status:"error",lastError:diagnostic(error),deliveryUnknown:true});
+          else try{store.addCandidate(ref,{viewId,target,reason:"delivery_unknown"});}catch{}
+          return {status:"unknown",error:diagnostic(error),target,closedOverlayIds,
+            retryable:Boolean(view)&&error.code==="telegram_transport_failed"};
+        }
+        const loss=view?viewLossReason(error):null;
+        if(loss){store.detachView(ref,viewId);receipts?.done(ref,viewId);return {status:"removed",error:diagnostic(error),reason:loss,closedOverlayIds};}
+        if(view){const updated=store.patchView(ref,viewId,{status:"error",lastError:diagnostic(error)});
+          receipts?.done(ref,viewId);
+          return {status:"view_error",view:updated,error:diagnostic(error),closedOverlayIds};}
         receipts?.done(ref,viewId);
-        return {status:"view_error",view:updated,error:diagnostic(error),closedOverlayIds};}
-      receipts?.done(ref,viewId);
-      return {status:"view_error",error:diagnostic(error),closedOverlayIds};
+        return {status:"view_error",error:diagnostic(error),closedOverlayIds};
+      }
     }
     if(method==="guest"){
       if(typeof receipt?.inlineMessageId!=="string"||!receipt.inlineMessageId){

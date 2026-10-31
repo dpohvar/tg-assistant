@@ -157,7 +157,7 @@ All tools operate on the owning agent's React widget registrations. See [widgets
 | --- | --- | --- |
 | `create_widget` | `handler:string!`, `description:string!`, optional JSON `props` | `{widgetId}`; creates a zero-view instance |
 | `update_widget` | `widgetId:string!`, optional `handler`, `description`, JSON `props` | `{widgetId,renderErrors}`; retains store and ordinary view addresses |
-| `set_widget_view` | `widgetId:string!`, named exported `component`, exactly one `send`, `target` or existing `viewId`; optional JSON `props`, `force:boolean` | `{viewId,target}` after a confirmed publication |
+| `set_widget_view` | `widgetId:string!`, named exported `component`, exactly one `send`, `target` or existing `viewId`; optional JSON `props`, `force:boolean` | `{viewId,target}` after a confirmed publication; an unsuccessful mount can return `{viewId,status:"error",error,target}` |
 | `update_widget_store` | `widgetId:string!`, complete JSON-object `state` | `{updatedViews:[{viewId,target}]}` after Telegram confirms affected edits; rejects with `updatedViews` and `failedViews` if a view fails |
 | `dispatch_widget_action` | `widgetId:string!`, lowercase exported `action:string!`, optional JSON-object `args` | Runs the action recipe against the current store and waits for Telegram; same success/error result as `update_widget_store` |
 | `delete_widget_view` | `viewId:string!` | `{}`; detaches the view and disables its buttons best effort |
@@ -167,6 +167,8 @@ All tools operate on the owning agent's React widget registrations. See [widgets
 | `answer_widget_request` | `requestId:string!`, JSON `result` | `{status:"answered"}`; rejects an expired, foreign or schema-invalid reply |
 
 On a runtime memory-limit failure, `get_widget.lastError.diagnosticPath` points to the latest diagnostic at `.temp/<agentId>/widget-memory-dump.json` when writing succeeded. It contains process RSS and widget identifiers, without widget state or props. A later memory-limit failure replaces the same file.
+
+An uncertain first send returns `status:"error"`, `error.code:"delivery_unknown"` and a candidate `viewId`; inspect `get_widget.possiblePublications`. The send is not repeated automatically. `delete_widget_view({viewId})` removes a candidate but cannot establish whether Telegram created a message. An uncertain edit of a bound view schedules one repaint; the tool call can already have failed. If needed, an agent can explicitly repaint that view with `set_widget_view({widgetId,viewId})`. See [delivery recovery](widgets/views.md#delivery-recovery) for the timing and limits.
 
 `send:{}` uses the current chat; `send:{guestRequestId}` publishes the first render as a guest answer. Ordinary `target` is `{chatId,messageId}` or `{inlineMessageId}`. A new view needs a named uppercase component export from the widget module. Updating by `viewId` retains its address; supplied props replace the old props. Lowercase exported action factories are callable through `dispatch_widget_action`; React callbacks remain local to the widget. Store-tool success lists only actual confirmed message changes, so `updatedViews:[]` is valid. A view error rejects even if state persistence succeeded; inspect `get_widget` before retrying. `widget_event` and the old `render(state,view)` engine are retired. Direct `edit` or `delete` on a bound ordinary message detaches that view after Telegram confirms the operation.
 ## Guest invocations
