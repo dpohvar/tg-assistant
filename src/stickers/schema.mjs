@@ -34,7 +34,7 @@ export const stickerSetTools = [
   ),
   tool(
     "sticker_set_create",
-    "Create a regular sticker set or custom emoji set. Full name must end _by_<bot_username>. Owner defaults to application bot owner. 1-50 native InputSticker entries: sticker is file_id, supported URL or file:path for a permitted local file. Static PNG/WebP, animated TGS, video WebM. needsRepainting is custom emoji only. Returns created status, name, ownerUserId, link; then get the set for native IDs. Never automatically retry delivery_unknown or applied:true errors.",
+    "Create a regular sticker set or custom emoji set. Telegram requires the name suffix _by_<bot_username>; the first active username is recommended based on observed behavior. Use chat_info with your bot's numeric user ID to inspect its current username. Telegram decides whether the name is valid. Owner defaults to application bot owner. 1-50 native InputSticker entries: sticker is file_id, supported URL or file:path for a permitted local file. Static PNG/WebP, animated TGS, video WebM. needsRepainting is custom emoji only. Returns created status, name, ownerUserId, link; then get the set for native IDs. Never automatically retry delivery_unknown or applied:true errors.",
     {
       name: str,
       title: { type: "string", minLength: 1, maxLength: 64 },

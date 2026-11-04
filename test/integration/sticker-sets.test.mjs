@@ -87,6 +87,53 @@ const createArgs = (extra = {}) => ({
   stickers: [input],
   ...extra,
 });
+
+test("Telegram decides the sticker-set username after bot usernames are reordered", async (t) => {
+  let primaryUsername = "chachaagent";
+  const f = fixture(t, (method, args) => {
+    if (method === "createNewStickerSet" &&
+        !args.name.toLowerCase().endsWith(`_by_${primaryUsername}`))
+      throw Object.assign(new Error("Bad Request: invalid sticker set name is specified"), {
+        code: "telegram_api_error",
+      });
+  });
+  const name = "sibas_fish_by_d_chacha_bot";
+  const rejected = await f.invoke("sticker_set_create", createArgs({ name }));
+  assert.equal(rejected.error, "telegram_api_error");
+  assert.match(rejected.description, /invalid sticker set name/);
+  assert.deepEqual(await f.invoke("sticker_sets"), { sets: [] });
+  assert.deepEqual(f.calls.map((call) => call.method), ["createNewStickerSet"]);
+
+  primaryUsername = "d_chacha_bot";
+  const created = await f.invoke("sticker_set_create", createArgs({ name }));
+  assert.equal(created.status, "created");
+  assert.equal(created.name, name);
+  assert.deepEqual(f.calls.map((call) => call.method), ["createNewStickerSet", "createNewStickerSet"]);
+});
+
+test("a current bot username need not match the one stored at registration", async (t) => {
+  const f = fixture(t);
+  const name = "sibas_fish_by_chachaagent";
+  const result = await f.invoke("sticker_set_create", createArgs({ name }));
+  assert.equal(result.status, "created");
+  assert.equal(f.db.getBot("b").username, "bot");
+  assert.equal(f.calls[0].args.name, name);
+  assert.equal(f.calls[0].method, "createNewStickerSet");
+});
+
+test("Telegram rejects a syntactically valid name without a required suffix", async (t) => {
+  const f = fixture(t, (method) => {
+    if (method === "createNewStickerSet")
+      throw Object.assign(new Error("Bad Request: invalid sticker set name is specified"), {
+        code: "telegram_api_error",
+      });
+  });
+  const result = await f.invoke("sticker_set_create", createArgs({ name: "sibas_fish" }));
+  assert.equal(result.error, "telegram_api_error");
+  assert.match(result.description, /invalid sticker set name/);
+  assert.equal(f.calls[0].args.name, "sibas_fish");
+  assert.deepEqual(await f.invoke("sticker_sets"), { sets: [] });
+});
 test('sticker creation, replacement and thumbnails accept file references',async t=>{
   const f=fixture(t);
   assert.equal((await f.invoke('sticker_set_create',createArgs({stickers:[{...input,sticker:'file:wiki/face.png'}]}))).status,'created');
@@ -310,7 +357,6 @@ test("malformed inputs, foreign members, attachments and paths cannot cause muta
   const f = fixture(t);
   for (const args of [
     createArgs({ name: "Bad__by_bot" }),
-    createArgs({ name: "Bad_by_other" }),
     createArgs({ title: "" }),
     createArgs({ ownerUserId: -1 }),
     createArgs({ type: "mask" }),

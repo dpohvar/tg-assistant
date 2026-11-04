@@ -79,7 +79,7 @@ Existing Telegram file IDs and HTTP(S) media URLs remain supported. HTTP(S) medi
 
 Use `sticker_set_get({name:"https://t.me/addemoji/EXAMPLE"})` to inspect a set's live metadata. Each returned Sticker has `file_id`; emoji members also have `custom_emoji_id`. Use `download` or `download_custom_emoji` for selected members when their artwork or motion matters. Reading a set does not automatically download it or add it to the local catalog. Descriptions can be kept in agent files.
 
-Create a regular sticker set from a permitted PNG file (replace the suffix with the current bot username):
+Create a regular sticker set from a permitted PNG file (replace the suffix with the current bot username). For bots with multiple usernames, the first active username is recommended based on observed Telegram behavior; Telegram makes the final name check. Use `chat_info({chatIds:[BOT_USER_ID]})` to inspect the current `username` and, when provided, `active_usernames` before creating a set; the user ID is in the agent's bot profile. The controller does not compare the suffix with the username saved at bot registration:
 
 ```javascript
 await sticker_set_create({

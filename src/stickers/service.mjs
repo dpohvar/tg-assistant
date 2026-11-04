@@ -235,9 +235,7 @@ export function createStickerSets({ db, telegram, filesFor, assertCurrent }) {
           )
         )
           throw invalid("Unsupported create argument.");
-        const suffix = "_by_" + db.getBot(scope.botId).username;
         if (
-          !name.toLowerCase().endsWith(suffix.toLowerCase()) ||
           !text(args.title, 1, 64) ||
           !["regular", "custom_emoji"].includes(args.type) ||
           !Array.isArray(args.stickers) ||
@@ -248,7 +246,7 @@ export function createStickerSets({ db, telegram, filesFor, assertCurrent }) {
               typeof args.needsRepainting !== "boolean"))
         )
           throw invalid(
-            "Use a full name ending _by_<bot_username>, title of 1-64 characters, regular/custom_emoji type and 1-50 stickers; needsRepainting is custom emoji only.",
+            "Use a title of 1-64 characters, regular/custom_emoji type and 1-50 stickers; needsRepainting is custom emoji only.",
           );
         for (const sticker of args.stickers)
           inputSticker(sticker, args.uploads);
