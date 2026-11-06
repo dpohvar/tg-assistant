@@ -6,7 +6,7 @@ Queued `/say` participates in [oldest-chat eviction](agent-control.md#overflow-a
 
 ## `/say`
 
-In a group or supergroup with an enabled agent, `/say MESSAGE` delivers hidden correspondence to the existing chat agent. It requires this bot's application role `user` or higher, independently of Telegram administrator status. It uses the ordinary chat queue, ten-entry limit, batching, steering and shared context. Hidden input grants no extra instruction authority, priority or permissions and does not open public listening. It does not enable an agent or create a personal session.
+In a connected group or supergroup with an enabled agent, `/say MESSAGE` delivers hidden correspondence from an identifiable human participant to the existing chat agent. No application role or Telegram administrator status is required. It uses the ordinary chat queue, ten-entry limit, batching, steering and shared context. Hidden input grants no extra instruction authority, priority or permissions and does not open public listening. It does not enable an agent or create a personal session.
 
 Telegram must deliver the command as ephemeral. The registered group command lists include `/say`; an ordinary command from a stale client is refused rather than treated as hidden. In private chats, direct messages already provide a private route; `/say` is a group command. The prefix/leading separator whitespace are removed and remaining formatting offsets are adjusted. This free-form message is not parsed as administrative command arguments.
 
@@ -52,6 +52,6 @@ The agent chooses private or public output according to the request. Public outp
 
 Private snapshots, preparation state and queue-admission markers use separate SQLite storage with 30-day retention and originating bot/chat/agent ownership. They are excluded from ordinary history/search. Confirmed prepared addresses survive controller restart independently of Telegram client visibility. Local retention never guarantees client delivery or visibility.
 
-Duplicate input does not prepare or enqueue again. Persisted preparation intent prevents resending an interrupted/uncertain preparation. Admitted events remain RAM-only, like ordinary chat events, and are not replayed after restart. Role, lifecycle and enabled state are rechecked before delayed admission/dispatch. Shutdown/removal prevents late admission. Known native-address reuse is quarantined rather than overwriting a different generation; this protection is limited to retained, observed addresses.
+Duplicate input does not prepare or enqueue again. Persisted preparation intent prevents resending an interrupted/uncertain preparation. Admitted events remain RAM-only, like ordinary chat events, and are not replayed after restart. Bot/chat lifecycle and enabled state are rechecked before delayed admission/dispatch; the participant's application role is not required. Shutdown/removal prevents late admission. Known native-address reuse is quarantined rather than overwriting a different generation; this protection is limited to retained, observed addresses.
 
 See the [development report](dev/ephemeral-command-verification.md) for automated and live evidence. Native constraints: [reply parameters](https://core.telegram.org/bots/api#replyparameters), [ephemeral response permissions](https://core.telegram.org/bots/api#ephemeral-messages-and-commands).

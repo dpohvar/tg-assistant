@@ -4,7 +4,7 @@ export class AgentQueue {
   constructor({ dispatch, steer, onError = () => {}, onDropped = () => {}, onEvicted=()=>{},onAdmitted=()=>{},onDispatched=()=>{},onStateChanged = () => {} }) { Object.assign(this, { dispatch, steer, onError, onDropped,onEvicted,onAdmitted,onDispatched, onStateChanged }); }
   state(id) { if (!this.states.has(id)) this.states.set(id, { events: [], busy: false, waiting: false, sending: false,serial:0,boundaries:new Map(),activeJobs:new Set() }); return this.states.get(id); }
   canStart(id,seq) { const s = this.state(id);seq??=s.events[0]?.seq??s.serial+1;return !this.closed && !s.paused && !s.holds?.size && [...s.boundaries.values()].every(n=>seq<=n) && !s.sending && (!s.busy || s.waiting && Boolean(this.steer)) && (!s.events.length || s.events[0].readyAt <= Date.now()); }
-  admitted(id, item) { if (!item.admit || item.admit()) return true; this.onDropped(id, item.event, item.source); return false; }
+  admitted(id, item) { if (!item.admit || item.admit()) return true; this.onDropped(id, item.event, item.source,{id:item.id,seq:item.seq}); return false; }
   pending(id) { return this.state(id).events.length; }
   canAccept() {return !this.closed;}
   captureBoundary(id){return this.state(id).serial;}
@@ -59,10 +59,10 @@ export class AgentQueue {
       if (!events.length) return;
       if (s.busy) {
         s.sending = true; s.waiting = false;
-        this.track(Promise.resolve().then(() => { if (!s.busy) { s.events.unshift(...items); return; } const current=items.filter(item=>this.admitted(id,item)).flatMap(item=>Array.isArray(item.event)?item.event:[item.event]);if(current.length)return Promise.resolve(this.steer(id,current)).then(result=>{for(const item of items)this.onDispatched(id,item);return result;}); }).catch(async error => { if (error.code === 'steer_expired') { s.events.unshift(...items); return; } if (!['rules_replaced','agent_cancelled'].includes(error.code)) this.clear(id); await this.onError(id, error); }).finally(() => { s.sending = false; this.pump(id); }), id);
+        this.track(Promise.resolve().then(() => { if (!s.busy) { s.events.unshift(...items); return; } const admitted=items.filter(item=>this.admitted(id,item)),current=admitted.flatMap(item=>Array.isArray(item.event)?item.event:[item.event]);if(current.length)return Promise.resolve(this.steer(id,current)).then(result=>{for(const item of admitted)this.onDispatched(id,item);return result;}); }).catch(async error => { if (error.code === 'steer_expired') { s.events.unshift(...items); return; } if (!['rules_replaced','agent_cancelled'].includes(error.code)) this.clear(id); await this.onError(id, error); }).finally(() => { s.sending = false; this.pump(id); }), id);
       } else {
         s.busy = true;
-        this.track(Promise.resolve().then(() => {const current=items.filter(item=>this.admitted(id,item)).flatMap(item=>Array.isArray(item.event)?item.event:[item.event]);if(current.length){for(const item of items)this.onDispatched(id,item);return this.dispatch(id,current);}}).catch(async error => { if (!['rules_replaced','agent_cancelled'].includes(error.code)) this.clear(id); await this.onError(id, error); }).finally(() => { s.busy = false; s.waiting = false; this.pump(id); }), id);
+        this.track(Promise.resolve().then(() => {const admitted=items.filter(item=>this.admitted(id,item)),current=admitted.flatMap(item=>Array.isArray(item.event)?item.event:[item.event]);if(current.length){for(const item of admitted)this.onDispatched(id,item);return this.dispatch(id,current);}}).catch(async error => { if (!['rules_replaced','agent_cancelled'].includes(error.code)) this.clear(id); await this.onError(id, error); }).finally(() => { s.busy = false; s.waiting = false; this.pump(id); }), id);
       }
     } finally { this.onStateChanged(id); }
   }

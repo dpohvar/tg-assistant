@@ -10,7 +10,7 @@ function availableCommands({ master = false, role, group = false }) {
     manager = admin || role === "manager",
     local = group ? manager : Boolean(role);
   const result = {};
-  if(group&&role)result.say='/say MESSAGE';
+  if(group)result.say='/say MESSAGE';
   if (local) {
     result.agent = "/agent status\n/agent start\n/agent stop\n/agent clear\n/agent cancel";
     result.task =
@@ -47,7 +47,7 @@ function availableCommands({ master = false, role, group = false }) {
 }
 
 const descriptions = {
-  say:'Send hidden correspondence to the enabled agent of this group. Requires user or higher. Uses the normal chat queue and shared context, without extra permissions or priority. Telegram must send the command as ephemeral.',
+  say:'Send hidden correspondence to the enabled agent of this group, including without an application role. Uses the normal chat queue and shared context, without extra permissions or priority. Telegram must send the command as ephemeral.',
   widget:'Inspect and delete programmable Telegram widgets without invoking the model. Admin or owner only. Widgets belong to their creating agent, even when published in another permitted chat. Active and disabled registrations retain saved state and count toward the ten-widget limit.',
   usage: 'Inspect reported token usage and native image generation across child bots. Master bot only, for the service owner in private messages. UTC calendar buckets; removed bots retain their statistics. Reply /usage to an intact master usage report to compare lifetime counters.',
   agent: 'Control conversational agents: inspect their state, start or stop them, reset context, inspect inter-agent messages and choose models. A local command needs user or higher in private chats, manager or higher in groups. Explicit targets and model commands need admin or owner.',

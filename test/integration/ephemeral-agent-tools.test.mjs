@@ -12,7 +12,7 @@ test('tool contracts expose private address alternatives and group users discove
   for(const name of ['read','edit','delete']){const s=dynamicTools.find(t=>t.name===name).inputSchema;assert(s.properties.ephemeralMessageId);assert(s.properties.receiverUserId);assert(s.oneOf.some(r=>r.required.includes('ephemeralMessageId')));}
   assert(dynamicTools.find(t=>t.name==='send').inputSchema.properties.ephemeral_message_parameters);
   const calls=[];await registerGroupCommands({botId:'b',telegram:{call:async(...args)=>calls.push(args)}});assert(calls.every(c=>c[2].commands.some(d=>d.command==='say'&&d.is_ephemeral)));
-  const help=helpSections({role:'user',group:true});assert(help.say.commands.some(c=>c.syntax==='/say MESSAGE'));assert.match(help.say.description,/user/);
+  const help=helpSections({role:null,group:true});assert(help.say.commands.some(c=>c.syntax==='/say MESSAGE'));assert.match(help.say.description,/without.*role/i);
 });
 function fixture(t,{uploads}={}){
   const db=openDatabase(':memory:');t.after(()=>db.close());db.registerBot({botId:'b',telegramId:42,username:'bot',ownerId:1});db.saveChat('b',chat);const scope=db.ensureAgent('b',-100),store=createEphemeralStore(db,{now:()=>200000}),calls=[];let next=100,reject;

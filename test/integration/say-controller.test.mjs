@@ -22,17 +22,26 @@ test('preparation failure still reaches the agent, without a fabricated prepared
 test('duplicate /say update does not prepare or deliver twice',async t=>{
   const f=fixture(t);await f.receive(message());await f.c.idle();await f.receive(message());await f.c.idle();assert.equal(f.batches.length,1);assert.equal(f.calls.filter(c=>c.method==='sendMessage').length,1);
 });
-test('user role, enabled state, native privacy and bot addressing are checked before agent delivery',async t=>{
-  for(const options of [{role:null},{enabled:false},{}]){
-    const f=fixture(t,options);const m=options.role===null||options.enabled===false?message():message('/say hello',{message_id:8,ephemeral_message_id:undefined,receiver_user:undefined});await f.receive(m);await f.c.idle();assert.equal(f.batches.length,0);
+test('a group user without an application role can use hidden /say',async t=>{
+  const f=fixture(t,{role:null});await f.receive(message());await f.c.idle();
+  assert.equal(f.batches.length,1);assert.equal(f.batches[0][0].from.userId,2);
+  assert.equal(f.batches[0][0].textPlain,'hello');assert.equal(f.batches[0][0].preparedReply.receiverUserId,2);
+});
+test('a group user without a role can discover /say in help',async t=>{
+  const f=fixture(t,{role:null});await f.receive({message_id:9,date:100,chat,from:{id:2},text:'/help say'});await f.c.idle();
+  assert(f.calls.some(call=>call.method==='sendMessage'&&/without an application role/.test(call.args.text??'')));assert.deepEqual(f.batches,[]);
+});
+test('enabled state, native privacy and bot addressing are checked before agent delivery',async t=>{
+  for(const options of [{enabled:false},{}]){
+    const f=fixture(t,options);const m=options.enabled===false?message():message('/say hello',{message_id:8,ephemeral_message_id:undefined,receiver_user:undefined});await f.receive(m);await f.c.idle();assert.equal(f.batches.length,0);
   }
   const f=fixture(t);await f.receive(message('/say@other hello'));await f.c.idle();assert.equal(f.batches.length,0);assert.deepEqual(f.calls.map(c=>c.method),['getChat']);
 });
-test('full chat queue admits /say by eviction and role revocation prevents an already queued message from dispatching',async t=>{
+test('full chat queue admits /say by eviction and role revocation does not cancel group input',async t=>{
   const f=fixture(t);f.c.queue.setPaused(f.a.agentId,true);
   for(let i=0;i<10;i++)f.c.queue.enqueue(f.a.agentId,{eventType:'message',messageId:i+1},'chat');
   await f.receive(message());assert.equal(f.c.queue.pending(f.a.agentId),10);assert.equal(f.batches.length,0);assert(f.calls.some(c=>c.args.text==='Request received.'));assert.equal(f.c.queue.state(f.a.agentId).events.at(-1).event.ephemeralMessageId,11);
-  f.c.queue.clear(f.a.agentId);await f.receive(message('/say next',{ephemeral_message_id:12}));assert.equal(f.c.queue.pending(f.a.agentId),1);f.db.sql.prepare('DELETE FROM roles WHERE botId=? AND userId=?').run('b',2);f.c.queue.setPaused(f.a.agentId,false);await f.c.idle();assert.equal(f.batches.length,0);
+  f.c.queue.clear(f.a.agentId);await f.receive(message('/say next',{ephemeral_message_id:12}));assert.equal(f.c.queue.pending(f.a.agentId),1);f.db.sql.prepare('DELETE FROM roles WHERE botId=? AND userId=?').run('b',2);f.c.queue.setPaused(f.a.agentId,false);await f.c.idle();assert.equal(f.batches.length,1);assert.equal(f.batches[0][0].textPlain,'next');
 });
 test('cancel retains the admission of an already queued private request',async t=>{
  const f=fixture(t);f.c.queue.setHeld(f.a.agentId,'test',true);await f.receive(message('/say retained'));f.c.control.cancel(f.a);await f.c.control.idle();await f.receive(message('/say correction',{ephemeral_message_id:12}));f.c.queue.setHeld(f.a.agentId,'test',false);await f.c.idle();assert.deepEqual(f.batches[0].filter(e=>e.ephemeralMessageId).map(e=>e.textPlain),['retained','correction']);
@@ -47,8 +56,8 @@ test('agent may publish publicly and delete the prepared response without leakin
 test('shutdown during response preparation prevents late agent delivery',async t=>{
   let release;const held=new Promise(resolve=>release=resolve),f=fixture(t,{holdPreparation:held});const work=f.receive(message());await new Promise(resolve=>setImmediate(resolve));f.c.close();release();await work;await f.c.idle();assert.equal(f.batches.length,0);
 });
-test('role revocation during preparation prevents late agent delivery and removes the unused response',async t=>{
-  let release;const held=new Promise(resolve=>release=resolve),f=fixture(t,{holdPreparation:held});const work=f.receive(message());await new Promise(resolve=>setImmediate(resolve));f.db.sql.prepare('DELETE FROM roles WHERE botId=? AND userId=?').run('b',2);release();await work;await f.c.idle();assert.equal(f.batches.length,0);assert(f.calls.some(c=>c.method==='deleteEphemeralMessage'));
+test('role revocation during preparation does not cancel group input',async t=>{
+  let release;const held=new Promise(resolve=>release=resolve),f=fixture(t,{holdPreparation:held});const work=f.receive(message());await new Promise(resolve=>setImmediate(resolve));f.db.sql.prepare('DELETE FROM roles WHERE botId=? AND userId=?').run('b',2);release();await work;await f.c.idle();assert.equal(f.batches.length,1);assert(!f.calls.some(c=>c.method==='deleteEphemeralMessage'));
 });
 test('fresh controller can edit a persisted prepared response without replaying the old user event',async t=>{
   const f=fixture(t);await f.receive(message());await f.c.idle();const reply=f.batches[0][0].preparedReply;f.c.close();await f.c.idle();

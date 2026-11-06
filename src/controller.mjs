@@ -250,7 +250,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
   const queue = new AgentQueue({
     onStateChanged:id=>{updateAction(id);control?.kick(id);},
     onAdmitted:(id,item)=>control?.admitted(id,item),
-    onDropped:(id,events,source)=>{const scope=scopes.get(id);if(scope&&source==='chat')for(const event of [events].flat())if(['message','message_edited'].includes(event.eventType)&&event.ephemeralMessageId===undefined)markGap(scope.botId,scope.chatId,event.topicId);},
+    onDropped:(id,events,source,meta)=>{const scope=scopes.get(id);if(scope&&source==='chat')for(const event of [events].flat())if(['message','message_edited'].includes(event.eventType)&&event.ephemeralMessageId===undefined)markGap(scope.botId,scope.chatId,event.topicId);else if(event.eventType==='button'&&meta)queue.track(buttonRollback.restore(meta.id),id);},
     onEvicted:(id,events,source,meta)=>{const scope=scopes.get(id);if(!scope)return;for(const event of [events].flat()){
       if(event.ephemeralMessageId!==undefined&&sayEvents)queue.track(sayEvents.evicted(lifecycle.scope(scope),event),id);
       else if(['message','message_edited'].includes(event.eventType))markGap(scope.botId,scope.chatId,event.topicId);
@@ -336,7 +336,9 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
     if (gate.held.has(botId)) queue.setPaused(a.agentId, true);
     const deadline = m.chat.type !== 'private' && !trigger && !activatedAlbum ? loud.get(key)?.until : null;
     const events=list.map(message=>({...shortMessage(message),...(triggersById.get(message.message_id)?.length?{triggers:triggersById.get(message.message_id)}:{})}));
-    const accepted = queue.enqueue(a.agentId, list.length === 1 ? events[0] : events, 'chat', deadline !== null ? () => clock() < deadline : undefined) === 'accepted';
+    const admit=m.chat.type==='private'?()=>Boolean(db.role(botId,m.from?.id)):
+      deadline !== null ? () => clock() < deadline : undefined;
+    const accepted = queue.enqueue(a.agentId, list.length === 1 ? events[0] : events, 'chat', admit) === 'accepted';
     if (!accepted) markGap(botId, m.chat.id,topicIdOf(m));
     return accepted;
   };
@@ -536,6 +538,18 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
       await ready;
       if(update.guest_message){await guestEvents.receive(botId,update);return;}
       if(update.inline_query){if(botId!=='master')inline.receive(botId,update.inline_query);return;}
+      const privateMessage=update.message??update.edited_message??update.channel_post??update.edited_channel_post??update.callback_query?.message??update.message_reaction??update.message_reaction_count;
+      if(privateMessage?.chat?.type==='private'){
+        const from=update.callback_query?.from??update.message_reaction?.user??privateMessage.from;
+        if(!Number.isSafeInteger(from?.id)||from.id<=0||
+          (botId==='master'?from.id!==config?.serviceOwnerId:!db.getBot(botId)||!db.role(botId,from.id))){
+          if(botId!=='master'&&!isStopping(botId,privateMessage.chat.id)&&!deleting.has(botId)){
+            if(widgetEvents&&(update.callback_query||update.message_reaction||update.message_reaction_count)&&await widgetEvents(botId,update))return;
+            const reaction=update.message_reaction??update.message_reaction_count;if(reaction)recordReaction(db,botId,reaction);
+          }
+          return;
+        }
+      }
       const route = update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? update.my_chat_member?.chat?.id;
       if (isStopping(botId, route)) { if (update.callback_query) await telegram.call(botId, "answerCallbackQuery", { callback_query_id: update.callback_query.id, text: "Бот занят" }); return; }
       if (deleting.has(botId)) return;
@@ -585,7 +599,7 @@ export function createController({ db, telegram, agent, onError = () => {}, curs
         let eventId;const receipt=parsed.group?buttonRollback.prepare(scope,stored,parsed.group,cb.data):null;
         const holdKey=`button:${cb.id}`;if(receipt)queue.setHeld(a.agentId,holdKey,true);
         try{
-          const accepted=queue.enqueueCommitted(a.agentId,event,'chat',()=>!!db.getChat(botId,m.chat.id)?.agentEnabled,meta=>{eventId=meta.id;if(receipt)db.transaction(()=>buttonRollback.commit(receipt,eventId));});
+          const accepted=queue.enqueueCommitted(a.agentId,event,'chat',()=>!!db.getChat(botId,m.chat.id)?.agentEnabled&&(m.chat.type!=='private'||!!db.role(botId,cb.from.id)),meta=>{eventId=meta.id;if(receipt)db.transaction(()=>buttonRollback.commit(receipt,eventId));});
           if(accepted!=='accepted'){await ack('Button unavailable.');return;}
           if(['group','supergroup'].includes(m.chat.type))loud.set(gapKey(botId,m.chat.id,isForum?buttonTopic:null),{until:clock()+120000,remaining:10});
           await ack(queue.state(a.agentId).busy?'Accepted, waiting for processing.':undefined);

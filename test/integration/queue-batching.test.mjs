@@ -92,6 +92,15 @@ test('commits happen immediately, with admission rechecked at the batch deadline
   await q.idle(); assert.equal(q.pending('a'),0);
 });
 
+test('a late rejected item is dropped with its identity and is not marked dispatched with the rest of the batch',async t=>{
+  let checks=0;const dropped=[],dispatched=[];
+  const {queue:q,batches,advance}=fixture(t,{onDropped:(_id,event,_source,meta)=>dropped.push({event,meta}),onDispatched:(_id,item)=>dispatched.push(item)});
+  let rejectedId;q.enqueueCommitted('a',{n:1},'chat',()=>++checks<3,meta=>{rejectedId=meta.id;});
+  q.enqueue('a',{n:2},'chat');await advance(200);await q.idle();
+  assert.deepEqual(batches,[{id:'a',events:[{n:2}]}]);assert.equal(dropped[0].meta.id,rejectedId);
+  assert.deepEqual(dispatched.map(item=>item.event),[{n:2}]);
+});
+
 test('a full collecting batch evicts oldest chat events without delaying other sources', async t => {
   const {queue:q,batches,advance} = fixture(t);
   for(let n=0;n<10;n++)assert.equal(q.enqueue('a',{n},'chat'),'accepted');

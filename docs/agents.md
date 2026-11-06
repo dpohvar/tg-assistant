@@ -37,7 +37,7 @@ Incoming short events explain direct causes using optional `triggers`, such as `
 
 ## Queues and availability
 
-`/say` delivers [hidden correspondence](ephemeral.md) through the same chat agent and ordinary queue. It requires application role `user` or higher even in groups, grants no extra instruction authority/priority/capacity, and does not enable an agent or activate public listening. Context remains shared; hidden input is excluded from ordinary saved history, and agents are instructed to preserve its confidentiality unless the user requests disclosure or a public action. A prepared bot response can be edited or deleted through its explicit ephemeral address.
+`/say` delivers [hidden correspondence](ephemeral.md) through the same group agent and ordinary queue, including for participants without an application role. It grants no extra instruction authority/priority/capacity, and does not enable an agent or activate public listening. Context remains shared; hidden input is excluded from ordinary saved history, and agents are instructed to preserve its confidentiality unless the user requests disclosure or a public action. A prepared bot response can be edited or deleted through its explicit ephemeral address.
 
 The ordinary queue holds at most ten chat entries, including callbacks, `/say` and collected albums. Already dispatched work does not occupy a waiting slot. A successfully admitted new chat entry evicts the oldest waiting chat entry. Schedule, interagent/errors, WebSocket, widget, inline, guest and inline-button sources do not occupy or evict these slots. See [agent control](agent-control.md) for history gaps, private errors and grouped-button restoration.
 

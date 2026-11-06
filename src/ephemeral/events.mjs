@@ -1,19 +1,17 @@
 import {createHash} from 'node:crypto';
 import {shortMessage} from '../telegram/short-message.mjs';
-import {roles} from '../access/scope.mjs';
 import {isEphemeral} from '../commands/replies.mjs';
 export function createSayEvents({db,store,messages,telegram,queue,resolveScope,assertCurrent,isUnavailable=()=>false,onError=()=>{}}){
   const jobs=new Map();let closed=false;
-  const allowed=(botId,m)=>!closed&&!isUnavailable(botId,m.chat.id)&&(roles[db.role(botId,m.from?.id)]??0)>=roles.user&&!!db.getChat(botId,m.chat.id)?.agentEnabled;
+  const allowed=(botId,m)=>!closed&&!isUnavailable(botId,m.chat.id)&&Number.isSafeInteger(m.from?.id)&&m.from.id>0&&!!db.getChat(botId,m.chat.id)?.agentEnabled;
   const notify=async(botId,m,text)=>{
     try{await telegram.call(botId,'sendMessage',{chat_id:m.chat.id,text,...(isEphemeral(m)?{ephemeral_message_parameters:{receiver_user_id:m.from.id},reply_parameters:{ephemeral_message_id:m.ephemeral_message_id}}:{reply_parameters:{message_id:m.message_id}})});}catch{}
   };
   async function receive(botId,m){
     if(closed)return true;
     const bot=db.getBot(botId);
-    if(botId==='master'||!bot||m.edit_date!==undefined||m.sender_chat||m.from?.is_bot)return true;
+    if(botId==='master'||!bot||m.edit_date!==undefined||m.sender_chat||m.from?.is_bot||!Number.isSafeInteger(m.from?.id)||m.from.id<=0)return true;
     if(!['group','supergroup'].includes(m.chat.type)||!isEphemeral(m)||!Number.isSafeInteger(m.ephemeral_message_id)||m.ephemeral_message_id<=0||m.receiver_user?.id!==bot.telegramId){await notify(botId,m,'Use /say as an ephemeral command in a group. Direct messages are already private.');return true;}
-    if((roles[db.role(botId,m.from?.id)]??0)<roles.user){await notify(botId,m,'Access denied. /say requires user role or higher.');return true;}
     if(!db.getChat(botId,m.chat.id)||!db.getChat(botId,m.chat.id).agentEnabled){await notify(botId,m,'The chat agent is disabled or unavailable.');return true;}
     const prefix=/^\/say(?:@[\w]+)?(?:\s+|$)/i.exec(m.text??'');if(!prefix)return true;
     const start=prefix[0].length,end=m.text.trimEnd().length,text=m.text.slice(start,end);
